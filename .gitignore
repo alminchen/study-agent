@@ -6,7 +6,14 @@ bin-release/
 
 # Other files and folders
 .settings/
-
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+bun.lockb
+bun.lock
+bun.lock.json
+bun.lock.yaml
+bun.lock.json
 # Executables
 *.swf
 *.air
