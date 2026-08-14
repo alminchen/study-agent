@@ -30,7 +30,7 @@
     "chromadb": "^3.5.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "onnxruntime-node": "^1.16.3",
+    "onnxruntime-node": "1.16.3",
     "vue": "^3.5.13"
   },
   "devDependencies": {
@@ -44,6 +44,8 @@
     "vue-tsc": "^2.1.6"
   },
   "overrides": {
-    "onnxruntime-node": "1.16.3"
+    "@huggingface/transformers": {
+      "onnxruntime-node": "1.16.3"
+    }
   }
 }
