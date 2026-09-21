@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>04 前端 API · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../frontend/app.html">前端壳</a>
+    <a href="../frontend/composables.html">useChat</a>
+    <a href="../frontend/api.html">前端 API</a>
+    <a href="../frontend/components.html">组件</a>
+    <a href="../server/usage.html">Usage</a>
+    <a href="../server/guard.html">Guard</a>
+  </nav>
+  <main class="layout">
+    <h1>04 · 前端 API <span class="badge">src/api/</span></h1>
+    <p class="lede">
+      浏览器侧 HTTP / SSE 客户端层：只负责拼请求、读流、按事件类型回调。
+      <strong>不持有</strong> Vue 状态——messages / Trace / Usage 全由 <a href="../frontend/composables.html">useChat</a> 注入的回调写入。
+      三个文件对应三条能力：普通对话（含确认/健康检查）、资料问答、用量汇总。
+    </p>
+
+    <!-- ========== chat.ts ========== -->
+    <h2><span class="file-path">src/api/chat.ts</span></h2>
+    <div class="card">
+      <p>类型：<code>StreamChatParams</code>、<code>HealthInfo</code>、<code>ConfirmChatParams</code>。导出 <code>confirmChatTool</code>、<code>streamChat</code>、<code>fetchHealth</code>。</p>
+
+      <div class="method">
+        <div class="name">StreamChatParams（接口）</div>
+        <div class="sig">interface StreamChatParams { messages; model; signal; searchDocs?; multiAgent?; onDelta; onTrace?; onUsage?; onError }</div>
+        <p><strong>做什么：</strong>约定 streamChat 的入参形状。消息只带 role/content（不含前端 id / rag 字段）；回调把解析结果回灌给 composable。</p>
+        <table class="params">
+          <thead><tr><th>字段</th><th>类型</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>messages</code></td><td><code>{role, content}[]</code></td><td>发给服务端的对话上下文</td></tr>
+            <tr><td><code>model</code></td><td><code>string</code></td><td>模型 id</td></tr>
+            <tr><td><code>signal</code></td><td><code>AbortSignal</code></td><td>stop() 中止同源</td></tr>
+            <tr><td><code>searchDocs</code></td><td><code>boolean?</code></td><td>是否打开知识库检索（只进 body）</td></tr>
+            <tr><td><code>multiAgent</code></td><td><code>boolean?</code></td><td>选路：true→multi，false→单 Agent；默认 true</td></tr>
+            <tr><td><code>onDelta / onTrace / onUsage / onError</code></td><td>回调</td><td>正文 / 过程 / Token / 错误</td></tr>
+          </tbody>
+        </table>
+        <div class="why">把「选路」和「是否搜索」拆成两个字段，避免隐式耦合；回调可选（onTrace/onUsage），让单元测试或精简调用方不必全填。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">confirmChatTool</div>
+        <div class="sig">async function confirmChatTool(params: ConfirmChatParams): Promise&lt;void&gt;</div>
+        <p><strong>做什么：</strong>向服务端提交人工确认结果（允许或拒绝某次 tool_call）。只通知 ConfirmSession.resolve；不执行工具、不拉新聊天流。单 Agent 与多 Agent 共用同一确认端点。</p>
+        <ol class="steps">
+          <li><code>POST /api/chat/confirm</code>，JSON body 为 confirmId / toolCallId / action。</li>
+          <li>若 <code>!response.ok</code>，尝试解析 body.error，否则用状态码拼错误信息并 <code>throw</code>。</li>
+          <li>成功则静默返回（后续事件仍走原聊天 SSE）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>confirmId</code></td><td>服务端确认会话 id</td></tr>
+            <tr><td>入参</td><td><code>toolCallId</code></td><td>待确认工具调用 id</td></tr>
+            <tr><td>入参</td><td><code>action</code></td><td><code>"allow"</code> | <code>"deny"</code></td></tr>
+            <tr><td>出参</td><td>—</td><td>成功 void；失败抛 Error</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong><a href="../frontend/composables.html">resolveToolConfirm</a> 调用本函数。服务端解开 applyToolCalls / multi 路径里的 await wait。</div>
+        <div class="why">确认必须是短 JSON 请求：原聊天 SSE 连接正阻塞在 wait 上，无法再往同一 body 塞确认。分连接是正确模型。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">streamChat</div>
+        <div class="sig">async function streamChat(params: StreamChatParams): Promise&lt;boolean&gt;</div>
+        <p><strong>做什么：</strong>普通对话的 SSE 客户端。按 multiAgent 选择 endpoint，POST 消息后用 ReadableStream 按「空行分隔事件」解析 <code>data:</code> 行，分发到各类回调。返回值表示「流是否正常结束」（含收到业务 error 事件后的收尾），abort 时返回 false。</p>
+        <ol class="steps">
+          <li><code>endpoint = multiAgent ? "/api/chat/multi" : "/api/chat"</code>；默认 multiAgent=true。</li>
+          <li>fetch POST：body 含 messages、model、<code>searchDocs: Boolean(searchDocs)</code>；带 signal。</li>
+          <li>网络异常：若已 abort 返回 false；否则 onError 后返回 false。</li>
+          <li>非 ok 或无 body：onError 相应文案，返回 false。</li>
+          <li>循环 reader.read：解码进 buffer，按 <code>\n\n</code> 切事件；对每行 <code>data:</code>：
+            <ul class="compact">
+              <li><code>[DONE]</code> → return true。</li>
+              <li>JSON <code>error</code> → onError，return true（业务错误也算「流走完」）。</li>
+              <li><code>type==="usage"</code> → onUsage 组装 UsageSnapshot。</li>
+              <li><code>tool_call</code> / <code>tool_result</code> → onTrace。</li>
+              <li><code>injection_detected</code> / <code>output_leak_blocked</code> → onTrace（Guard 可视化）。</li>
+              <li><code>pending_confirm</code> → onTrace（status=pending）。</li>
+              <li><code>confirm_resolved</code> → onTrace（allow/deny）。</li>
+              <li>有 <code>delta</code> → onDelta。</li>
+              <li>JSON 解析失败则忽略该片（中间残片容错）。</li>
+            </ul>
+          </li>
+          <li>读流异常：abort 则 false，否则 onError 后 false；自然读完返回 true。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td>见 StreamChatParams</td><td>含回调</td></tr>
+            <tr><td>出参</td><td><code>boolean</code></td><td>true=正常结束或业务 error 已回调；false=中止或传输失败</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>useChat.runStream → 本函数 → 服务端 <a href="../server/routes.html">chat / chatMulti</a>。返回值给 runSseSession 决定是否填空泡兜底文案。</div>
+        <div class="why">SSE 解析集中在 api 层，composable 只关心语义回调；endpoint 与 searchDocs 解耦写在客户端显式字段上，避免隐式「有工具就走 multi」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">fetchHealth</div>
+        <div class="sig">async function fetchHealth(): Promise&lt;HealthInfo | null&gt;</div>
+        <p><strong>做什么：</strong>探测后端是否可用以及当前是 mock 还是真实 API 模式，供顶栏提示。</p>
+        <ol class="steps">
+          <li>GET <code>/api/health</code>。</li>
+          <li>非 ok 或网络失败返回 null（调用方显示 unknown）。</li>
+          <li>成功则 JSON 断言为 <code>{ mode: "mock"|"api", model: string }</code>。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>useChat.onMounted。失败不抛错，避免启动时顶栏红屏。</div>
+        <div class="why">健康检查应「软失败」：后端没起来时聊天页仍能打开，只是 mode=unknown，方便本地教学排错。</div>
+      </div>
+    </div>
+
+    <!-- ========== rag.ts ========== -->
+    <h2><span class="file-path">src/api/rag.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">AskRagParams（接口）</div>
+        <div class="sig">interface AskRagParams { question; history; model; signal; onDelta; onTrace?; onUsage?; onRagMeta?; onError }</div>
+        <p><strong>做什么：</strong>约定资料问答请求。注意 <code>history</code> 必须是「当前问题之前」的对话，不要把当前 question 再塞进去——服务端会自己拼最后一条 user。</p>
+        <table class="params">
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>question</code></td><td>当前用户问句</td></tr>
+            <tr><td><code>history</code></td><td>prior 轮次；role/content only</td></tr>
+            <tr><td><code>onRagMeta</code></td><td>收到 rag_meta 时写入命中面板元数据</td></tr>
+            <tr><td>其余回调</td><td>与 streamChat 同形态</td></tr>
+          </tbody>
+        </table>
+        <div class="why">question 与 history 拆开，和后端 buildRagPrompt 契约对齐；重复问句是常见 bug，类型注释里写死提醒。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">parseHits（内部）</div>
+        <div class="sig">function parseHits(raw: unknown): RagHitView[]</div>
+        <p><strong>做什么：</strong>把 SSE rag_meta 里的 hits 数组清洗成前端 RagHitView 列表。非法元素跳过，缺省字段补默认值，避免坏数据打崩命中面板。</p>
+        <ol class="steps">
+          <li>非数组 → 返回 []。</li>
+          <li>逐项检查：必须是对象，且 id:string、text:string、score:number，否则 continue。</li>
+          <li>补齐 rank（缺省用当前长度+1）、rerankRank/promptIndex（缺省 null）、source/title（缺省空串）、rerankScore（缺省 null）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>raw</code></td><td>事件里的 hits 任意 JSON</td></tr>
+            <tr><td>出参</td><td><code>RagHitView[]</code></td><td>仅合法命中</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>仅 askRag 在 type==="rag_meta" 时调用。</div>
+        <div class="why">服务端字段可能演进；防御式解析比「整包 any 丢给 Vue」更稳，也避免一次脏数据拖垮整个 Trace/Hits UI。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">askRag</div>
+        <div class="sig">async function askRag(params: AskRagParams): Promise&lt;boolean&gt;</div>
+        <p><strong>做什么：</strong>资料问答 SSE 客户端。POST <code>/api/rag/chat</code>，解析事件序列与 streamChat 同形态（过程事件 + delta + usage），额外支持 <code>rag_meta</code>（命中列表、是否调模型、是否空检索等）。</p>
+        <ol class="steps">
+          <li>fetch POST body：<code>{ question, history, model }</code>，带 signal。</li>
+          <li>错误处理与 streamChat 对称：网络/HTTP/无 body → onError + false；abort → false。</li>
+          <li>SSE 循环：遇 [DONE] 返回 true；error 字段 onError 后 true。</li>
+          <li>usage / tool_call / tool_result / injection_detected / output_leak_blocked → 对应 onUsage / onTrace。</li>
+          <li><code>type==="rag_meta"</code> → onRagMeta（empty、calledModel、topScore、question、hits=parseHits、以及可选 leak/toolGuard 标记）。</li>
+          <li>有 delta → onDelta。解析失败忽略残片。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>出参</td><td><code>boolean</code></td><td>语义同 streamChat：正常结束 true，中止/传输失败 false</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>useChat.runRag → 本函数 → <a href="../server/rag.html">ragChat 路由</a>。典型事件序：injection? → tool_* → output_leak? → rag_meta → delta* → usage? → [DONE]。</div>
+        <div class="why">RAG 曾返回整包 JSON；改成 SSE 后才能把 tool_call / Guard 事件推到 ToolTracePanel，与 chat 学习路径对齐，也支持答案流式打字。</div>
+      </div>
+    </div>
+
+    <!-- ========== usage.ts ========== -->
+    <h2><span class="file-path">src/api/usage.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">fetchUsageSummary</div>
+        <div class="sig">async function fetchUsageSummary(): Promise&lt;UsageSummary | null&gt;</div>
+        <p><strong>做什么：</strong>拉取服务端全局 Token / 成本汇总（含 byEndpoint、byModel、recent），给 UsagePanel「累计」区块。</p>
+        <ol class="steps">
+          <li>GET <code>/api/usage</code>。</li>
+          <li>非 ok 或异常返回 null（面板显示空态）。</li>
+          <li>成功则断言为 UsageSummary。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>useChat.refreshUsageSummary；服务端 <a href="../server/usage.html">getUsageSummary</a>。</div>
+        <div class="why">汇总落在服务端 store（可跨刷新）；单次请求用量仍走当次 SSE，减少轮询。软失败避免汇总挂了拖垮整页。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">clearUsageHistory</div>
+        <div class="sig">async function clearUsageHistory(): Promise&lt;boolean&gt;</div>
+        <p><strong>做什么：</strong>清空服务端用量日志（学习 demo 用），返回是否成功。</p>
+        <ol class="steps">
+          <li>DELETE <code>/api/usage</code>。</li>
+          <li>返回 <code>response.ok</code>；网络异常返回 false。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>UsagePanel「清空」按钮；服务端 <code>clearUsageRecords</code>。</div>
+        <div class="why">demo 环境允许一键清账，方便反复跑同一场景对比成本；生产应换成权限控制与软删除。</div>
+      </div>
+    </div>
+
+    <footer class="note">
+      上一篇 <a href="../frontend/composables.html">useChat</a> ·
+      下一篇 <a href="../frontend/components.html">组件</a> ·
+      服务端计费 <a href="../server/usage.html">Usage</a>
+    </footer>
+  </main>
+</body>
+</html>

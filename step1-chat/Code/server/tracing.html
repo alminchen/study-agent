@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>13 Tracing · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../server/usage.html">← 上一篇</a>
+    <a href="../server/tools-mcp.html">下一篇 →</a>
+  </nav>
+  <main class="layout">
+    <h1>13 · Tracing <span class="badge">server/tracing/langsmith.ts</span></h1>
+    <p class="lede">
+      LangSmith 开发者观测层：用 <code>traceable()</code> 手动打 span。
+      <strong>不是</strong>给终端用户看的——页面过程面板仍走 SSE <code>onTrace</code> → <code>ToolTracePanel</code>。
+    </p>
+
+    <h2>为何要单独适配层</h2>
+    <div class="card">
+      <p>
+        LLM 调用在 <code>react/complete.ts</code> 是手写 <code>fetch</code>（DeepSeek 兼容 + thinking 的 reasoning_content），
+        没有走 <code>@langchain/openai</code> ChatModel，因此 LangChainTracer 不会自动包住每次 HTTP。
+        本文件在关键节点手动打 span，与 LangGraph 节点对齐。
+      </p>
+      <div class="why">观测是调用方责任：methods/MCP 保持可共用；不把 LangSmith 写死进 tools/methods。</div>
+      <table class="params">
+        <thead><tr><th>环境变量</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><code>LANGCHAIN_TRACING_V2=true</code>（或 LANGSMITH_* 等价）</td><td>总开关；关则函数仍可调但不上报</td></tr>
+          <tr><td><code>LANGCHAIN_API_KEY</code></td><td>进哪个 Workspace</td></tr>
+          <tr><td><code>LANGCHAIN_PROJECT</code></td><td>trace 分组名（非 Workspace 名；不存在会自动创建）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Span 树（单 Agent 示例）</h2>
+    <div class="card">
+      <div class="flow">
+        chat-request (chain) ← runConversation 整次 invoke<br />
+        ├─ askModel (llm) turn=1 可能出 getWeather<br />
+        ├─ tool (tool) tool_name=getWeather<br />
+        ├─ askModel turn=2 …<br />
+        └─ askModel turn=N 无 tool_calls → reply
+      </div>
+      <div class="flow">
+        RAG：rag-request (chain) → rag-retrieve (tool) → rag-llm (llm)
+      </div>
+      <div class="why">故意截断：messages 全文、API Key、工具结果 &gt;500 字、用户问句 &gt;120 字——防泄密与噪声。</div>
+    </div>
+
+    <!-- exports -->
+    <h2>导出一览</h2>
+
+    <div class="card">
+      <div class="method">
+        <div class="name">isLangSmithTracingEnabled()</div>
+        <div class="sig">→ boolean</div>
+        <p>检查 <code>LANGCHAIN_TRACING_V2</code> / <code>LANGSMITH_TRACING_V2</code> / <code>LANGCHAIN_TRACING</code> / <code>LANGSMITH_TRACING</code> 任一为 <code>"true"</code>。</p>
+        <div class="flow"><strong>WHERE</strong>：<code>runConversation.ts</code> 决定 askModel 走 traceAskModel 还是直调；<code>runToolWithTracing</code> / RAG 包装器同理；<code>ragChat.ts</code> 决定是否包 <code>traceRagRequest</code>。</div>
+        <div class="why">与 @langchain/core 开关语义对齐，避免只认一个变量名。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">traceChatRequest</div>
+        <div class="sig">traceable · name "chat-request" · run_type chain</div>
+        <table class="params">
+          <thead><tr><th>入参</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>run</code></td><td>() =&gt; Promise&lt;void&gt; 闭包，内部仍是 graph.invoke</td></tr>
+            <tr><td><code>userPreview</code></td><td>列表里认问句；processInputs 截到 120 字</td></tr>
+          </tbody>
+        </table>
+        <ol class="steps">
+          <li>runConversation 最外层：若 tracing 开，用本函数包整段 ReAct。</li>
+          <li>内部 run 执行原来的 compile + invoke，不改业务。</li>
+        </ol>
+        <div class="flow"><strong>WHERE</strong>：<code>server/react/runConversation.ts</code></div>
+      </div>
+
+      <div class="method">
+        <div class="name">traceAskModel</div>
+        <div class="sig">traceable · "askModel" · llm</div>
+        <table class="params">
+          <thead><tr><th>入参</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>turn</code></td><td>当前轮次</td></tr>
+            <tr><td><code>messages</code></td><td>仅记 message_count，不上报全文</td></tr>
+            <tr><td><code>options</code></td><td>记 model、search_docs</td></tr>
+            <tr><td><code>apiKey</code></td><td>传给 requestCompletion，不上报</td></tr>
+          </tbody>
+        </table>
+        <p>内部调用 <code>requestCompletion</code>；processOutputs 暴露 finish_reason、has_tool_calls、tool_names、content_preview。</p>
+        <div class="flow"><strong>WHERE</strong>：runConversation 的 askModel 节点</div>
+        <div class="why">排错「没调时间工具」时先看 has_tool_calls / tool_names，不必翻完整 messages。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">traceToolRun</div>
+        <div class="sig">traceable · "tool" · tool</div>
+        <p>包装单次 tool 执行；inputs 解析 arguments；outputs 标 is_error + result_preview(500)。</p>
+        <div class="flow"><strong>WHERE</strong>：仅经 <code>runToolWithTracing</code> 间接使用</div>
+      </div>
+
+      <div class="method">
+        <div class="name">runToolWithTracing(turn, call)</div>
+        <div class="sig">→ Promise&lt;unknown&gt;</div>
+        <ol class="steps">
+          <li><code>findTool</code>；未知 → <code>{ error }</code>。</li>
+          <li>tracing 关：直接 <code>tool.run</code>，catch → <code>{ error }</code>。</li>
+          <li>tracing 开：<code>traceToolRun({ turn, call, run })</code>，同样不往外 throw。</li>
+        </ol>
+        <div class="flow"><strong>WHERE</strong>：<code>react/applyToolCalls.ts</code>（单 Agent）。多 Agent 的 <code>runToolSafely</code> <em>当前不挂</em> LangSmith tool span。</div>
+        <div class="why">异常变 <code>{ error }</code> 回填模型，与阶段 4 工具失败策略一致；methods 层保持干净。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">lastUserPreview(messages)</div>
+        <div class="sig">→ string</div>
+        <p>从末尾找最后一条 user content，供 chat-request 的 user_preview。</p>
+        <div class="flow"><strong>WHERE</strong>：runConversation 包 traceChatRequest 时</div>
+      </div>
+
+      <div class="method">
+        <div class="name">traceRagRequest</div>
+        <div class="sig">traceable · "rag-request" · chain</div>
+        <p>与 chat-request 并列的根 span；内部再挂 retrieve + rag-llm。</p>
+        <div class="flow"><strong>WHERE</strong>：<code>routes/ragChat.ts</code> 包 <code>answerFromDocs</code> 整段</div>
+      </div>
+
+      <div class="method">
+        <div class="name">traceRagRetrieve / runRagRetrieveWithTracing</div>
+        <div class="sig">tool span · 开关包装</div>
+        <p>观测向量检索（语义对齐 searchDocs）；outputs：empty / top_score / hit_count。调用前业务侧已过 validateToolCall。</p>
+        <div class="flow"><strong>WHERE</strong>：<code>rag/answer.ts</code>（经 runRagRetrieveWithTracing）</div>
+      </div>
+
+      <div class="method">
+        <div class="name">traceRagLlm / runRagLlmWithTracing</div>
+        <div class="sig">llm span · 开关包装</div>
+        <p>包 <code>completeRagMessages</code>（无 tools）；记 model、message_count、content_preview、has_usage。</p>
+        <div class="flow"><strong>WHERE</strong>：<code>rag/answer.ts</code></div>
+      </div>
+    </div>
+
+    <h2>与 SSE Trace 的边界</h2>
+    <div class="card">
+      <table class="params">
+        <thead><tr><th></th><th>SSE onTrace</th><th>LangSmith</th></tr></thead>
+        <tbody>
+          <tr><td>受众</td><td>终端用户 / 产品面板</td><td>开发者</td></tr>
+          <tr><td>开关</td><td>始终随请求推</td><td>环境变量，默认关</td></tr>
+          <tr><td>确认闸门</td><td>pending_confirm 必需</td><td>不参与交互</td></tr>
+          <tr><td>multi</td><td>全套过程 + route/done</td><td>当前未挂 chat-request 树</td></tr>
+        </tbody>
+      </table>
+      <div class="why">混成一套会导致：要么把开发细节推给用户，要么关 LangSmith 后面板也没了。</div>
+    </div>
+
+    <footer class="note"><a href="../server/tools-mcp.html">下一篇：Tools &amp; MCP →</a></footer>
+  </main>
+</body>
+</html>

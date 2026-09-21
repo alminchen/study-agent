@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>05 前端组件 · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../frontend/api.html">← 上一篇</a>
+    <a href="../server/entry.html">下一篇 →</a>
+  </nav>
+  <main class="layout">
+    <h1>05 · 前端组件 <span class="badge">src/components/</span></h1>
+    <p class="lede">四个展示组件：气泡（含引用）、工具过程（含确认）、检索命中、Token 用量。状态仍由 App / useChat 持有。</p>
+
+    <!-- ChatMessageItem -->
+    <h2><span class="file-path">ChatMessageItem.vue</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">props</div>
+        <table class="params">
+          <thead><tr><th>名</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>message</code></td><td><code>ChatMessage</code></td><td>整条消息</td></tr>
+            <tr><td><code>streaming</code></td><td><code>boolean</code></td><td>是否显示末尾 caret（末条流式）</td></tr>
+            <tr><td><code>activeCite?</code></td><td><code>number | null</code></td><td>本条消息当前高亮的引用号</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="method">
+        <div class="name">emits</div>
+        <div class="sig">cite: [n: number]</div>
+        <p>仅 valid 引用点击时上抛；App.handleCite(message.id, n)。</p>
+      </div>
+      <div class="method">
+        <div class="name">helpers / computed</div>
+        <table class="params">
+          <thead><tr><th>符号</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td><code>validIndexes</code></td><td><code>validPromptIndexes(message.rag?.hits)</code></td></tr>
+            <tr><td><code>parts</code></td><td>无 rag 或非 assistant → 整段 text；否则 <code>splitCitedText</code></td></tr>
+            <tr><td><code>ragCaption</code></td><td>空态「资料里没有…」或「已根据资料回答 · Top1」</td></tr>
+            <tr><td><code>citeTitle(n, valid)</code></td><td>tooltip；无效则说明不能当依据</td></tr>
+            <tr><td><code>onCite(n, valid)</code></td><td>invalid 直接 return；否则 emit</td></tr>
+          </tbody>
+        </table>
+        <div class="why">引用解析下沉到 citations.ts，气泡只负责渲染与交互；无效 [n] 可见但不可点。</div>
+      </div>
+    </div>
+
+    <!-- ToolTracePanel -->
+    <h2><span class="file-path">ToolTracePanel.vue</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">props</div>
+        <table class="params">
+          <thead><tr><th>名</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>steps</code></td><td><code>ToolTraceStep[]</code>（App 的 toolTrace）</td></tr>
+            <tr><td><code>confirmEnabled?</code></td><td>流式中才允许点确认（会话仍挂着 wait）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="method">
+        <div class="name">emits</div>
+        <div class="sig">confirm: [{ confirmId, toolCallId, action: "allow"|"deny" }]</div>
+        <p>App → <code>resolveToolConfirm</code> → POST /api/chat/confirm。</p>
+      </div>
+      <div class="method">
+        <div class="name">helpers</div>
+        <table class="params">
+          <thead><tr><th>函数</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td><code>titleOf(step)</code></td><td>按 kind 生成中文标题（检索调用 / 等待确认 / 注入 / 泄露拦截…）</td></tr>
+            <tr><td><code>payloadOf(step)</code></td><td>给 &lt;pre&gt; 的 JSON 主体（arguments / result / rules…）</td></tr>
+            <tr><td><code>canConfirm(step)</code></td><td>confirmEnabled 且 pending_confirm 且 status===pending</td></tr>
+            <tr><td><code>onAllow / onDeny</code></td><td>emit confirm payload</td></tr>
+          </tbody>
+        </table>
+        <ol class="steps">
+          <li>无 steps → 整段 v-if 不渲染。</li>
+          <li>pending 项左边 amber 条；可确认时显示允许/拒绝按钮。</li>
+          <li>resolving / allow / deny 显示对应 hint，禁用重复点击。</li>
+        </ol>
+        <div class="why">确认必须在 isStreaming 时点：服务端 ConfirmSession 随请求存活，流结束后 dispose。</div>
+      </div>
+    </div>
+
+    <!-- RagHitPanel -->
+    <h2><span class="file-path">RagHitPanel.vue</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">props</div>
+        <table class="params">
+          <thead><tr><th>名</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>rag</code></td><td><code>RagMeta | null</code>（panelRag）</td></tr>
+            <tr><td><code>highlightIndex?</code></td><td>要点亮的 promptIndex</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="method">
+        <div class="name">emits</div>
+        <p>无。纯展示；滚动由 watch highlightIndex 驱动。</p>
+      </div>
+      <div class="method">
+        <div class="name">helpers / computed</div>
+        <table class="params">
+          <thead><tr><th>符号</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td><code>usedHits</code></td><td>promptIndex != null，按编号排序（真正注入）</td></tr>
+            <tr><td><code>unusedHits</code></td><td>召回但未进 prompt</td></tr>
+            <tr><td><code>vectorTop</code></td><td>按向量 rank 前 5</td></tr>
+            <tr><td><code>orderChanged</code></td><td>向量前 5 id 序 ≠ 重排注入序 → 文案提示重排改序</td></tr>
+            <tr><td><code>previewOf / scoreOf / shortName / unusedLabel / hitId</code></td><td>展示与 DOM id <code>rag-cite-n</code></td></tr>
+          </tbody>
+        </table>
+        <div class="flow">
+          empty 时说明「未采用」只是硬搜相对最像，不是答案；非 empty 展示向量/重排摘要 + 注入列表 + 未采用列表。
+        </div>
+        <div class="why">把闸门语义摊开给学生看：召回 ≠ 注入；[n] 只对 promptIndex。</div>
+      </div>
+    </div>
+
+    <!-- UsagePanel -->
+    <h2><span class="file-path">UsagePanel.vue</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">props</div>
+        <table class="params">
+          <thead><tr><th>名</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>lastUsage</code></td><td>本轮 SSE usage 快照</td></tr>
+            <tr><td><code>summary</code></td><td>服务端累计摘要</td></tr>
+            <tr><td><code>serverMode</code></td><td>仅 <code>api</code> 且有数据时显示</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="method">
+        <div class="name">emits</div>
+        <p>无。</p>
+      </div>
+      <div class="method">
+        <div class="name">helpers</div>
+        <table class="params">
+          <thead><tr><th>函数</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td><code>formatCost(usd)</code></td><td>0 / &lt;$0.000001 / 六位小数</td></tr>
+            <tr><td><code>formatTokens(n)</code></td><td>zh-CN 千分位</td></tr>
+          </tbody>
+        </table>
+        <div class="why">Mock 模式无真实 usage，隐藏面板避免误导；成本脚注标明「估算非账单」。</div>
+      </div>
+    </div>
+
+    <footer class="note"><a href="../server/entry.html">下一篇：服务端入口 →</a></footer>
+  </main>
+</body>
+</html>

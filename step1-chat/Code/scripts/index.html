@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>scripts 测试与工具 · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../index.html">索引</a>
+    <a href="../server/rag.html">RAG</a>
+    <a href="../server/react.html">ReAct</a>
+    <a href="../guide/overview.html">总览</a>
+  </nav>
+  <main class="layout">
+    <h1>scripts / evals <span class="badge">测试与验收</span></h1>
+    <p class="lede">
+      仓库里<strong>没有</strong>把 RAG / Agent 验收塞进前端点点点；关键能力靠
+      <code>scripts/</code> 命令行脚本 + <code>evals/</code> 固定数据集回归。
+      学习顺序建议：先跑通 RAG 流水线脚本（切分→向量→入库→检索→判空→重排→prompt→ask），
+      再跑 <code>eval:chat</code> / <code>eval:multi</code>。
+    </p>
+
+    <div class="card">
+      <p><strong>为何单独 scripts，而不是只写单元测试框架？</strong></p>
+      <ul class="compact">
+        <li>很多验收依赖本机模型文件（BGE / reranker）与 <code>my_notes.json</code>，CLI 更直观。</li>
+        <li>逐步脚本对应学习计划阶段：每步失败能精确定位（是 embed 坏了还是闸门阈值问题）。</li>
+        <li>eval 走真实 <code>createChatStream</code> / <code>compileMultiAgentGraph</code>，测的是集成行为，不是 mock 壳。</li>
+      </ul>
+    </div>
+
+    <h2>命令行参数（必看）</h2>
+    <div class="card">
+      <p>用 <code>npm run</code> 往脚本传参时，必须加 <code>--</code>，否则参数会被 npm 吃掉：</p>
+      <div class="flow">✅ npm run rag:ask -- "你的问题"
+✅ npm run eval:chat -- --id time-now
+❌ npm run rag:ask "你的问题"　← 问句到不了脚本</div>
+      <table class="params">
+        <tr><th>命令</th><th>参数</th><th>必填?</th><th>示例</th></tr>
+        <tr>
+          <td><code>rag:preview-chunks</code></td>
+          <td><code>[markdown路径]</code></td>
+          <td>可选</td>
+          <td><code>npm run rag:preview-chunks</code><br/><code>npm run rag:preview-chunks -- docs-sample/stage3-rag-notes.md</code></td>
+        </tr>
+        <tr>
+          <td><code>rag:ingest</code></td>
+          <td><code>[markdown路径]</code></td>
+          <td>可选</td>
+          <td>缺省入库 <code>docs-sample/stage3-rag-notes.md</code><br/><code>npm run rag:ingest -- path/to/notes.md</code></td>
+        </tr>
+        <tr>
+          <td><code>rag:search</code></td>
+          <td><code>"问题"</code>（argv 拼接）</td>
+          <td><strong>必填</strong></td>
+          <td><code>npm run rag:search -- "不要把整篇文档塞进 prompt 冒充 RAG"</code></td>
+        </tr>
+        <tr>
+          <td><code>rag:preview-prompt</code></td>
+          <td><code>"问题"</code></td>
+          <td><strong>必填</strong></td>
+          <td><code>npm run rag:preview-prompt -- "今天北京适合出门吗？"</code></td>
+        </tr>
+        <tr>
+          <td><code>rag:ask</code></td>
+          <td><code>"问题"</code></td>
+          <td><strong>必填</strong></td>
+          <td><code>npm run rag:ask -- "不要把整篇文档塞进 prompt 冒充 RAG"</code></td>
+        </tr>
+        <tr>
+          <td><code>eval:chat</code></td>
+          <td><code>--id &lt;caseId&gt;</code>（可多次）</td>
+          <td>可选</td>
+          <td>全量：<code>npm run eval:chat</code><br/>单条：<code>npm run eval:chat -- --id time-now</code><br/>多条：<code>npm run eval:chat -- --id weather-gz --id mars-temp</code></td>
+        </tr>
+        <tr>
+          <td><code>eval:multi</code></td>
+          <td><code>--id &lt;caseId&gt;</code>（可多次）</td>
+          <td>可选</td>
+          <td>全量：<code>npm run eval:multi</code><br/>单条：<code>npm run eval:multi -- --id multi-weather-only</code></td>
+        </tr>
+        <tr>
+          <td>其余 test-* / predawn / mcp:ping / diagrams</td>
+          <td>—</td>
+          <td>无 CLI 参数</td>
+          <td>直接 <code>npm run …</code>；部分要求先 ingest / predawn</td>
+        </tr>
+      </table>
+      <p style="margin-top:0.75rem"><strong>eval:chat 可用 id</strong>（见 <code>evals/dataset.json</code>）：</p>
+      <p class="flow" style="white-space:normal">time-now · weather-gz · weather-and-time · weather-time-one-sentence · mars-temp · kb-on-notes · kb-off-same-q · kb-toggle-off · no-400-tools · should-call-weather-tool · should-call-time-tool · injection-ignore-instructions · injection-extract-system-prompt · injection-fake-role</p>
+      <p><strong>eval:multi 可用 id</strong>（见 <code>evals/dataset-multi.json</code>）：</p>
+      <p class="flow" style="white-space:normal">multi-weather-only · multi-time-only · multi-kb-only · multi-general-only · multi-weather-and-kb · multi-time-and-kb</p>
+      <div class="why">问句类参数用 <code>process.argv.slice(2).join(" ")</code>，整句加引号；eval 用命名参数 <code>--id</code>，可重复传入过滤多条，避免每次烧完整数据集。</div>
+    </div>
+
+    <h2>推荐学习 / 验收顺序</h2>
+    <div class="flow">predawn:bge → rag:preview-chunks → rag:test-embed
+→ rag:ingest（含入库自测）→ rag:test-store → rag:test-retrieve → rag:test-empty
+→ predawn:rerank → rag:test-rerank → rag:test-prompt / preview-prompt → rag:ask
+→ eval:chat / eval:multi · mcp:ping</div>
+
+    <!-- ========== RAG pipeline ========== -->
+    <h2>一、RAG 流水线脚本</h2>
+
+    <div class="method">
+      <div class="name">predawn-bge.sh · npm run predawn:bge</div>
+      <div class="sig">bash scripts/predawn-bge.sh</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>预下载本地 embedding 模型（bge-large-zh 等），供 <code>server/rag/embedding.ts</code> 使用。</li>
+        <li>不跑业务逻辑；失败则后续 test-embed / ingest 都会挂。</li>
+      </ol>
+      <div class="why">把「模型文件就位」与「业务自测」拆开，避免第一次跑 ingest 时又下模型又验逻辑，日志缠在一起。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">predawn-rerank.sh · npm run predawn:rerank</div>
+      <div class="sig">bash scripts/predawn-rerank.sh</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>预下载交叉编码器重排模型，供 <code>rerank.ts</code> / <code>test-rerank</code>。</li>
+      </ol>
+      <div class="why">重排是可选项；未下载时 retrieve 会降级 slice，应用不崩，但 test-rerank 会主动 exit(1) 要求先 predawn。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">preview-chunks.ts · npm run rag:preview-chunks</div>
+      <div class="sig">npm run rag:preview-chunks
+npm run rag:preview-chunks -- docs-sample/stage3-rag-notes.md
+# 等价：npx tsx scripts/preview-chunks.ts [markdown路径]</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>读 Markdown（默认 <code>docs-sample/stage3-rag-notes.md</code>）。</li>
+        <li>调用 <code>chunkMarkdown</code>，打印每块 id / title / 字数 / 前 30 字。</li>
+        <li>附带人工自测清单（能否单块读懂、标题是否被拆开、交界句是否覆盖）。</li>
+      </ol>
+      <table class="params">
+        <tr><th>参数</th><th>必填</th><th>说明</th></tr>
+        <tr><td><code>markdown路径</code></td><td>否</td><td><code>process.argv[2]</code>；缺省样例笔记；相对仓库根目录解析</td></tr>
+      </table>
+      <div class="flow"><strong>下游：</strong>chunker · <strong>不上游向量库</strong>（纯预览）</div>
+      <div class="why">入库前先肉眼看切分质量；切坏了再 embed 会浪费时间且难排查。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">test-embed.ts · npm run rag:test-embed</div>
+      <div class="sig">tsx scripts/test-embed.ts → 断言或 throw</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li><code>embed</code> 四句：同句两次、近义、无关。</li>
+        <li>断言维度 = <code>EMBED_DIM</code>。</li>
+        <li>同句余弦 ≥ 0.99；近义分 &gt; 无关分。</li>
+      </ol>
+      <div class="why">先证明「向量空间有语义结构」，再谈入库检索；否则 TopK 乱了不知道是模型问题还是切分问题。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">ingest.ts · npm run rag:ingest</div>
+      <div class="sig">npm run rag:ingest
+npm run rag:ingest -- path/to/notes.md</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>读 md → <code>chunkMarkdown</code>（缺省 <code>docs-sample/stage3-rag-notes.md</code>）。</li>
+        <li>按 BATCH=8 调 <code>embed</code>，组成 <code>StoredChunk[]</code>。</li>
+        <li><code>LocalVectorStore.load</code> → <code>replaceSource</code>（同名 source 覆盖不叠加）→ <code>save</code>。</li>
+        <li><strong>入库自测 1</strong>：文档原句检索，Top1 应够高。</li>
+        <li><strong>入库自测 2</strong>：资料外问句 Top1 应低于 <code>MIN_TOP_SCORE</code>。</li>
+      </ol>
+      <table class="params">
+        <tr><th>参数</th><th>必填</th><th>说明</th></tr>
+        <tr><td><code>markdown路径</code></td><td>否</td><td><code>process.argv[2]</code>；source 名取文件 basename</td></tr>
+      </table>
+      <div class="flow"><strong>下游：</strong>chunker → embed → vectorStore · 自测内嵌 search</div>
+      <div class="why">ingest 不只「写文件」，还带两条黄金用例，防止「入库成功但向量全乱」静默通过。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">test-store.ts · npm run rag:test-store</div>
+      <div class="sig">先 ingest，再 tsx scripts/test-store.ts</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>load 后库非空；每条有 id/source/title/text/seq/embedding 且维度正确。</li>
+        <li>save → 再 load，条数不变（持久化往返）。</li>
+        <li><code>replaceSource</code> 同名不叠成两份。</li>
+      </ol>
+      <div class="why">与 ingest 解耦：不重算 embedding，专测磁盘格式与 API 契约，跑得快。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">test-retrieve.ts · npm run rag:test-retrieve</div>
+      <div class="sig">tsx scripts/test-retrieve.ts · 只调 retrieve，不问 LLM</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li><strong>直接命中</strong>：贴原文问法，目标 chunk-28 须进 Top5。</li>
+        <li><strong>近义问法</strong>：相关 chunk-16/20 至少其一进 Top5。</li>
+        <li><strong>资料外</strong>：Top1 分数不得虚高（&lt; MIN_TOP_SCORE）。</li>
+        <li>累计 failed，非 0 则非零退出。</li>
+      </ol>
+      <div class="why">召回质量是 RAG 地基；不调聊天模型，避免把「模型胡说」和「检索没命中」混为一谈。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">test-empty.ts · npm run rag:test-empty</div>
+      <div class="sig">tsx scripts/test-empty.ts · 测 retrieveForAnswer 闸门</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>有资料问句 → empty=false，hits 非空。</li>
+        <li>资料外 → empty=true，hits 清空，但 <code>rawHits</code> 仍保留供调试；topScore 低于门槛。</li>
+      </ol>
+      <div class="why">「有名次 ≠ 有资料」。闸门错了会把噪声塞进 prompt；rawHits 保留是为了面板/脚本对照。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">test-rerank.ts · npm run rag:test-rerank</div>
+      <div class="sig">需 predawn:rerank + ingest</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li><code>rerankerReady()</code> 否则 exit(1)。</li>
+        <li><code>retrieveForAnswer</code> 近义问句；打印向量前 5 vs 重排后注入列表。</li>
+        <li>断言注入条数 = DEFAULT_TOP_K；顺序变了打 PASS，不变打 NOTE（库小可能发生）。</li>
+      </ol>
+      <div class="why">证明交叉编码器链路通了；不强求每条问句都改序，避免 brittle 测试。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">search.ts · npm run rag:search</div>
+      <div class="sig">npm run rag:search -- "你的问题"
+# 无参数会打印用法并 exit(1)</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>把 <code>argv.slice(2)</code> 拼成问句（可含空格，请用引号包住）。</li>
+        <li>调用 <code>retrieveForAnswer</code>，打印 candidateK / injectK / empty / Top1。</li>
+        <li>列出向量候选与（若有）重排注入结果。</li>
+      </ol>
+      <table class="params">
+        <tr><th>参数</th><th>必填</th><th>说明</th></tr>
+        <tr><td><code>"问题"</code></td><td><strong>是</strong></td><td>空则报错退出；多词用引号：<code>-- "A B C"</code></td></tr>
+      </table>
+      <div class="why">交互式探测检索，不是断言脚本；改阈值/问句时先用它肉眼看。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">test-prompt.ts · npm run rag:test-prompt</div>
+      <div class="sig">纯单元：假 hits，不碰向量库 / LLM</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>空 judgment → buildRagPrompt 必须 empty、messages 为空。</li>
+        <li>有 hits → system 含 RAG_SYSTEM_PROMPT 与编号资料；history 条数裁剪正确。</li>
+        <li>校验 <code>formatEvidenceBlocks</code> 编号格式。</li>
+      </ol>
+      <div class="why">prompt 拼装错误会导致「检索对了但模型看不到资料」；用假数据测拼装，与检索解耦。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">preview-prompt.ts · npm run rag:preview-prompt</div>
+      <div class="sig">npm run rag:preview-prompt -- "不要把整篇文档塞进 prompt 冒充 RAG"
+npm run rag:preview-prompt -- "今天北京适合出门吗？"
+# 无参数 → 打印用法 exit(1)</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>CLI 问句（必填）+ 内置 demo history（证明 history 与 question 分离）。</li>
+        <li>retrieveForAnswer → buildRagPrompt → 打印 roles/内容预览；不调 LLM。</li>
+      </ol>
+      <table class="params">
+        <tr><th>参数</th><th>必填</th><th>说明</th></tr>
+        <tr><td><code>"问题"</code></td><td><strong>是</strong></td><td>当前问句；历史写死在脚本里作演示</td></tr>
+      </table>
+      <div class="why">在烧 Token 前先看「模型到底会收到什么」。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">ask.ts · npm run rag:ask</div>
+      <div class="sig">npm run rag:ask -- "不要把整篇文档塞进 prompt 冒充 RAG"
+# 需要 LLM_API_KEY；无问句 → exit(1)</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>读 .env，直接调 <code>answerFromDocs(question)</code>（与 HTTP 同核心，不经 Express）。</li>
+        <li>打印 empty / calledModel / topScore / hits 注入标记 / 最终 answer。</li>
+      </ol>
+      <table class="params">
+        <tr><th>参数</th><th>必填</th><th>说明</th></tr>
+        <tr><td><code>"问题"</code></td><td><strong>是</strong></td><td><code>argv.slice(2).join(" ")</code></td></tr>
+        <tr><td>环境变量</td><td>要</td><td><code>LLM_API_KEY</code>；勿开 <code>MOCK_MODE=1</code></td></tr>
+      </table>
+      <div class="flow"><strong>下游：</strong>server/rag/answer.ts（含 toolGuard / outputGuard）</div>
+      <div class="why">绕过前端/SSE 排错：确认是 RAG 核心问题还是路由/前端问题。</div>
+    </div>
+
+    <!-- ========== Evals ========== -->
+    <h2>二、Agent 回归评测（evals + scripts）</h2>
+
+    <div class="card">
+      <p>数据与判分器在 <span class="file-path">evals/</span>，跑法在 <span class="file-path">scripts/run-evals*.ts</span>。</p>
+      <table class="params">
+        <tr><th>文件</th><th>作用</th></tr>
+        <tr><td>evals/dataset.json</td><td>单 Agent 用例（messages、expect 工具/文案规则）</td></tr>
+        <tr><td>evals/dataset-multi.json</td><td>多 Agent 用例（期望路由 workers、工具）</td></tr>
+        <tr><td>evals/types.ts</td><td>EvalExample / EvalRunResult 等类型</td></tr>
+        <tr><td>evals/evaluators.ts</td><td><code>evaluateRun</code>：规则判分（工具是否调用、输出是否匹配）</td></tr>
+      </table>
+    </div>
+
+    <div class="method">
+      <div class="name">run-evals.ts · npm run eval:chat</div>
+      <div class="sig">npm run eval:chat
+npm run eval:chat -- --id time-now
+npm run eval:chat -- --id weather-gz --id mars-temp</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>校验有 <code>LLM_API_KEY</code> 且非 <code>MOCK_MODE=1</code>（否则工具假跑，结果不可信）。</li>
+        <li>加载 <code>evals/dataset.json</code>；若传入 <code>--id</code>，只跑匹配的 examples（可重复多个 <code>--id</code>）。</li>
+        <li>对每条：<code>createChatStream</code>（forceMock:false），收集 onDelta 全文与 onTrace 的 tool_call 名。</li>
+        <li><code>evaluateRun(run, example.expect)</code> 判 PASS/FAIL；汇总 <code>passed/total</code>，全过 exit 0。</li>
+      </ol>
+      <table class="params">
+        <tr><th>参数</th><th>必填</th><th>说明</th></tr>
+        <tr><td><code>--id &lt;caseId&gt;</code></td><td>否</td><td>过滤用例；可写多次。id 见上方「eval:chat 可用 id」表。未传则跑全集。</td></tr>
+        <tr><td>环境</td><td>要</td><td>真 Key；建议 <code>LANGCHAIN_TRACING_V2=false</code> 省额度</td></tr>
+      </table>
+      <div class="flow"><strong>下游：</strong>server/chat.createChatStream → ReAct 全链路</div>
+      <div class="why">固定问句 + 规则判分，防止「手测时碰巧对、改完静默回归」。测的是真链路不是 mock。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">run-evals-multi.ts · npm run eval:multi</div>
+      <div class="sig">npm run eval:multi
+npm run eval:multi -- --id multi-weather-only</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>加载 <code>dataset-multi.json</code>；同样支持 <code>--id</code> 过滤。</li>
+        <li><code>compileMultiAgentGraph().invoke(...)</code>，从 state 取 routedWorkers、toolsCalled、finalOutput。</li>
+        <li>按期望校验路由是否派到正确 Worker、工具是否调用；打印 PASS/FAIL。</li>
+      </ol>
+      <table class="params">
+        <tr><th>参数</th><th>必填</th><th>说明</th></tr>
+        <tr><td><code>--id &lt;caseId&gt;</code></td><td>否</td><td>如 <code>multi-kb-only</code>；id 见上方 multi 列表</td></tr>
+        <tr><td>环境</td><td>要</td><td>真 Key；禁止 MOCK</td></tr>
+      </table>
+      <div class="flow"><strong>下游：</strong>multi-agent/graph（不经 Express SSE）</div>
+      <div class="why">与单 Agent eval 拆开：测的是 Supervisor 路由与 Worker 工具，不是 ReAct 循环细节。</div>
+    </div>
+
+    <!-- ========== MCP / diagrams ========== -->
+    <h2>三、MCP 与其它工具脚本</h2>
+
+    <div class="method">
+      <div class="name">mcp-ping.ts · npm run mcp:ping</div>
+      <div class="sig">stdio 拉起 server/mcp/stdio.ts，listTools + 各调一次</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>StdioClientTransport 起 MCP 子进程。</li>
+        <li>列出工具名；调用 getCurrentTime、getWeather(广州)。</li>
+        <li>证明现有 <code>tools/methods</code> 能被标准 MCP 协议调用（不经聊天页）。</li>
+      </ol>
+      <div class="why">把「工人层可复用」验成可运行事实，而不是只写在注释里。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">render-seq-svg.mjs / gen-seq-diagrams.mjs / seq-data.mjs</div>
+      <div class="sig">npm run diagrams · diagrams:ascii</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>根据序列数据生成/渲染文档用时序图（SVG 或 ASCII），服务 docs 流程说明。</li>
+      </ol>
+      <div class="why">图与代码分离维护；改流程时重跑脚本，而不是手改巨大 SVG。</div>
+    </div>
+
+    <h2>npm scripts 速查表</h2>
+    <div class="card">
+      <table class="params">
+        <tr><th>命令</th><th>参数</th><th>要 Key?</th></tr>
+        <tr><td>rag:preview-chunks</td><td>可选 md 路径</td><td>否</td></tr>
+        <tr><td>rag:test-embed</td><td>无</td><td>否（要本地 embed 模型）</td></tr>
+        <tr><td>rag:ingest</td><td>可选 md 路径</td><td>否（要 embed）</td></tr>
+        <tr><td>rag:test-store / retrieve / empty / rerank / prompt</td><td>无（部分要先 ingest/predawn）</td><td>否</td></tr>
+        <tr><td>rag:search / preview-prompt / ask</td><td><strong>必填问句</strong> <code>-- "…"</code></td><td>ask 要 Key</td></tr>
+        <tr><td>eval:chat / eval:multi</td><td>可选 <code>-- --id …</code></td><td>要，且禁止 MOCK</td></tr>
+        <tr><td>mcp:ping / diagrams / predawn:*</td><td>无</td><td>视工具而定</td></tr>
+      </table>
+      <p style="margin:0.5rem 0 0;font-size:0.9rem;color:#5c6b7a">完整示例与可用 id 见上文「命令行参数」一节。</p>
+    </div>
+
+    <footer class="note">
+      对照实现：<a href="../server/rag.html">RAG 模块说明书</a> ·
+      <a href="../server/react.html">单 Agent</a> ·
+      <a href="../server/multi-agent.html">多 Agent</a> ·
+      <a href="../server/tools-mcp.html">Tools &amp; MCP</a>
+    </footer>
+  </main>
+</body>
+</html>

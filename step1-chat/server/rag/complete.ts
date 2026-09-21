@@ -1,6 +1,14 @@
+import { parseUsageFromResponse } from "../usage/parseUsage.js";
+import type { TokenUsage } from "../usage/types.js";
 import type { RagMessage } from "./prompt.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
+
+export interface RagCompletionResult {
+  content: string;
+  usage: TokenUsage | null;
+  model: string;
+}
 
 /**
  * 把已经拼好的 RAG messages 发给聊天模型，拿一段完整回复。
@@ -10,7 +18,8 @@ export async function completeRagMessages(
   messages: RagMessage[],
   signal?: AbortSignal,
   model?: string,
-): Promise<string> {
+  onUsage?: (usage: TokenUsage, model: string) => void,
+): Promise<RagCompletionResult> {
   const apiKey = process.env.LLM_API_KEY?.trim() ?? "";
   if (!apiKey || process.env.MOCK_MODE === "1") {
     throw new Error(
@@ -18,6 +27,7 @@ export async function completeRagMessages(
     );
   }
   const baseUrl = (process.env.LLM_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+  const resolvedModel = model || process.env.LLM_MODEL || "deepseek-chat";
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -25,7 +35,7 @@ export async function completeRagMessages(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: model || process.env.LLM_MODEL || "deepseek-chat",
+      model: resolvedModel,
       messages,
       stream: false,
     }),
@@ -40,5 +50,13 @@ export async function completeRagMessages(
   const data = JSON.parse(raw) as {
     choices?: Array<{ message?: { content?: string | null } }>;
   };
-  return data.choices?.[0]?.message?.content ?? "";
+  const usage = parseUsageFromResponse(data);
+  if (usage) {
+    onUsage?.(usage, resolvedModel);
+  }
+  return {
+    content: data.choices?.[0]?.message?.content ?? "",
+    usage,
+    model: resolvedModel,
+  };
 }

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 1850" width="1480" height="1850" role="img" aria-label="Messages Assembly Flow">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#059669"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .lane { font: 700 12px sans-serif; fill: #475569; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+    ]]></style>
+  </defs>
+  <rect width="1480" height="1850" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">messages 拼装总览（三层 × 三条链路）</text>
+  <text x="40" y="66" class="subtitle">前端只存 user/assistant；system 一律服务端注入；tool 角色仅请求内存</text>
+
+  <g transform="translate(40, 100)">
+    <text x="0" y="0" class="phase">三层边界</text>
+    <rect x="20" y="20" width="440" height="100" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="240" y="50" text-anchor="middle" class="box">前端 UI / localStorage</text>
+    <text x="240" y="72" text-anchor="middle" class="box-sub">ChatMessage[] = user | assistant</text>
+    <text x="240" y="94" text-anchor="middle" class="box-sub">无 system、无 tool</text>
+
+    <rect x="500" y="20" width="440" height="100" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="720" y="50" text-anchor="middle" class="box">HTTP 请求体</text>
+    <text x="720" y="72" text-anchor="middle" class="box-sub">chat: messages[] 无 system</text>
+    <text x="720" y="94" text-anchor="middle" class="box-sub">rag: question + history</text>
+
+    <rect x="980" y="20" width="440" height="100" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="1200" y="50" text-anchor="middle" class="box">发给 LLM 的 messages</text>
+    <text x="1200" y="72" text-anchor="middle" class="box-sub">含 system（服务端拼）</text>
+    <text x="1200" y="94" text-anchor="middle" class="box-sub">ReAct 中可含 assistant+tool</text>
+  </g>
+
+  <g transform="translate(40, 280)">
+    <text x="0" y="0" class="phase">链路 A · /api/chat</text>
+<rect x="20" y="24" width="280" height="86" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+<text x="160.0" y="46" text-anchor="middle" class="box">map history → {role,content}</text>
+<text x="160.0" y="64" text-anchor="middle" class="box-sub">可选 searchDocs=true</text>
+<text x="160.0" y="82" text-anchor="middle" class="file">useChat.ts</text><line x1="300" y1="67" x2="340" y2="67" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="340" y="24" width="300" height="86" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+<text x="490.0" y="46" text-anchor="middle" class="box">clipMessages</text>
+<text x="490.0" y="64" text-anchor="middle" class="box-sub">[system, ...最近8条 UA]</text>
+<text x="490.0" y="82" text-anchor="middle" class="file">clipMessages.ts</text><line x1="640" y1="67" x2="680" y2="67" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="680" y="24" width="300" height="86" rx="8" fill="#d1fae5" stroke="#059669"/>
+<text x="830.0" y="46" text-anchor="middle" class="box">prefetch? 追加 system</text>
+<text x="830.0" y="64" text-anchor="middle" class="box-sub">ReAct 追加 tool 消息</text>
+<text x="830.0" y="82" text-anchor="middle" class="box-sub">不写回 localStorage</text><line x1="980" y1="67" x2="1020" y2="67" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="1020" y="24" width="400" height="86" rx="8" fill="#fce7f3" stroke="#db2777"/>
+<text x="1220.0" y="46" text-anchor="middle" class="box">LLM messages 变长</text>
+<text x="1220.0" y="64" text-anchor="middle" class="box-sub">assistant+tool_calls + tool*</text>
+<text x="1220.0" y="82" text-anchor="middle" class="box-sub">最终 assistant 文字 → SSE delta</text>
+  </g>
+
+  <g transform="translate(40, 460)">
+    <text x="0" y="0" class="phase">链路 B · /api/chat/multi</text>
+<rect x="20" y="24" width="280" height="86" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+<text x="160.0" y="46" text-anchor="middle" class="box">messages[] 照发</text>
+<text x="160.0" y="64" text-anchor="middle" class="box-sub">服务端 mostly 忽略历史</text><line x1="300" y1="67" x2="340" y2="67" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="340" y="24" width="300" height="86" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+<text x="490.0" y="46" text-anchor="middle" class="box">lastUser only</text>
+<text x="490.0" y="64" text-anchor="middle" class="box-sub">userMessage: string</text>
+<text x="490.0" y="82" text-anchor="middle" class="file">chatMulti.ts</text><line x1="640" y1="67" x2="680" y2="67" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="680" y="24" width="740" height="100" rx="8" fill="#d1fae5" stroke="#059669"/>
+<text x="1050.0" y="46" text-anchor="middle" class="box">三套独立 messages（非一条长史）</text>
+<text x="1050.0" y="64" text-anchor="middle" class="box-sub">Supervisor: [system 路由, user]</text>
+<text x="1050.0" y="82" text-anchor="middle" class="box-sub">Worker: [system Worker, user 任务] + tools</text>
+<text x="1050.0" y="100" text-anchor="middle" class="box-sub">Aggregate: [system 汇总, user 各输出]</text>
+  </g>
+
+  <g transform="translate(40, 660)">
+    <text x="0" y="0" class="phase">链路 C · /api/rag/chat</text>
+<rect x="20" y="24" width="280" height="86" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+<text x="160.0" y="46" text-anchor="middle" class="box">question + history</text>
+<text x="160.0" y="64" text-anchor="middle" class="box-sub">history 不含当前问句</text>
+<text x="160.0" y="82" text-anchor="middle" class="file">api/rag.ts</text><line x1="300" y1="67" x2="340" y2="67" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="340" y="24" width="300" height="86" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+<text x="490.0" y="46" text-anchor="middle" class="box">retrieveForAnswer</text>
+<text x="490.0" y="64" text-anchor="middle" class="box-sub">判空可不调 LLM</text><line x1="640" y1="67" x2="680" y2="67" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="680" y="24" width="740" height="100" rx="8" fill="#d1fae5" stroke="#059669"/>
+<text x="1050.0" y="46" text-anchor="middle" class="box">buildRagPrompt</text>
+<text x="1050.0" y="64" text-anchor="middle" class="box-sub">[system=RAG_SYSTEM+资料块,</text>
+<text x="1050.0" y="82" text-anchor="middle" class="box-sub"> ...history≤6, user=question]</text>
+<text x="1050.0" y="100" text-anchor="middle" class="box-sub">无 tools · 一次 completeRagMessages</text>
+  </g>
+
+  <g transform="translate(40, 880)">
+    <text x="0" y="0" class="phase">对比速查</text>
+    <rect x="20" y="20" width="1400" height="200" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="52" class="box">|                | /api/chat              | /api/chat/multi           | /api/rag/chat            |</text>
+    <text x="40" y="78" class="box-sub">| system 谁拼    | clipMessages + chat.ts | 各节点各自 system         | rag/prompt RAG_SYSTEM    |</text>
+    <text x="40" y="104" class="box-sub">| 知识库放哪     | prefetch 追加 system   | kb Worker 内部            | system ## 资料           |</text>
+    <text x="40" y="130" class="box-sub">| tool 角色      | ReAct 内存             | Worker 内隔离             | 无                       |</text>
+    <text x="40" y="156" class="box-sub">| 多轮 LLM       | 1~5 ReAct              | Sup+Workers+Agg           | 通常 1                   |</text>
+    <text x="40" y="182" class="box-sub">| 响应           | SSE                    | SSE                       | JSON                     |</text>
+  </g>
+
+  <g transform="translate(40, 1160)">
+    <rect x="20" y="0" width="1400" height="80" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="32" class="phase">相关详细图</text>
+    <text x="40" y="58" class="box">chat-react-flow.svg · chat-multi-flow.svg · rag-chat-flow.svg · human-confirm-flow.svg</text>
+  </g>
+
+  <text x="740" y="1825" text-anchor="middle" class="subtitle">docs/messages-assembly-flow.svg</text>
+</svg>

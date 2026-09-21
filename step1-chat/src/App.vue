@@ -4,10 +4,15 @@ import { Bot, Eraser, RotateCcw, Send, Square } from "@lucide/vue";
 import ChatMessageItem from "./components/ChatMessageItem.vue";
 import RagHitPanel from "./components/RagHitPanel.vue";
 import ToolTracePanel from "./components/ToolTracePanel.vue";
+import UsagePanel from "./components/UsagePanel.vue";
 import { useChat } from "./composables/useChat";
 import { MODEL_OPTIONS } from "./types";
 
-const CHAT_STARTERS = ["北京今天适合出门吗？", "介绍一下流式输出", "什么是 Function Calling"];
+const CHAT_STARTERS = [
+  "现在几点",
+  "广州的天气，顺便查查几点了",
+  "什么是 Function Calling",
+];
 const RAG_STARTERS = [
   "不要把整篇文档塞进 prompt 冒充 RAG",
   "为什么改了切分还要重新入库",
@@ -18,9 +23,13 @@ const {
   messages,
   model,
   ragMode,
+  searchKb,
+  multiAgent,
   isStreaming,
   error,
   toolTrace,
+  lastUsage,
+  usageSummary,
   serverMode,
   send,
   retry,
@@ -28,6 +37,9 @@ const {
   clear,
   changeModel,
   setRagMode,
+  setSearchKb,
+  setMultiAgent,
+  resolveToolConfirm,
 } = useChat();
 const input = ref("");
 const chatRef = ref<HTMLElement | null>(null);
@@ -37,8 +49,14 @@ const modeLabel = computed(() =>
 );
 
 const starters = computed(() => (ragMode.value ? RAG_STARTERS : CHAT_STARTERS));
-const placeholder = computed(() =>
-  ragMode.value ? "问已入库的笔记，Enter 发送" : "输入消息，Enter 发送",
+const placeholder = computed(() => {
+  if (ragMode.value) return "问已入库的笔记，Enter 发送";
+  if (searchKb.value) return "将先检索知识库，Enter 发送";
+  return "输入消息，Enter 发送";
+});
+
+const chatEndpointTitle = computed(() =>
+  multiAgent.value ? "当前：普通对话（/api/chat/multi）" : "当前：普通对话（/api/chat）",
 );
 const emptyTitle = computed(() =>
   ragMode.value ? "根据笔记提问（资料问答）" : "开始你的第一段对话",
@@ -65,6 +83,14 @@ const panelRag = computed(() => {
 });
 
 const highlightIndex = computed(() => citeFocus.value?.n ?? null);
+
+/** 右侧栏有内容才展开，避免空栏挤占对话区 */
+const hasSideContent = computed(() => {
+  if (ragMode.value && panelRag.value) return true;
+  if (!ragMode.value && toolTrace.value.length > 0) return true;
+  if (serverMode.value === "api" && (lastUsage.value || usageSummary.value)) return true;
+  return false;
+});
 
 function handleCite(messageId: string, n: number) {
   citeFocus.value = { messageId, n };
@@ -99,6 +125,14 @@ function handleModelChange(event: Event) {
 function toggleRagMode() {
   setRagMode(!ragMode.value);
 }
+
+function toggleSearchKb() {
+  setSearchKb(!searchKb.value);
+}
+
+function toggleMultiAgent() {
+  setMultiAgent(!multiAgent.value);
+}
 </script>
 
 <template>
@@ -114,7 +148,7 @@ function toggleRagMode() {
           class="mode-toggle"
           :class="{ on: ragMode }"
           :disabled="isStreaming"
-          :title="ragMode ? '当前：资料问答（/api/rag/chat）' : '当前：普通对话（/api/chat）'"
+          :title="ragMode ? '当前：资料问答（/api/rag/chat）' : chatEndpointTitle"
           :aria-pressed="ragMode"
           @click="toggleRagMode"
         >
@@ -152,67 +186,101 @@ function toggleRagMode() {
       </div>
     </header>
 
-    <main ref="chatRef" class="chat">
-      <div v-if="messages.length === 0" class="empty">
-        <div class="empty-mark"><Bot :size="28" /></div>
-        <p class="empty-title">{{ emptyTitle }}</p>
-        <div class="starters">
-          <button
-            v-for="starter in starters"
-            :key="starter"
-            class="starter"
-            :disabled="isStreaming"
-            @click="submit(starter)"
-          >
-            {{ starter }}
-          </button>
-        </div>
+    <div class="workspace">
+      <div class="chat-column">
+        <main ref="chatRef" class="chat">
+          <div v-if="messages.length === 0" class="empty">
+            <div class="empty-mark"><Bot :size="28" /></div>
+            <p class="empty-title">{{ emptyTitle }}</p>
+            <div class="starters">
+              <button
+                v-for="starter in starters"
+                :key="starter"
+                class="starter"
+                :disabled="isStreaming"
+                @click="submit(starter)"
+              >
+                {{ starter }}
+              </button>
+            </div>
+          </div>
+          <template v-else>
+            <ChatMessageItem
+              v-for="(message, index) in messages"
+              :key="message.id"
+              :message="message"
+              :streaming="isStreaming && index === messages.length - 1"
+              :active-cite="citeFocus?.messageId === message.id ? citeFocus.n : null"
+              @cite="handleCite(message.id, $event)"
+            />
+          </template>
+        </main>
+
+        <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+
+        <footer class="composer">
+          <div class="composer-row">
+            <textarea
+              v-model="input"
+              class="composer-input"
+              :disabled="isStreaming"
+              :placeholder="placeholder"
+              rows="1"
+              @keydown="handleKeydown"
+            />
+            <button
+              v-if="isStreaming"
+              class="send-button stop"
+              title="停止"
+              aria-label="停止"
+              @click="stop"
+            >
+              <Square :size="16" />
+            </button>
+            <button
+              v-else
+              class="send-button"
+              :disabled="!input.trim()"
+              title="发送"
+              aria-label="发送"
+              @click="submit()"
+            >
+              <Send :size="16" />
+            </button>
+          </div>
+          <div v-if="!ragMode" class="composer-opts">
+            <label class="kb-opt">
+              <input
+                type="checkbox"
+                :checked="multiAgent"
+                :disabled="isStreaming"
+                @change="toggleMultiAgent"
+              />
+              多 Agent
+            </label>
+            <label class="kb-opt">
+              <input
+                type="checkbox"
+                :checked="searchKb"
+                :disabled="isStreaming"
+                @change="toggleSearchKb"
+              />
+              搜索知识库
+            </label>
+          </div>
+        </footer>
       </div>
-      <template v-else>
-        <ChatMessageItem
-          v-for="(message, index) in messages"
-          :key="message.id"
-          :message="message"
-          :streaming="isStreaming && index === messages.length - 1"
-          :active-cite="citeFocus?.messageId === message.id ? citeFocus.n : null"
-          @cite="handleCite(message.id, $event)"
+
+      <aside v-if="hasSideContent" class="side-rail" aria-label="过程与用量">
+        <RagHitPanel v-if="ragMode" :rag="panelRag" :highlight-index="highlightIndex" />
+        <ToolTracePanel
+          v-if="!ragMode"
+          :steps="toolTrace"
+          :confirm-enabled="isStreaming"
+          @confirm="resolveToolConfirm"
         />
-      </template>
-    </main>
-
-    <RagHitPanel v-if="ragMode" :rag="panelRag" :highlight-index="highlightIndex" />
-    <ToolTracePanel v-if="!ragMode" :steps="toolTrace" />
-
-    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
-
-    <footer class="composer">
-      <textarea
-        v-model="input"
-        class="composer-input"
-        :disabled="isStreaming"
-        :placeholder="placeholder"
-        rows="1"
-        @keydown="handleKeydown"
-      />
-      <button
-        v-if="isStreaming"
-        class="send-button stop"
-        title="停止"
-        aria-label="停止"
-        @click="stop"
-      >
-        <Square :size="16" />
-      </button>
-      <button
-        v-else
-        class="send-button"
-        :disabled="!input.trim()"
-        title="发送"
-        aria-label="发送"
-        @click="submit()"
-      >
-        <Send :size="16" />
-      </button>
-    </footer>
+        <UsagePanel :last-usage="lastUsage" :summary="usageSummary" :server-mode="serverMode" />
+      </aside>
+    </div>
   </div>
 </template>

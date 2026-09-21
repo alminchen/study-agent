@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 3200" width="1480" height="3200" role="img" aria-label="Multi Agent Token Billing with Worker detail">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#059669"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#0d9488"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .lane { font: 700 12px sans-serif; fill: #475569; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #0d9488; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+    ]]></style>
+  </defs>
+
+  <rect width="1480" height="3200" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">多 Agent（POST /api/chat/multi）· 业务 + Token 计费（含 Worker）</text>
+  <text x="40" y="66" class="subtitle">重点：每个 Worker mini ReAct 的每一轮 callLLM 都记 source=worker，可累加多次</text>
+
+  <g transform="translate(40, 86)">
+    <rect x="0" y="0" width="1400" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="16" y="16" width="18" height="18" rx="3" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="42" y="30" class="legend">Token 累加</text>
+    <rect x="160" y="16" width="18" height="18" rx="3" fill="#d1fae5" stroke="#059669"/>
+    <text x="186" y="30" class="legend">图节点</text>
+    <rect x="300" y="16" width="18" height="18" rx="3" fill="#fef3c7" stroke="#d97706"/>
+    <text x="326" y="30" class="legend">Worker mini ReAct</text>
+    <rect x="520" y="16" width="18" height="18" rx="3" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="546" y="30" class="legend">Guard</text>
+    <text x="680" y="30" class="note">工具 run 不计 LLM Token；计费只发生在 callLLM</text>
+  </g>
+
+  <!-- Phase 1 -->
+  <g transform="translate(40, 170)">
+    <text x="0" y="0" class="phase">1. 入口：一个 Accumulator，三种 source 回调</text>
+    <rect x="20" y="24" width="320" height="100" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="180" y="52" text-anchor="middle" class="box">POST /api/chat/multi</text>
+    <text x="180" y="74" text-anchor="middle" class="box-sub">new UsageAccumulator()</text>
+    <text x="180" y="96" text-anchor="middle" class="file">routes/chatMulti.ts</text>
+
+    <rect x="380" y="24" width="520" height="120" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="640" y="52" text-anchor="middle" class="box">compileMultiAgentGraph({ accumulator })</text>
+    <text x="640" y="74" text-anchor="middle" class="box-sub">onUsage = (source) =&gt; bindUsageCallback(acc, source, model)</text>
+    <text x="640" y="96" text-anchor="middle" class="box-sub">三种：supervisor · worker · aggregate</text>
+    <text x="640" y="118" text-anchor="middle" class="file">multi-agent/graph.ts</text>
+
+    <rect x="940" y="24" width="480" height="120" rx="8" fill="#fff" stroke="#cbd5e1" stroke-dasharray="4 3"/>
+    <text x="1180" y="56" text-anchor="middle" class="box">为何 Worker 要单独 source？</text>
+    <text x="1180" y="84" text-anchor="middle" class="box-sub">一次请求可能跑 1~3 个 Worker</text>
+    <text x="1180" y="108" text-anchor="middle" class="box-sub">每个 Worker 又可能 callLLM 多轮</text>
+  </g>
+
+  <!-- Phase 2 supervisor -->
+  <g transform="translate(40, 360)">
+    <text x="0" y="0" class="phase">2. Supervisor：通常 1 次 LLM → source=supervisor</text>
+    <rect x="20" y="24" width="700" height="90" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="370" y="52" text-anchor="middle" class="box">supervisorNode → supervisorRoute → callLLM</text>
+    <text x="370" y="74" text-anchor="middle" class="box-sub">parseUsage → onUsage("supervisor") → acc.record</text>
+    <text x="370" y="96" text-anchor="middle" class="file">supervisor.ts · llm.ts</text>
+
+    <rect x="760" y="24" width="660" height="90" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="1090" y="60" text-anchor="middle" class="box">acc 条目示例</text>
+    <text x="1090" y="84" text-anchor="middle" class="box-sub">{ model, source:"supervisor", usage }</text>
+  </g>
+
+  <!-- Phase 3 WORKER BILLING DETAIL - the missing piece -->
+  <g transform="translate(40, 520)">
+    <text x="0" y="0" class="phase">3. Workers 计费全链（此前图上缺失的细节）</text>
+
+    <rect x="20" y="24" width="440" height="140" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="240" y="52" text-anchor="middle" class="box">workersNode</text>
+    <text x="240" y="74" text-anchor="middle" class="box-sub">Promise.all(decision.workers)</text>
+    <text x="240" y="96" text-anchor="middle" class="box-sub">fn({ ..., onUsage: onUsage("worker") })</text>
+    <text x="240" y="118" text-anchor="middle" class="box-sub">同一回调注入每个 Worker ctx</text>
+    <text x="240" y="140" text-anchor="middle" class="file">graph.ts L115–129</text>
+
+    <line x1="460" y1="94" x2="520" y2="94" stroke="#0d9488" stroke-width="1.5" marker-end="url(#arrowTeal)"/>
+
+    <rect x="520" y="24" width="900" height="140" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="970" y="52" text-anchor="middle" class="box">WorkerContext.onUsage = bindUsageCallback(acc, "worker")</text>
+    <text x="970" y="76" text-anchor="middle" class="box-sub">runRealtimeWorker / runKBWorker / runGeneralWorker</text>
+    <text x="970" y="100" text-anchor="middle" class="box-sub">并行 Worker 共用同一 Accumulator，条目都打 worker 标签</text>
+    <text x="970" y="124" text-anchor="middle" class="file">workers/types.ts · workers/*.ts</text>
+  </g>
+
+  <g transform="translate(40, 740)">
+    <text x="0" y="0" class="phase">3b. 单个 Worker 内部：mini ReAct × 每轮都计费</text>
+
+    <rect x="20" y="24" width="1440" height="420" rx="12" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>
+
+    <text x="40" y="56" class="box">for (turn = 0; turn &lt; MAX_TURNS; turn++)   // MAX_TURNS=3</text>
+
+    <rect x="40" y="80" width="420" height="130" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="250" y="108" text-anchor="middle" class="box">A. callLLM({ messages, tools,</text>
+    <text x="250" y="128" text-anchor="middle" class="box">     onUsage: ctx.onUsage })</text>
+    <text x="250" y="152" text-anchor="middle" class="label-em">★ 每一轮都计费</text>
+    <text x="250" y="176" text-anchor="middle" class="box-sub">parseUsage → onUsage → record("worker")</text>
+    <text x="250" y="196" text-anchor="middle" class="file">llm.ts L91–94</text>
+
+    <line x1="460" y1="145" x2="520" y2="145" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <polygon points="640,100 780,145 640,190 500,145" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+    <text x="640" y="141" text-anchor="middle" class="box">tool_calls?</text>
+    <text x="640" y="161" text-anchor="middle" class="box-sub">无 → return output</text>
+
+    <line x1="780" y1="145" x2="840" y2="145" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="810" y="132" class="label">有</text>
+
+    <rect x="840" y="80" width="400" height="130" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1040" y="112" text-anchor="middle" class="box">B. runToolSafely(...)</text>
+    <text x="1040" y="136" text-anchor="middle" class="box-sub">validateToolCall → tool.run</text>
+    <text x="1040" y="160" text-anchor="middle" class="warn">工具执行不计 LLM Token</text>
+    <text x="1040" y="184" text-anchor="middle" class="file">runToolSafely.ts</text>
+
+    <path d="M1040,210 L1040,250 L250,250 L250,210" fill="none" stroke="#d97706" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowAmber)"/>
+    <text x="640" y="242" text-anchor="middle" class="label">回填 tool 消息 → 下一轮 turn（再 callLLM = 再记一笔 worker）</text>
+
+    <rect x="40" y="280" width="1400" height="140" rx="8" fill="#f0fdfa" stroke="#0d9488"/>
+    <text x="60" y="312" class="box">计费次数怎么算？（示例：路由到 realtime + kb）</text>
+    <text x="60" y="340" class="box-sub">realtime：turn0 出 getWeather → turn1 出最终文字  = 2× worker</text>
+    <text x="60" y="364" class="box-sub">kb：turn0 出 searchDocs → turn1 出最终文字        = 2× worker</text>
+    <text x="60" y="388" class="box-sub">合计 Worker 侧至少 4 次 LLM；再加 supervisor 1 次 + aggregate 0~1 次</text>
+    <text x="60" y="408" class="file">realtimeWorker.ts / kbWorker.ts / generalWorker.ts 均：callLLM(..., onUsage: ctx.onUsage)</text>
+  </g>
+
+  <!-- Phase 3c parallel note -->
+  <g transform="translate(40, 1240)">
+    <text x="0" y="0" class="phase">3c. 并行 Worker：多条 worker 条目写入同一 Accumulator</text>
+    <rect x="20" y="24" width="460" height="100" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="250" y="56" text-anchor="middle" class="box">runRealtimeWorker</text>
+    <text x="250" y="80" text-anchor="middle" class="box-sub">callLLM × N → source=worker</text>
+    <text x="250" y="104" text-anchor="middle" class="file">realtimeWorker.ts</text>
+
+    <rect x="510" y="24" width="460" height="100" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="740" y="56" text-anchor="middle" class="box">runKBWorker</text>
+    <text x="740" y="80" text-anchor="middle" class="box-sub">callLLM × N → source=worker</text>
+    <text x="740" y="104" text-anchor="middle" class="file">kbWorker.ts</text>
+
+    <rect x="1000" y="24" width="420" height="100" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="1210" y="56" text-anchor="middle" class="box">runGeneralWorker</text>
+    <text x="1210" y="80" text-anchor="middle" class="box-sub">callLLM × N → source=worker</text>
+    <text x="1210" y="104" text-anchor="middle" class="file">generalWorker.ts</text>
+
+    <line x1="250" y1="124" x2="250" y2="170" stroke="#0d9488" stroke-width="1.5" marker-end="url(#arrowTeal)"/>
+    <line x1="740" y1="124" x2="740" y2="170" stroke="#0d9488" stroke-width="1.5" marker-end="url(#arrowTeal)"/>
+    <line x1="1210" y1="124" x2="1210" y2="170" stroke="#0d9488" stroke-width="1.5" marker-end="url(#arrowTeal)"/>
+    <rect x="380" y="170" width="700" height="70" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="730" y="198" text-anchor="middle" class="box">同一 UsageAccumulator.entries[]</text>
+    <text x="730" y="220" text-anchor="middle" class="box-sub">多条 { source: "worker", usage } 按调用顺序追加</text>
+  </g>
+
+  <!-- Phase 4 aggregate -->
+  <g transform="translate(40, 1560)">
+    <text x="0" y="0" class="phase">4. Aggregate：source=aggregate（多 Worker 时常再调 1 次 LLM）</text>
+    <rect x="20" y="24" width="700" height="100" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="370" y="52" text-anchor="middle" class="box">aggregateNode → aggregate({ onUsage })</text>
+    <text x="370" y="74" text-anchor="middle" class="box-sub">callLLM? → parseUsage → onUsage("aggregate")</text>
+    <text x="370" y="96" text-anchor="middle" class="file">aggregate.ts · detectLeakage</text>
+
+    <rect x="760" y="24" width="660" height="100" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="1090" y="56" text-anchor="middle" class="box">writeUsageToStream(acc, "chat/multi")</text>
+    <text x="1090" y="80" text-anchor="middle" class="box-sub">mergedUsage = supervisor + 全部 worker + aggregate</text>
+    <text x="1090" y="104" text-anchor="middle" class="file">sse.ts → UsagePanel</text>
+  </g>
+
+  <!-- Phase 5 formula -->
+  <g transform="translate(40, 1760)">
+    <text x="0" y="0" class="phase">5. 一次 /api/chat/multi 的 Token 公式</text>
+    <rect x="20" y="20" width="1440" height="200" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="56" class="box">totalLLMCalls ≈</text>
+    <text x="40" y="88" class="box">  1 × supervisor</text>
+    <text x="40" y="116" class="box">+ Σ_over_workers ( 该 Worker mini ReAct 的 callLLM 次数 )   ← 每轮都有</text>
+    <text x="40" y="144" class="box">+ (0 或 1) × aggregate</text>
+    <text x="40" y="180" class="label-em">前端 UsagePanel 只看合并后的 totals；source 标签目前主要用于服务端调试/分析</text>
+  </g>
+
+  <g transform="translate(40, 2040)">
+    <rect x="20" y="0" width="1440" height="140" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="32" class="phase">浓缩调用链（Worker 计费高亮）</text>
+    <text x="40" y="60" class="box">acc → onUsage("supervisor") → callLLM</text>
+    <text x="40" y="84" class="box">→ workersNode 注入 onUsage("worker") → Worker.for(turn) callLLM(ctx.onUsage) ★每轮</text>
+    <text x="40" y="108" class="box">→ onUsage("aggregate")? → writeUsageToStream(合并) → [DONE]</text>
+    <text x="40" y="132" class="note">横切总览：crosscutting-token-guard-trace-flow.svg</text>
+  </g>
+
+  <text x="740" y="3175" text-anchor="middle" class="subtitle">docs/chat-multi-flow.svg</text>
+</svg>

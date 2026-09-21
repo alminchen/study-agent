@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>架构总览 · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../index.html">索引</a>
+    <a href="../guide/crosscutting.html">横切</a>
+    <a href="../frontend/composables.html">useChat</a>
+  </nav>
+  <main class="layout">
+    <h1>架构总览</h1>
+    <p class="lede">先建立全局地图：浏览器只持有展示状态；Express 持有 Key、system、工具环、检索与横切。下面是真实调用链，不是概念口号。</p>
+
+    <h2>三条链路（端到端）</h2>
+    <div class="method">
+      <div class="name">A. 单 Agent · POST /api/chat</div>
+      <div class="flow">App → useChat.send → runStream → streamChat
+→ routes/chat（SSE + ConfirmSession + Accumulator）
+→ createChatStream → clipMessages + detectInjection
+→ runConversation（askModel ↔ applyToolCalls → reply）
+→ writeUsageToStream → [DONE]</div>
+      <ol class="steps">
+        <li>前端只传 user/assistant；system 在 createChatStream 注入。</li>
+        <li>ReAct 可能多次 askModel；每次 usage 进同一 Accumulator（source=askModel）。</li>
+        <li>需确认工具：SSE pending_confirm → 前端 POST /api/chat/confirm → 原 SSE 继续。</li>
+      </ol>
+      <div class="why">一条用户消息 ≠ 一次 LLM：必须请求级累加 Token，才能解释成本。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">B. 多 Agent · POST /api/chat/multi</div>
+      <div class="flow">streamChat(multiAgent:true)
+→ chatMulti：injection + Accumulator + compileMultiAgentGraph.invoke
+→ supervisorRoute → Worker(s)（runToolSafely）→ aggregate（detectLeakage）
+→ usage + [DONE]</div>
+      <ol class="steps">
+        <li>选路只看 multiAgent，与 searchDocs 无关。</li>
+        <li>Token source 分桶：supervisor / worker / aggregate。</li>
+        <li>invoke 中途 writeSse，否则确认事件推不出去。</li>
+      </ol>
+      <div class="why">与单 Agent 共用工具 methods 与 ConfirmSession 语义，避免两套确认协议。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">C. 资料问答 · POST /api/rag/chat</div>
+      <div class="flow">runRag → askRag（SSE）
+→ ragChat：injection → Accumulator(rag) → traceRagRequest?
+→ answerFromDocs：toolGuard(searchDocs) → retrieve → prompt → LLM → outputGuard
+→ rag_meta + delta + usage + [DONE]</div>
+      <ol class="steps">
+        <li>独立 system（RAG_SYSTEM_PROMPT），不带天气工具 schema。</li>
+        <li>判空可不调模型 → Accumulator 为空 → 不写 usage。</li>
+        <li>hits 走 rag_meta；正文走 delta，复用气泡拼字逻辑。</li>
+      </ol>
+      <div class="why">RAG 也曾返回 JSON；改 SSE 后才能与 chat 共用 ToolTracePanel 学横切。</div>
+    </div>
+
+    <h2>目录职责</h2>
+    <div class="card">
+      <table class="params">
+        <tr><th>目录</th><th>职责</th><th>说明书</th></tr>
+        <tr><td>src/composables</td><td>前端状态中枢</td><td><a href="../frontend/composables.html">composables.html</a></td></tr>
+        <tr><td>src/api</td><td>SSE/HTTP 解析</td><td><a href="../frontend/api.html">api.html</a></td></tr>
+        <tr><td>server/routes</td><td>端点薄层</td><td><a href="../server/routes.html">routes.html</a></td></tr>
+        <tr><td>server/react</td><td>单 Agent 图</td><td><a href="../server/react.html">react.html</a></td></tr>
+        <tr><td>server/multi-agent</td><td>Supervisor/Workers</td><td><a href="../server/multi-agent.html">multi-agent.html</a></td></tr>
+        <tr><td>server/rag</td><td>检索与回答</td><td><a href="../server/rag.html">rag.html</a></td></tr>
+        <tr><td>guard / usage / tracing</td><td>横切</td><td><a href="../guide/crosscutting.html">crosscutting.html</a></td></tr>
+      </table>
+    </div>
+
+    <h2>硬边界（读代码前先记住）</h2>
+    <div class="card">
+      <ul class="compact">
+        <li>UI history 无 system；发给模型的 system 只在服务端。</li>
+        <li>确认接口不解耦成「第二次聊天」；仍挂在原 SSE 的 wait 上。</li>
+        <li>SSE Trace（用户）≠ LangSmith（开发者）。</li>
+        <li>注释红线：改逻辑时保留教学注释，只增补不删。</li>
+        <li>验收脚本：见 <a href="../scripts/">Code/scripts</a>（RAG 逐步测试 + eval:chat/multi），比只点 UI 更可靠。</li>
+      </ul>
+    </div>
+
+    <footer class="note"><a href="../guide/crosscutting.html">横切对照 →</a></footer>
+  </main>
+</body>
+</html>

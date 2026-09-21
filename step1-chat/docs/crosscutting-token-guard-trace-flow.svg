@@ -1,0 +1,447 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 2680" width="1480" height="2680" role="img" aria-label="Token Guard Tracing Crosscutting Flow">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#0d9488"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowPink" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#db2777"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+      .ok { font: 600 11px sans-serif; fill: #059669; }
+      .na { font: 600 11px sans-serif; fill: #94a3b8; }
+    ]]></style>
+  </defs>
+
+  <rect width="1480" height="2680" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">横切关注点：Token · Guard · Trace（流程图）</text>
+  <text x="40" y="66" class="subtitle">挂在三条业务链上的公共能力；箭头 = 调用顺序 · 色块 = 横切类型</text>
+
+  <!-- legend -->
+  <g transform="translate(40, 86)">
+    <rect x="0" y="0" width="1400" height="48" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="16" y="15" width="18" height="18" rx="3" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="42" y="29" class="legend">Token</text>
+    <rect x="140" y="15" width="18" height="18" rx="3" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="166" y="29" class="legend">Guard</text>
+    <rect x="280" y="15" width="18" height="18" rx="3" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="306" y="29" class="legend">SSE onTrace（用户）</text>
+    <rect x="520" y="15" width="18" height="18" rx="3" fill="#fce7f3" stroke="#db2777"/>
+    <text x="546" y="29" class="legend">LangSmith（开发者）</text>
+    <rect x="760" y="15" width="18" height="18" rx="3" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="786" y="29" class="legend">业务主链（灰）</text>
+  </g>
+
+  <!-- ========== 0. 主链插入点总览 ========== -->
+  <g transform="translate(40, 160)">
+    <text x="0" y="0" class="phase">0. 一次请求上横切插入点（对照业务主链）</text>
+
+    <!-- gray business spine -->
+    <rect x="20" y="28" width="140" height="70" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="90" y="58" text-anchor="middle" class="box">HTTP 入口</text>
+    <text x="90" y="78" text-anchor="middle" class="box-sub">chat / multi / rag</text>
+
+    <line x1="160" y1="63" x2="200" y2="63" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="200" y="28" width="150" height="70" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="275" y="52" text-anchor="middle" class="box">inputGuard</text>
+    <text x="275" y="70" text-anchor="middle" class="box-sub">detectInjection</text>
+    <text x="275" y="88" text-anchor="middle" class="file">只标记</text>
+
+    <line x1="350" y1="63" x2="390" y2="63" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="390" y="28" width="150" height="70" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="465" y="52" text-anchor="middle" class="box">Accumulator</text>
+    <text x="465" y="70" text-anchor="middle" class="box-sub">bindUsage</text>
+    <text x="465" y="88" text-anchor="middle" class="file">请求级累加</text>
+
+    <line x1="540" y1="63" x2="580" y2="63" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="580" y="28" width="160" height="70" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="660" y="52" text-anchor="middle" class="box">业务循环</text>
+    <text x="660" y="70" text-anchor="middle" class="box-sub">LLM × N · tools</text>
+    <text x="660" y="88" text-anchor="middle" class="file">见下图分支</text>
+
+    <line x1="740" y1="63" x2="780" y2="63" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="780" y="28" width="150" height="70" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="855" y="52" text-anchor="middle" class="box">outputGuard</text>
+    <text x="855" y="70" text-anchor="middle" class="box-sub">detectLeakage</text>
+    <text x="855" y="88" text-anchor="middle" class="file">可替换文案</text>
+
+    <line x1="930" y1="63" x2="970" y2="63" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="970" y="28" width="160" height="70" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="1050" y="52" text-anchor="middle" class="box">写 usage</text>
+    <text x="1050" y="70" text-anchor="middle" class="box-sub">SSE / JSON</text>
+    <text x="1050" y="88" text-anchor="middle" class="file">store + 面板</text>
+
+    <line x1="1130" y1="63" x2="1170" y2="63" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="1170" y="28" width="210" height="70" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="1275" y="58" text-anchor="middle" class="box">结束 [DONE] / JSON</text>
+    <text x="1275" y="78" text-anchor="middle" class="box-sub">dispose ConfirmSession?</text>
+
+    <!-- branch under business loop -->
+    <path d="M660,98 L660,130 L520,130" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrowRed)"/>
+    <path d="M660,98 L660,130 L800,130" fill="none" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
+
+    <rect x="400" y="140" width="240" height="56" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="520" y="164" text-anchor="middle" class="box">toolGuard（有 tools 时）</text>
+    <text x="520" y="182" text-anchor="middle" class="box-sub">validateToolCall → 再 confirm</text>
+
+    <rect x="680" y="140" width="240" height="56" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="800" y="164" text-anchor="middle" class="box">SSE onTrace（chat/multi）</text>
+    <text x="800" y="182" text-anchor="middle" class="box-sub">tool_* / confirm / route…</text>
+
+    <path d="M660,98 L660,130 L1040,130 L1040,140" fill="none" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
+    <rect x="920" y="140" width="240" height="56" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="1040" y="164" text-anchor="middle" class="box">LangSmith（仅 /api/chat）</text>
+    <text x="1040" y="182" text-anchor="middle" class="box-sub">askModel / tool span</text>
+  </g>
+
+  <!-- ========== A. Token flow ========== -->
+  <g transform="translate(40, 380)">
+    <text x="0" y="0" class="phase">A. Token 计费流（请求级累加，不是「一条消息一次」）</text>
+
+    <rect x="20" y="24" width="180" height="72" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="110" y="50" text-anchor="middle" class="box">new Usage</text>
+    <text x="110" y="68" text-anchor="middle" class="box">Accumulator()</text>
+    <text x="110" y="86" text-anchor="middle" class="file">accumulator.ts</text>
+
+    <line x1="200" y1="60" x2="240" y2="60" stroke="#0d9488" stroke-width="2" marker-end="url(#arrowTeal)"/>
+
+    <rect x="240" y="24" width="220" height="72" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="350" y="50" text-anchor="middle" class="box">bindUsageCallback</text>
+    <text x="350" y="68" text-anchor="middle" class="box-sub">source + model</text>
+    <text x="350" y="86" text-anchor="middle" class="file">→ onUsage 传给 LLM</text>
+
+    <line x1="460" y1="60" x2="500" y2="60" stroke="#0d9488" stroke-width="2" marker-end="url(#arrowTeal)"/>
+
+    <rect x="500" y="24" width="260" height="72" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="630" y="48" text-anchor="middle" class="box">LLM 封装</text>
+    <text x="630" y="66" text-anchor="middle" class="box-sub">complete / callLLM / rag</text>
+    <text x="630" y="84" text-anchor="middle" class="file">parseUsageFromResponse</text>
+
+    <line x1="760" y1="60" x2="800" y2="60" stroke="#0d9488" stroke-width="2" marker-end="url(#arrowTeal)"/>
+
+    <rect x="800" y="24" width="200" height="72" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="900" y="50" text-anchor="middle" class="box">onUsage →</text>
+    <text x="900" y="68" text-anchor="middle" class="box">acc.record(source)</text>
+    <text x="900" y="86" text-anchor="middle" class="file">可多次累加</text>
+
+    <line x1="1000" y1="60" x2="1040" y2="60" stroke="#0d9488" stroke-width="2" marker-end="url(#arrowTeal)"/>
+
+    <rect x="1040" y="24" width="340" height="72" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="1210" y="48" text-anchor="middle" class="box">请求结束写出</text>
+    <text x="1210" y="66" text-anchor="middle" class="box-sub">writeUsageToStream / appendUsageRecord</text>
+    <text x="1210" y="84" text-anchor="middle" class="file">→ store · UsagePanel</text>
+
+    <!-- sources -->
+    <text x="20" y="130" class="label">source 分桶（同一 Accumulator）</text>
+    <rect x="20" y="144" width="120" height="40" rx="6" fill="#fff" stroke="#0d9488"/>
+    <text x="80" y="169" text-anchor="middle" class="box">askModel</text>
+    <rect x="160" y="144" width="120" height="40" rx="6" fill="#fff" stroke="#0d9488"/>
+    <text x="220" y="169" text-anchor="middle" class="box">supervisor</text>
+    <rect x="300" y="144" width="100" height="40" rx="6" fill="#fff" stroke="#0d9488"/>
+    <text x="350" y="169" text-anchor="middle" class="box">worker</text>
+    <rect x="420" y="144" width="120" height="40" rx="6" fill="#fff" stroke="#0d9488"/>
+    <text x="480" y="169" text-anchor="middle" class="box">aggregate</text>
+    <rect x="560" y="144" width="80" height="40" rx="6" fill="#fff" stroke="#0d9488"/>
+    <text x="600" y="169" text-anchor="middle" class="box">rag</text>
+    <text x="680" y="169" class="box-sub">空累加（Mock / 判空未调 LLM）→ 不写 usage</text>
+  </g>
+
+  <!-- ========== B. Guard pipeline ========== -->
+  <g transform="translate(40, 620)">
+    <text x="0" y="0" class="phase">B. Guard 三道门（时序：输入 → 工具 → 输出）</text>
+
+    <rect x="20" y="24" width="200" height="88" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="120" y="58" text-anchor="middle" class="box">用户文本</text>
+    <text x="120" y="78" text-anchor="middle" class="box-sub">lastUser / question</text>
+
+    <line x1="220" y1="68" x2="260" y2="68" stroke="#dc2626" stroke-width="2" marker-end="url(#arrowRed)"/>
+
+    <rect x="260" y="24" width="220" height="88" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="370" y="48" text-anchor="middle" class="box">1 · inputGuard</text>
+    <text x="370" y="66" text-anchor="middle" class="box-sub">detectInjection</text>
+    <text x="370" y="84" text-anchor="middle" class="file">inputGuard.ts</text>
+    <text x="370" y="102" text-anchor="middle" class="warn">命中只标记 · 不拦截</text>
+
+    <line x1="480" y1="68" x2="520" y2="68" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="520" y="24" width="200" height="88" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="620" y="58" text-anchor="middle" class="box">业务 / LLM</text>
+    <text x="620" y="78" text-anchor="middle" class="box-sub">ReAct / 图 / RAG</text>
+
+    <!-- fork to tool guard -->
+    <path d="M620,112 L620,150 L740,150" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrowRed)"/>
+    <rect x="740" y="118" width="280" height="72" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="880" y="142" text-anchor="middle" class="box">2 · toolCallGuard（有 tools）</text>
+    <text x="880" y="160" text-anchor="middle" class="box-sub">validateToolCall → 拒绝则 {error}</text>
+    <text x="880" y="178" text-anchor="middle" class="file">applyToolCalls / runToolSafely</text>
+
+    <path d="M1020,154 L1080,154 L1080,68 L1120,68" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+    <!-- also continue main -->
+    <line x1="720" y1="68" x2="760" y2="68" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="760" y="24" width="200" height="88" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="860" y="58" text-anchor="middle" class="box">最终回复文本</text>
+    <text x="860" y="78" text-anchor="middle" class="box-sub">reply / aggregate / answer</text>
+
+    <line x1="960" y1="68" x2="1000" y2="68" stroke="#dc2626" stroke-width="2" marker-end="url(#arrowRed)"/>
+
+    <rect x="1000" y="24" width="220" height="88" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1110" y="48" text-anchor="middle" class="box">3 · outputGuard</text>
+    <text x="1110" y="66" text-anchor="middle" class="box-sub">detectLeakage</text>
+    <text x="1110" y="84" text-anchor="middle" class="file">outputGuard.ts</text>
+    <text x="1110" y="102" text-anchor="middle" class="warn">命中 → safeText</text>
+
+    <line x1="1220" y1="68" x2="1260" y2="68" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="1260" y="24" width="120" height="88" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="1320" y="68" text-anchor="middle" class="box">出站</text>
+
+    <text x="20" y="220" class="box-sub">挂载：input → chat.ts / chatMulti.ts / ragChat.ts · tool → 仅 chat+multi · output → reply / aggregate / answerFromDocs</text>
+    <text x="20" y="240" class="box-sub">人工确认在 toolGuard 之后（先合法，再等人放行）· RAG 无 tools → 跳过门 2</text>
+  </g>
+
+  <!-- ========== C. Trace dual ========== -->
+  <g transform="translate(40, 900)">
+    <text x="0" y="0" class="phase">C. Tracing 双通道（勿混）：用户 SSE vs 开发者 LangSmith</text>
+
+    <rect x="20" y="24" width="160" height="64" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="100" y="52" text-anchor="middle" class="box">业务节点</text>
+    <text x="100" y="70" text-anchor="middle" class="box-sub">事件发生处</text>
+
+    <!-- fork -->
+    <path d="M180,56 L220,56 L220,80 L260,80" fill="none" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
+    <path d="M180,56 L220,56 L220,200 L260,200" fill="none" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
+
+    <!-- C1 -->
+    <rect x="260" y="40" width="200" height="80" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="360" y="66" text-anchor="middle" class="box">onTrace / writeSse</text>
+    <text x="360" y="84" text-anchor="middle" class="box-sub">SSE event</text>
+    <text x="360" y="102" text-anchor="middle" class="file">chat · chatMulti</text>
+
+    <line x1="460" y1="80" x2="500" y2="80" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
+
+    <rect x="500" y="40" width="200" height="80" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="600" y="66" text-anchor="middle" class="box">streamChat 解析</text>
+    <text x="600" y="84" text-anchor="middle" class="box-sub">useChat.onTrace</text>
+    <text x="600" y="102" text-anchor="middle" class="file">api/chat.ts</text>
+
+    <line x1="700" y1="80" x2="740" y2="80" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
+
+    <rect x="740" y="40" width="220" height="80" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="850" y="66" text-anchor="middle" class="box">ToolTracePanel</text>
+    <text x="850" y="84" text-anchor="middle" class="box-sub">用户过程面板</text>
+    <text x="850" y="102" text-anchor="middle" class="file">产品体验</text>
+
+    <rect x="1000" y="40" width="380" height="80" rx="8" fill="#f5f3ff" stroke="#7c3aed"/>
+    <text x="1190" y="62" text-anchor="middle" class="box">事件例</text>
+    <text x="1190" y="82" text-anchor="middle" class="box-sub">injection · tool_* · pending_confirm</text>
+    <text x="1190" y="100" text-anchor="middle" class="box-sub">output_leak · supervisor_route · …</text>
+
+    <!-- C2 -->
+    <rect x="260" y="160" width="220" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="370" y="186" text-anchor="middle" class="box">isLangSmithEnabled?</text>
+    <text x="370" y="204" text-anchor="middle" class="box-sub">LANGCHAIN_TRACING_V2</text>
+    <text x="370" y="222" text-anchor="middle" class="file">langsmith.ts</text>
+
+    <line x1="480" y1="200" x2="520" y2="200" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
+
+    <rect x="520" y="160" width="200" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="620" y="186" text-anchor="middle" class="box">traceChatRequest</text>
+    <text x="620" y="204" text-anchor="middle" class="box-sub">chain: chat-request</text>
+    <text x="620" y="222" text-anchor="middle" class="file">仅 /api/chat</text>
+
+    <line x1="720" y1="200" x2="760" y2="200" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
+
+    <rect x="760" y="160" width="200" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="860" y="186" text-anchor="middle" class="box">traceAskModel</text>
+    <text x="860" y="204" text-anchor="middle" class="box-sub">llm span × turn</text>
+
+    <line x1="960" y1="200" x2="1000" y2="200" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
+
+    <rect x="1000" y="160" width="200" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="1100" y="186" text-anchor="middle" class="box">traceToolRun</text>
+    <text x="1100" y="204" text-anchor="middle" class="box-sub">tool span</text>
+    <text x="1100" y="222" text-anchor="middle" class="file">runToolWithTracing</text>
+
+    <rect x="1220" y="160" width="160" height="80" rx="8" fill="#ecfdf5" stroke="#059669"/>
+    <text x="1300" y="196" text-anchor="middle" class="ok">rag ✅</text>
+    <text x="1300" y="214" text-anchor="middle" class="box-sub">multi 仍缺</text>
+  </g>
+
+  <!-- ========== D. Endpoint matrix as 3 swimlane flows ========== -->
+  <g transform="translate(40, 1200)">
+    <text x="0" y="0" class="phase">D. 三端点挂载对照（看色块有无，不是表格）</text>
+
+    <!-- headers -->
+    <rect x="20" y="24" width="160" height="36" rx="6" fill="#fff" stroke="#cbd5e1"/>
+    <text x="100" y="47" text-anchor="middle" class="label">能力 ↓ / 端点 →</text>
+    <rect x="200" y="24" width="380" height="36" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="390" y="47" text-anchor="middle" class="box">/api/chat</text>
+    <rect x="600" y="24" width="380" height="36" rx="6" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="790" y="47" text-anchor="middle" class="box">/api/chat/multi</text>
+    <rect x="1000" y="24" width="380" height="36" rx="6" fill="#ecfdf5" stroke="#059669"/>
+    <text x="1190" y="47" text-anchor="middle" class="box">/api/rag/chat</text>
+
+    <!-- Token row -->
+    <rect x="20" y="72" width="160" height="56" rx="6" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="100" y="105" text-anchor="middle" class="box">Token</text>
+    <rect x="200" y="72" width="380" height="56" rx="6" fill="#fff" stroke="#0d9488"/>
+    <text x="390" y="96" text-anchor="middle" class="ok">✅ askModel × N</text>
+    <text x="390" y="114" text-anchor="middle" class="file">bindUsage + writeUsageToStream</text>
+    <rect x="600" y="72" width="380" height="56" rx="6" fill="#fff" stroke="#0d9488"/>
+    <text x="790" y="96" text-anchor="middle" class="ok">✅ sup + worker + agg</text>
+    <text x="790" y="114" text-anchor="middle" class="file">分桶进同一 Accumulator</text>
+    <rect x="1000" y="72" width="380" height="56" rx="6" fill="#fff" stroke="#0d9488"/>
+    <text x="1190" y="96" text-anchor="middle" class="ok">✅ rag · 0|1 次</text>
+    <text x="1190" y="114" text-anchor="middle" class="file">writeUsageToStream（SSE）</text>
+
+    <!-- input -->
+    <rect x="20" y="140" width="160" height="56" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="100" y="173" text-anchor="middle" class="box">inputGuard</text>
+    <rect x="200" y="140" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="390" y="173" text-anchor="middle" class="ok">✅ → onTrace(injection)</text>
+    <rect x="600" y="140" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="790" y="173" text-anchor="middle" class="ok">✅ → writeSse(injection)</text>
+    <rect x="1000" y="140" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="1190" y="173" text-anchor="middle" class="ok">✅ → SSE injection_detected</text>
+
+    <!-- tool -->
+    <rect x="20" y="208" width="160" height="56" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="100" y="241" text-anchor="middle" class="box">toolGuard</text>
+    <rect x="200" y="208" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="390" y="241" text-anchor="middle" class="ok">✅ applyToolCalls</text>
+    <rect x="600" y="208" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="790" y="241" text-anchor="middle" class="ok">✅ runToolSafely</text>
+    <rect x="1000" y="208" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="1190" y="241" text-anchor="middle" class="ok">✅ searchDocs 检索前</text>
+
+    <!-- output -->
+    <rect x="20" y="276" width="160" height="56" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="100" y="309" text-anchor="middle" class="box">outputGuard</text>
+    <rect x="200" y="276" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="390" y="309" text-anchor="middle" class="ok">✅ reply 节点</text>
+    <rect x="600" y="276" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="790" y="309" text-anchor="middle" class="ok">✅ aggregate</text>
+    <rect x="1000" y="276" width="380" height="56" rx="6" fill="#fff" stroke="#dc2626"/>
+    <text x="1190" y="309" text-anchor="middle" class="ok">✅ answerFromDocs</text>
+
+    <!-- SSE -->
+    <rect x="20" y="344" width="160" height="56" rx="6" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="100" y="377" text-anchor="middle" class="box">SSE Trace</text>
+    <rect x="200" y="344" width="380" height="56" rx="6" fill="#fff" stroke="#7c3aed"/>
+    <text x="390" y="377" text-anchor="middle" class="ok">✅ 全套事件</text>
+    <rect x="600" y="344" width="380" height="56" rx="6" fill="#fff" stroke="#7c3aed"/>
+    <text x="790" y="377" text-anchor="middle" class="ok">✅ route / worker_done</text>
+    <rect x="1000" y="344" width="380" height="56" rx="6" fill="#fff" stroke="#7c3aed"/>
+    <text x="1190" y="377" text-anchor="middle" class="ok">✅ tool_* / injection / leak</text>
+    <rect x="20" y="412" width="160" height="56" rx="6" fill="#fce7f3" stroke="#db2777"/>
+    <text x="100" y="445" text-anchor="middle" class="box">LangSmith</text>
+    <rect x="200" y="412" width="380" height="56" rx="6" fill="#fff" stroke="#db2777"/>
+    <text x="390" y="445" text-anchor="middle" class="ok">✅ span 树</text>
+    <rect x="600" y="412" width="380" height="56" rx="6" fill="#fff" stroke="#cbd5e1"/>
+    <text x="790" y="445" text-anchor="middle" class="na">❌ 未挂</text>
+    <rect x="1000" y="412" width="380" height="56" rx="6" fill="#fff" stroke="#db2777"/>
+    <text x="1190" y="445" text-anchor="middle" class="ok">✅ rag-request 树</text>
+  </g>
+
+  <!-- ========== E. /api/chat sequence as flow ========== -->
+  <g transform="translate(40, 1740)">
+    <text x="0" y="0" class="phase">E. /api/chat 横切时序（完整一条）</text>
+
+    <rect x="20" y="24" width="150" height="64" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="95" y="50" text-anchor="middle" class="box">Accumulator</text>
+    <text x="95" y="68" text-anchor="middle" class="box-sub">+ ConfirmSession</text>
+
+    <line x1="170" y1="56" x2="200" y2="56" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="200" y="24" width="150" height="64" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="275" y="50" text-anchor="middle" class="box">detectInjection</text>
+    <text x="275" y="68" text-anchor="middle" class="box-sub">onTrace?</text>
+
+    <line x1="350" y1="56" x2="380" y2="56" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="380" y="24" width="150" height="64" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="455" y="50" text-anchor="middle" class="box">traceChatReq?</text>
+    <text x="455" y="68" text-anchor="middle" class="box-sub">LangSmith</text>
+
+    <line x1="530" y1="56" x2="560" y2="56" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="560" y="24" width="150" height="64" rx="8" fill="#e2e8f0" stroke="#64748b"/>
+    <text x="635" y="50" text-anchor="middle" class="box">askModel × N</text>
+    <text x="635" y="68" text-anchor="middle" class="box-sub">+ Token + LS</text>
+
+    <line x1="710" y1="56" x2="740" y2="56" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="740" y="24" width="170" height="64" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="825" y="48" text-anchor="middle" class="box">validateToolCall</text>
+    <text x="825" y="66" text-anchor="middle" class="box-sub">→ confirm → run</text>
+
+    <line x1="910" y1="56" x2="940" y2="56" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="940" y="24" width="150" height="64" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1015" y="50" text-anchor="middle" class="box">detectLeakage</text>
+    <text x="1015" y="68" text-anchor="middle" class="box-sub">reply</text>
+
+    <line x1="1090" y1="56" x2="1120" y2="56" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="1120" y="24" width="260" height="64" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="1250" y="50" text-anchor="middle" class="box">writeUsageToStream</text>
+    <text x="1250" y="68" text-anchor="middle" class="box-sub">→ [DONE] · dispose</text>
+
+    <!-- multi / rag mini -->
+    <text x="20" y="120" class="label">对照 · multi</text>
+    <rect x="20" y="132" width="680" height="56" rx="8" fill="#eef2ff" stroke="#4f46e5"/>
+    <text x="40" y="156" class="box">detectInjection → graph(acc) → supervisor/worker/agg 各 Token → runToolSafely → detectLeakage → writeUsage</text>
+    <text x="40" y="174" class="file">无 LangSmith 包层 · SSE 有 supervisor_route / worker_done</text>
+
+    <text x="740" y="120" class="label">对照 · rag</text>
+    <rect x="740" y="132" width="640" height="56" rx="8" fill="#ecfdf5" stroke="#059669"/>
+    <text x="760" y="156" class="box">SSE → detectInjection → toolGuard(searchDocs) → retrieve → LLM? → detectLeakage → rag_meta+delta</text>
+    <text x="760" y="174" class="file">LangSmith: rag-request / rag-retrieve / rag-llm · writeUsageToStream</text>
+  </g>
+
+  <!-- footer -->
+  <g transform="translate(40, 1980)">
+    <rect x="20" y="0" width="1400" height="72" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="28" class="phase">源码索引</text>
+    <text x="40" y="52" class="file">usage/* · guard/* · tracing/langsmith.ts · react/{complete,applyToolCalls,runConversation}.ts · multi-agent/{llm,runToolSafely,aggregate}.ts · rag/{complete,answer}.ts · routes/sse.ts</text>
+  </g>
+
+  <g transform="translate(40, 2080)">
+    <rect x="20" y="0" width="1400" height="72" rx="10" fill="#ecfdf5" stroke="#059669"/>
+    <text x="40" y="28" class="phase">与业务图的关系</text>
+    <text x="40" y="52" class="box">本图 = 横切流程总览；细节见 chat-react-flow / chat-multi-flow / rag-chat-flow / human-confirm-flow</text>
+  </g>
+
+  <text x="40" y="2200" class="box-sub">confirm：/api/chat/confirm 只 resolve wait；Token/LLM/LangSmith 仍挂在未结束的父 /api/chat SSE 上</text>
+
+  <text x="740" y="2640" text-anchor="middle" class="subtitle">docs/crosscutting-token-guard-trace-flow.svg</text>
+</svg>

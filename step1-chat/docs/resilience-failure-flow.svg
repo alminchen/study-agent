@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 2300" width="1480" height="2300" role="img" aria-label="Resilience Failure Flow">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#059669"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .lane { font: 700 12px sans-serif; fill: #475569; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+    ]]></style>
+  </defs>
+  <rect width="1480" height="2300" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">失败地图与恢复策略（按层）</text>
+  <text x="40" y="66" class="subtitle">每层：失败类型 → 用户看到什么 → 可重试? → 模型是否继续（详见 resilience-failure-map.md）</text>
+
+  <g transform="translate(40, 100)">
+    <text x="0" y="0" class="phase">请求主链（对照失败点）</text>
+<rect x="20" y="24" width="220" height="56" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+<text x="130.0" y="46" text-anchor="middle" class="box">用户发消息</text>
+<text x="130.0" y="64" text-anchor="middle" class="box-sub">F1/F2 网络层</text><line x1="240" y1="52" x2="280" y2="52" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="280" y="24" width="240" height="56" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+<text x="400.0" y="46" text-anchor="middle" class="box">prefetch?</text>
+<text x="400.0" y="64" text-anchor="middle" class="box-sub">R1–R3 检索</text><line x1="520" y1="52" x2="560" y2="52" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="560" y="24" width="240" height="56" rx="8" fill="#d1fae5" stroke="#059669"/>
+<text x="680.0" y="46" text-anchor="middle" class="box">askModel</text>
+<text x="680.0" y="64" text-anchor="middle" class="box-sub">L1–L6 LLM</text><line x1="800" y1="52" x2="840" y2="52" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="840" y="24" width="240" height="56" rx="8" fill="#fef3c7" stroke="#d97706"/>
+<text x="960.0" y="46" text-anchor="middle" class="box">applyTools</text>
+<text x="960.0" y="64" text-anchor="middle" class="box-sub">T1–T4 工具</text><line x1="1080" y1="52" x2="1120" y2="52" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/><rect x="1120" y="24" width="280" height="56" rx="8" fill="#d1fae5" stroke="#059669"/>
+<text x="1260.0" y="46" text-anchor="middle" class="box">reply / delta</text>
+<text x="1260.0" y="64" text-anchor="middle" class="box-sub">或提前中断</text>
+  </g>
+
+  <g transform="translate(40, 220)">
+    <text x="0" y="0" class="phase">LLM 层（/api/chat）</text>
+    <rect x="20" y="20" width="1400" height="280" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <text x="40" y="52" class="box">L1 HTTP 400/5xx → 页面 error，ReAct 整段中断，协议类重试通常无效</text>
+    <text x="40" y="80" class="box">L2 超时/网络 → SSE error，可重试，模型不继续</text>
+    <text x="40" y="108" class="box">L3 MAX_MODEL_TURNS=5 → 气泡「询问次数上限」，系统主动停</text>
+    <text x="40" y="136" class="box">L4 无 Key / MOCK → streamMock 降级，配 Key 后可真调</text>
+    <text x="40" y="164" class="box">L5 该调工具却无 tool_calls → 可能凭记忆答，无明确失败条</text>
+    <text x="40" y="192" class="box">L6 用户停止 → AbortSignal，文案「已停止生成」</text>
+    <text x="40" y="228" class="file">锚点: complete.ts · runConversation.ts · chat.ts</text>
+    <text x="40" y="270" class="label-em">决策：throw/中断 ≠ 工具 {error} 回填（后者常允许模型继续）</text>
+  </g>
+
+  <g transform="translate(40, 560)">
+    <text x="0" y="0" class="phase">工具层（统一不 throw）</text>
+    <rect x="20" y="20" width="1400" height="200" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <text x="40" y="52" class="box">T1 参数非法 → tool_result.error，模型继续解释</text>
+    <text x="40" y="80" class="box">T2 业务拒绝（如火星天气）→ error 回填，模型继续</text>
+    <text x="40" y="108" class="box">T3 未知工具名 → error，一般不可靠重试同句</text>
+    <text x="40" y="136" class="box">T4 同工具连续失败≥2 → toolFailure 停止再执行，新消息重置计数</text>
+    <text x="40" y="172" class="file">锚点: applyToolCalls.ts · toolFailure.ts · tools/methods/*</text>
+  </g>
+
+  <g transform="translate(40, 830)">
+    <text x="0" y="0" class="phase">检索 / RAG 层</text>
+    <rect x="20" y="20" width="680" height="220" rx="10" fill="#ecfdf5" stroke="#059669"/>
+    <text x="40" y="52" class="box">聊天 prefetch（R）</text>
+    <text x="40" y="80" class="box-sub">R1 库空 → 注入未找到 + ingest 提示</text>
+    <text x="40" y="108" class="box-sub">R2 分数低判空 → 固定说明，仍可进模型（有瞎编风险；P0 已改为跳过 LLM）</text>
+    <text x="40" y="136" class="box-sub">R3 rerank 未下载 → 静默退回向量 TopK</text>
+    <text x="40" y="172" class="file">prefetchSearchDocs.ts</text>
+
+    <rect x="740" y="20" width="680" height="220" rx="10" fill="#eef2ff" stroke="#4f46e5"/>
+    <text x="760" y="52" class="box">资料问答（G）</text>
+    <text x="760" y="80" class="box-sub">G1 question 空 → 400</text>
+    <text x="760" y="108" class="box-sub">G2 判空 → 固定文案，calledModel:false</text>
+    <text x="760" y="136" class="box-sub">G3 库空 → 500 + ingest 提示</text>
+    <text x="760" y="164" class="box-sub">G5 LLM 失败 → 500；G6 停止 → 499</text>
+    <text x="760" y="196" class="file">answer.ts · ragChat.ts</text>
+  </g>
+
+  <g transform="translate(40, 1140)">
+    <text x="0" y="0" class="phase">前端层</text>
+    <rect x="20" y="20" width="1400" height="140" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <text x="40" y="52" class="box">F1 fetch 失败 → 顶部 error + retry</text>
+    <text x="40" y="80" class="box">F2 HTTP 非 200 → 服务异常 / 资料问答失败</text>
+    <text x="40" y="108" class="box">F3 SSE 内 {error} → onError 显示原文</text>
+    <text x="40" y="136" class="file">useChat.ts · api/chat.ts · api/rag.ts</text>
+  </g>
+
+  <g transform="translate(40, 1360)">
+    <text x="0" y="0" class="phase">决策树（排错时快速判断）</text>
+
+    <polygon points="400,50 560,100 400,150 240,100" fill="#fff7ed" stroke="#d97706" stroke-width="1.5"/>
+    <text x="400" y="96" text-anchor="middle" class="box">错误从哪来?</text>
+    <text x="400" y="114" text-anchor="middle" class="box-sub">SSE error / 气泡文案 / Trace</text>
+<line x1="240" y1="100" x2="120" y2="100" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arrowRed)"/><rect x="20" y="70" width="100" height="60" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+<text x="70.0" y="92" text-anchor="middle" class="box">整请求死</text>
+<text x="70.0" y="110" text-anchor="middle" class="box-sub">L/F/G</text><line x1="560" y1="100" x2="700" y2="100" stroke="#059669" stroke-width="1.5" marker-end="url(#arrowGreen)"/><rect x="700" y="70" width="200" height="60" rx="8" fill="#d1fae5" stroke="#059669"/>
+<text x="800.0" y="92" text-anchor="middle" class="box">工具 error</text>
+<text x="800.0" y="110" text-anchor="middle" class="box-sub">模型可继续</text><line x1="400" y1="150" x2="400" y2="200" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrowAmber)"/><rect x="280" y="200" width="240" height="60" rx="8" fill="#fef3c7" stroke="#d97706"/>
+<text x="400.0" y="222" text-anchor="middle" class="box">判空/降级</text>
+<text x="400.0" y="240" text-anchor="middle" class="box-sub">看是否调了 LLM</text>
+    <rect x="20" y="300" width="1400" height="80" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="332" class="phase">文档原文</text>
+    <text x="40" y="358" class="box">完整表格与策略说明：docs/resilience-failure-map.md</text>
+  </g>
+
+  <text x="740" y="2275" text-anchor="middle" class="subtitle">docs/resilience-failure-flow.svg</text>
+</svg>

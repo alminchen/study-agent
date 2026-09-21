@@ -1,0 +1,1335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>step1-chat · 学习计划对照拓扑</title>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "neutral",
+    securityLevel: "loose",
+    flowchart: { curve: "basis", htmlLabels: true, padding: 12 },
+  });
+</script>
+<style>
+  :root {
+    --bg: #f1f4f3;
+    --card: #fff;
+    --ink: #1b2426;
+    --muted: #5c6b70;
+    --line: #d8e0e1;
+    --accent: #2563eb;
+    --ok: #059669;
+    --warn: #d97706;
+    --code: #0f172a;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 20px 96px; }
+  h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 8px; }
+  h2 { font-size: 18px; margin: 36px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+  h3 { font-size: 15px; margin: 20px 0 8px; }
+  .lede { color: var(--muted); font-size: 14.5px; margin: 0 0 10px; }
+  .lede a, a { color: var(--accent); text-decoration: none; }
+  .lede a:hover, a:hover { text-decoration: underline; }
+  nav.toc {
+    position: sticky; top: 0; z-index: 5;
+    margin: 18px 0 28px; padding: 12px 14px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 8px; font-size: 13px;
+    box-shadow: 0 1px 2px rgba(16,24,26,.04);
+  }
+  nav.toc strong { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  nav.toc a { margin-right: 12px; white-space: nowrap; color: var(--ink); }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; margin: 0 0 16px;
+    box-shadow: 0 1px 2px rgba(16,24,26,.04);
+  }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px;
+    border-radius: 999px; margin-right: 6px; vertical-align: middle;
+  }
+  .badge.done { background: #d1fae5; color: #065f46; }
+  .badge.now { background: #fef3c7; color: #92400e; }
+  .badge.later { background: #e2e8f0; color: #475569; }
+  table.map {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  table.map th, table.map td {
+    border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top;
+  }
+  table.map th { background: #f8fafc; font-weight: 600; }
+  code, .fn {
+    font-family: var(--mono); font-size: 12.5px; color: var(--code);
+  }
+  .fn { font-weight: 600; }
+  .path { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .calltree {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
+    background: #0b1220; color: #e2e8f0; border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; white-space: pre;
+  }
+  .calltree .c { color: #94a3b8; }
+  .calltree .m { color: #7dd3fc; }
+  .calltree .e { color: #fbbf24; }
+  .calltree .ok { color: #86efac; }
+  .mermaid {
+    background: #f8fafc; border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; overflow-x: auto; margin: 10px 0 4px;
+    min-height: 120px;
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+  ul.compact { margin: 6px 0; padding-left: 18px; font-size: 13.5px; }
+  ul.compact li { margin: 3px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
+  footer.note { margin-top: 40px; font-size: 12.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>step1-chat · 学习计划对照拓扑</h1>
+  <p class="lede">对照 <code>LLM/learning-plan.md</code> 与<strong>当前仓库实现</strong>，把已落地能力画成方法级调用拓扑。浏览器直接打开本页即可。</p>
+  <p class="lede">细泳道 SVG：<a href="./flows-index.html">flows-index.html</a>（含 <a href="./flows-index.html#rag-enhance">3b 问句增强</a>）· 模块说明书：<a href="../Code/index.html">Code/</a> · 消息流：<a href="./project-messages-flow.md">project-messages-flow.md</a> · 总计划：<a href="../../learning-plan.md">learning-plan.md</a></p>
+  <p class="lede" style="font-size:13px;color:#64748b">同步说明：以 <code>server/</code>、<code>src/</code> 导出函数为准；若与旧 SVG 不一致，以本页与源码为准。</p>
+
+  <nav class="toc" aria-label="目录">
+    <strong>目录</strong>
+    <a href="#map">0 阶段对照表</a>
+    <a href="#boot">1 启动挂载</a>
+    <a href="#fe">2 前端入口</a>
+    <a href="#single">3 单 Agent</a>
+    <a href="#multi">4 多 Agent</a>
+    <a href="#confirm">5 人工确认</a>
+    <a href="#draft">5b draft_message</a>
+    <a href="#rag">6 RAG</a>
+    <a href="#rag-enhance">6b 问句增强</a>
+    <a href="#cross">7 Token/Guard/Trace</a>
+    <a href="#tools">7b 工具表</a>
+    <a href="#pending">8 未交付</a>
+  </nav>
+
+  <!-- ========== 0 ========== -->
+  <h2 id="map">0. 学习阶段 ↔ 本仓库落点</h2>
+  <div class="card">
+    <table class="map">
+      <thead>
+        <tr>
+          <th>阶段</th>
+          <th>状态</th>
+          <th>核心路径 / 关键方法</th>
+          <th>计划文档</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1 会说话的 UI</td>
+          <td><span class="badge done">已结</span></td>
+          <td><code>src/App.vue</code> · <span class="fn">useChat</span> · <span class="fn">runSseSession</span> · <span class="fn">streamChat</span>/<span class="fn">askRag</span> · SSE · localStorage</td>
+          <td>learning-plan §阶段1</td>
+        </tr>
+        <tr>
+          <td>2 Function Calling</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">requestCompletion</span> · <span class="fn">applyToolCalls</span> · <span class="fn">toolSchemasForChat</span>/<span class="fn">findTool</span> · getWeather/getCurrentTime/searchDocs/draft_message · <code>ToolTracePanel</code></td>
+          <td>learning-plan §阶段2</td>
+        </tr>
+        <tr>
+          <td>3 RAG</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">answerFromDocs</span> → <span class="fn">retrieveForAnswer</span> → <span class="fn">judgeRetrieval</span> → <span class="fn">rerankHits</span> → <span class="fn">buildRagPrompt</span> → <span class="fn">completeRagMessages</span></td>
+          <td>stage3 / dynamic-kb（上传后置）</td>
+        </tr>
+        <tr>
+          <td>额外课 · 问句增强</td>
+          <td><span class="badge done">已结</span></td>
+          <td><code>queryEnhance/</code>：<span class="fn">parseIntent</span> · <span class="fn">rewriteQuery</span> · <span class="fn">resolveKbRoute</span> · <span class="fn">searchMultiQuery</span> · <span class="fn">resolveHydeQuery</span> · 挂在 <span class="fn">retrieveForAnswer</span></td>
+          <td><a href="../../rag-query-intent-rewrite-learning-plan.md">intent-rewrite 计划</a> · <a href="./rag-query-enhance-notes.md">笔记</a> · <a href="#rag-enhance">§6b</a></td>
+        </tr>
+        <tr>
+          <td>4 ReAct / LangGraph / searchDocs</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">createChatStream</span> → <span class="fn">runConversation</span> → <span class="fn">prefetchSearchDocsIfEnabled</span> → ReAct（askModel ↔ applyTools）· <span class="fn">toolSchemasForChat</span></td>
+          <td>stage4-react* / kb-search</td>
+        </tr>
+        <tr>
+          <td>4 人工确认（单）</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">ConfirmSession</span> · <span class="fn">runWithOptionalConfirm</span> / <span class="fn">runToolSafely</span> · <span class="fn">draft_message</span> · <span class="fn">resolveToolConfirm</span></td>
+          <td>stage4-human-confirm*</td>
+        </tr>
+        <tr>
+          <td>5 MCP</td>
+          <td><span class="badge done">已结</span></td>
+          <td><code>server/mcp/createServer.ts</code>（工具暴露学习）</td>
+          <td>stage5-mcp*</td>
+        </tr>
+        <tr>
+          <td>5 Tracing</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">traceChatRequest</span> · <span class="fn">traceAskModel</span> · <code>tracing/langsmith.ts</code></td>
+          <td>stage5-tracing*</td>
+        </tr>
+        <tr>
+          <td>5 Evals</td>
+          <td><span class="badge done">已结</span></td>
+          <td><code>scripts/run-evals.ts</code> · <code>evals/dataset*.json</code> · <code>npm run eval:*</code></td>
+          <td>stage5-evals*</td>
+        </tr>
+        <tr>
+          <td>5 降级 / Guard</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">detectInjection</span> · <span class="fn">validateToolCall</span> · <span class="fn">detectLeakage</span> · toolFailure tracker</td>
+          <td>stage5-resilience* / prompt-injection*</td>
+        </tr>
+        <tr>
+          <td>5 多 Agent</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">compileMultiAgentGraph</span> · <span class="fn">supervisorRoute</span> · Workers · <span class="fn">aggregate</span></td>
+          <td>stage5-multi-agent*</td>
+        </tr>
+        <tr>
+          <td>5 Token / 成本</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">UsageAccumulator</span> · <span class="fn">bindUsageCallback</span> · <span class="fn">writeUsageToStream</span> · <code>UsagePanel</code></td>
+          <td>stage5-token-cost*</td>
+        </tr>
+        <tr>
+          <td>5 多 Agent 确认</td>
+          <td><span class="badge done">已结</span></td>
+          <td><span class="fn">runActionWorker</span> · <span class="fn">runToolSafely</span>（wait）· <span class="fn">draft_message</span> · 共用 confirm API</td>
+          <td>stage5-multi-agent-human-confirm* · <a href="./multi-agent-human-confirm-flow.svg">flow.svg</a></td>
+        </tr>
+        <tr>
+          <td>5 交付页</td>
+          <td><span class="badge now">当前</span></td>
+          <td>调试 / 日志 / 成本专页 + eval 数据集（尚未单独拆页，现有 UsagePanel / ToolTrace）</td>
+          <td>learning-plan §下一步 9</td>
+        </tr>
+        <tr>
+          <td>FastAPI + Docker</td>
+          <td><span class="badge later">后置</span></td>
+          <td>—</td>
+          <td>learning-plan</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========== 1 ========== -->
+  <h2 id="boot">1. 进程启动与路由挂载</h2>
+  <div class="card">
+    <div class="mermaid">
+flowchart TB
+  subgraph boot["server/index.ts"]
+    DOT["dotenv.config .env.local / .env"]
+    APP["express() + express.json"]
+    RR["registerRoutes(app)"]
+    LISTEN["app.listen(HOST, PORT)"]
+    CFG["getRuntimeConfig()"]
+  end
+  DOT --> APP --> RR --> LISTEN
+  LISTEN --> CFG
+
+  subgraph routes["server/routes/index.ts"]
+    U["registerUsageRoutes<br/>GET/DELETE /api/usage"]
+    H["registerHealthRoutes<br/>GET /api/health"]
+    R["registerRagChatRoutes<br/>POST /api/rag/chat"]
+    C["registerChatRoutes<br/>POST /api/chat"]
+    CF["registerChatConfirmRoutes<br/>POST/GET /api/chat/confirm"]
+    M["registerChatMultiRoutes<br/>POST /api/chat/multi"]
+  end
+  RR --> U & H & R & C & CF & M
+
+  C --> SSE1["setSseHeaders + writeUsageToStream"]
+  M --> SSE2["setSseHeaders + writeUsageToStream"]
+  R --> SSE3["setSseHeaders + writeUsageToStream"]
+    </div>
+    <div class="calltree"><span class="c">// server/index.ts</span>
+<span class="m">registerRoutes</span>(app)
+  ├─ <span class="m">registerUsageRoutes</span>      → GET/DELETE /api/usage
+  ├─ <span class="m">registerHealthRoutes</span>     → GET /api/health
+  ├─ <span class="m">registerRagChatRoutes</span>     → POST /api/rag/chat          <span class="e">SSE 资料问答</span>
+  ├─ <span class="m">registerChatRoutes</span>        → POST /api/chat              <span class="e">SSE 单 Agent</span>
+  ├─ <span class="m">registerChatConfirmRoutes</span> → POST/GET /api/chat/confirm  <span class="e">JSON 确认</span>
+  └─ <span class="m">registerChatMultiRoutes</span>   → POST /api/chat/multi        <span class="e">SSE 多 Agent</span>
+
+<span class="c">// 配置</span>
+<span class="m">getRuntimeConfig</span>() → { apiKey, baseUrl, model, mockMode, forceMock }</div>
+  </div>
+
+  <!-- ========== 2 ========== -->
+  <h2 id="fe">2. 前端入口拓扑（阶段 1 + 开关）</h2>
+  <div class="card">
+    <div class="mermaid">
+flowchart TB
+  APP["App.vue<br/>toggle: ragMode / multiAgent / searchKb"] --> UC["useChat()"]
+
+  subgraph toggles["开关（互不绑死 endpoint）"]
+    SMA["setMultiAgent → localStorage"]
+    SKB["setSearchKb → searchDocs body"]
+    SRAG["setRagMode → 换历史键"]
+  end
+  UC --> SMA & SKB & SRAG
+
+  UC --> SEND["send(content)"]
+  SEND -->|ragMode| RR["runRag"]
+  SEND -->|!ragMode| RS["runStream"]
+
+  RR --> RSS["runSseSession 骨架"]
+  RS --> RSS
+  RSS -->|rag| AR["askRag()"]
+  RSS -->|chat| SC["streamChat({ multiAgent, searchDocs, … })"]
+  AR --> RAGAPI["POST /api/rag/chat"]
+  SC --> CHATAPI["POST /api/chat 或 /multi"]
+  AR --> RHIT["onRagMeta → RagHitPanel"]
+  SC --> PARSE["解析 SSE:<br/>delta / rag_meta / tool_* / pending_confirm<br/>confirm_resolved / usage / DONE"]
+  PARSE --> TRACE["toolTrace[] → ToolTracePanel"]
+  PARSE --> USAGE["lastUsage → UsagePanel"]
+  PARSE --> MSG["messages 助手气泡"]
+
+  UC --> RTC["resolveToolConfirm"]
+  RTC --> CCT["confirmChatTool"]
+  CCT --> CFAPI["POST /api/chat/confirm"]
+  TRACE -->|点允许/拒绝| RTC
+
+  UC --> STOP["stop → AbortController.abort"]
+  UC --> RETRY["retry"]
+  UC --> CLEAR["clear + localStorage"]
+    </div>
+    <ul class="compact">
+      <li><span class="fn">runSseSession</span>：runStream / runRag 共用（Abort、占位气泡、onDelta/onTrace/onUsage/onError 收尾）</li>
+      <li><span class="fn">setMultiAgent</span>：选 <code>/api/chat/multi</code> vs <code>/api/chat</code>（与 searchKb <strong>解耦</strong>）</li>
+      <li><span class="fn">setSearchKb</span>：只传 body <code>searchDocs</code>（单 Agent 在 <span class="fn">runConversation</span> 入口 prefetch）</li>
+      <li><span class="fn">setRagMode</span>：切到 <code>/api/rag/chat</code>，历史键分离；<span class="fn">runRag</span> 会把当前问句从 history 里剥出</li>
+      <li><span class="fn">streamChat</span> / <span class="fn">askRag</span>：解析 SSE（delta / rag_meta / pending_confirm / usage / tool / guard 事件）</li>
+      <li><span class="fn">askRag</span> 的 <code>rag_meta</code> 含 <code>rewriteMeta / kbRouteMeta / multiQueryMeta / hydeMeta</code> → <code>RagHitPanel</code>「问句增强」区（右侧栏）</li>
+      <li><span class="fn">resolveToolConfirm</span> → <span class="fn">confirmChatTool</span>：点允许/拒绝 → 不解绑原 SSE，只解开 <code>ConfirmSession.wait</code></li>
+    </ul>
+  </div>
+
+  <!-- ========== 3 ========== -->
+  <h2 id="single">3. 单 Agent 全链路（阶段 2/4 + 确认）</h2>
+  <div class="card">
+    <h3>总览图（方法级）</h3>
+    <div class="mermaid">
+flowchart TB
+  subgraph route["routes/chat.ts"]
+    RCR["registerChatRoutes"]
+    SSE["setSseHeaders(res)"]
+    CS["new ConfirmSession()<br/>sessions.set"]
+    ACC["UsageAccumulator + bindUsageCallback(askModel)"]
+    WU["writeUsageToStream → appendUsageRecord"]
+    DISP["finally confirmSession.dispose()"]
+  end
+  RCR --> SSE --> CS --> ACC
+
+  subgraph ccs["chat.ts · createChatStream"]
+    BSP["buildSystemPrompt(searchDocs)<br/>KB_ON/OFF + GUARD"]
+    CLIP["clipMessages"]
+    INJ["detectInjection → onTrace?"]
+    MOCK["streamMock?"]
+    RC["runConversation"]
+  end
+  subgraph rc["runConversation.ts"]
+    PRE["prefetchSearchDocsIfEnabled<br/>executeSearchDocs"]
+    EMPTY{"empty?"}
+    EARLY["onDelta 固定文案<br/>searchDocs_empty"]
+    GRAPH["compileReactGraph → invoke"]
+  end
+  ACC --> CCS_ENTRY["createChatStream({confirmSession, searchDocs, …})"]
+  CCS_ENTRY --> BSP --> CLIP --> INJ --> MOCK
+  INJ --> RC
+  MOCK --> RC
+  RC --> PRE --> EMPTY
+  EMPTY -->|是| EARLY --> WU
+  EMPTY -->|否| GRAPH
+
+  subgraph graph["react/runConversation.ts · StateGraph"]
+    START((START))
+    ASK["askModelNode<br/>traceAskModel<br/>requestCompletion<br/>onUsage / parse tool_calls"]
+    ROUTE{"routeAfterAsk"}
+    AT["applyToolsNode<br/>applyToolCalls"]
+    REP["replyNode<br/>detectLeakage<br/>normalizeKnowledgeAnswer?<br/>onDelta"]
+    ENDN((END))
+  end
+  GRAPH --> START --> ASK --> ROUTE
+  ROUTE -->|tool_calls| AT --> ASK
+  ROUTE -->|finalText| REP --> ENDN
+
+  subgraph tools["applyToolCalls / 确认"]
+    TC["onTrace(tool_call)"]
+    VG["validateToolCall"]
+    NEED{"isToolRequiringConfirm?"}
+    RUN["runToolCall → findTool().run"]
+    ROC["runWithOptionalConfirm"]
+    PC["onTrace(pending_confirm)"]
+    WAIT["confirmSession.wait"]
+    CR["onTrace(confirm_resolved)"]
+    DENY["deny → {error}"]
+    TR["onTrace(tool_result)"]
+    FAIL["createConsecutiveFailureTracker"]
+  end
+  AT --> TC --> VG --> NEED
+  NEED -->|否| RUN --> TR
+  NEED -->|是| ROC --> PC --> WAIT
+  WAIT -->|POST /api/chat/confirm<br/>session.resolve| CR
+  CR -->|allow| RUN
+  CR -->|deny| DENY --> TR
+  TR --> FAIL
+
+  ENDN --> WU --> DISP
+    </div>
+    <h3>方法调用树</h3>
+    <div class="calltree"><span class="c">// routes/chat.ts  —— 含 Token / Guard / Trace / Confirm</span>
+<span class="m">registerChatRoutes</span>
+  ├─ <span class="m">setSseHeaders</span>
+  ├─ <span class="m">new ConfirmSession</span>()                    <span class="c">// sessions.set(confirmId)</span>
+  ├─ <span class="e">[Token]</span> <span class="m">new UsageAccumulator</span>()
+  ├─ <span class="e">[Token]</span> <span class="m">bindUsageCallback</span>(acc, <span class="ok">"askModel"</span>, defaultModel) → onUsage
+  ├─ <span class="m">createChatStream</span>({ confirmSession, searchDocs, onDelta, onTrace, onUsage })
+  │    ├─ <span class="m">buildSystemPrompt</span>(searchDocs)  <span class="c">// KB_ON / KB_OFF + GUARD</span>
+  │    ├─ <span class="m">clipMessages</span>(messages, maxContextMessages)
+  │    ├─ <span class="e">[Guard·Input]</span> <span class="m">detectInjection</span>(lastUser) → onTrace(<span class="ok">injection_detected</span>?)
+  │    ├─ mock / 无 Key? → onTrace(<span class="ok">degradation</span>) → <span class="m">streamMock</span>
+  │    └─ <span class="m">runConversation</span>(options, apiKey)
+  │         ├─ <span class="m">prefetchSearchDocsIfEnabled</span>  <span class="c">// searchDocs===true；在图外、第一次 ask 前</span>
+  │         │    └─ <span class="m">executeSearchDocs</span> → 命中写进本轮 system；判空 → onTrace(<span class="ok">searchDocs_empty</span>) + onDelta，<span class="e">不调 LLM</span>
+  │         ├─ LangSmith? → <span class="m">traceChatRequest</span> 包下面整段
+  │         ├─ StateGraph: START → askModel ⇄ applyTools → reply → END
+  │         ├─ askModel:
+  │         │    ├─ <span class="e">[Trace]</span> tracing? → <span class="m">traceAskModel</span>  <span class="c">// span: askModel</span>
+  │         │    │         └─ 内部仍 <span class="m">requestCompletion</span>
+  │         │    │    else → <span class="m">requestCompletion</span>(messages, options, apiKey)
+  │         │    │         └─ tools: <span class="m">toolSchemasForChat</span>(searchDocs, confirmSession?)
+  │         │    ├─ <span class="e">[Token]</span> <span class="m">parseUsageFromResponse</span> → options.onUsage(usage, model)
+  │         │    │         └─ accumulator.record("askModel", …)
+  │         │    └─ <span class="m">routeAfterAsk</span> → applyTools | reply
+  │         ├─ applyTools: <span class="m">applyToolCalls</span>(…)
+  │         │    ├─ onTrace(tool_call)                    <span class="c">// 前端 Trace 面板</span>
+  │         │    ├─ <span class="e">[Guard·Tool]</span> <span class="m">validateToolCall</span>
+  │         │    ├─ failures.<span class="m">isStopped</span>? → 熔断回填
+  │         │    ├─ <span class="m">isToolRequiringConfirm</span>?
+  │         │    │    ├─ no  → <span class="m">runToolCall</span>
+  │         │    │    │         └─ <span class="e">[Trace]</span> <span class="m">runToolWithTracing</span> → <span class="m">traceToolRun</span>? → findTool().run
+  │         │    │    └─ yes → <span class="m">runWithOptionalConfirm</span>
+  │         │    │              ├─ onTrace(pending_confirm)
+  │         │    │              ├─ <span class="m">confirmSession.wait</span>(…)  <span class="e">await</span>
+  │         │    │              ├─ onTrace(confirm_resolved)
+  │         │    │              └─ allow → runToolCall / deny → {error}
+  │         │    ├─ onTrace(tool_result)
+  │         │    └─ <span class="m">createConsecutiveFailureTracker</span>  <span class="c">// 降级/熔断</span>
+  │         └─ reply:
+  │              ├─ searchDocs? → <span class="m">normalizeKnowledgeAnswer</span>
+  │              ├─ <span class="e">[Guard·Output]</span> <span class="m">detectLeakage</span>
+  │              │    └─ leaked → onTrace(<span class="ok">output_leak_blocked</span>) + 替换文案
+  │              └─ onDelta(finalText)
+  ├─ <span class="e">[Token]</span> <span class="m">writeUsageToStream</span>(res, acc, "chat", model)
+  │         ├─ acc.toRecord → <span class="m">appendUsageRecord</span>  <span class="c">// data/usage-log.json</span>
+  │         └─ SSE { type:"usage", … } → 前端 onUsage → UsagePanel
+  └─ finally <span class="m">confirmSession.dispose</span>()</div>
+    <p class="path">图：docs/chat-react-flow.svg · docs/human-confirm-flow.svg</p>
+  </div>
+
+  <!-- ========== 4 ========== -->
+  <h2 id="multi">4. 多 Agent 全链路（阶段 5）</h2>
+  <div class="card">
+    <h3>总览图（方法级）</h3>
+    <div class="mermaid">
+flowchart TB
+  subgraph route["routes/chatMulti.ts"]
+    RCM["registerChatMultiRoutes"]
+    SSE["setSseHeaders"]
+    LAST["取 last userText"]
+    ABORT["AbortController on close"]
+    CS["new ConfirmSession()"]
+    WS["writeSse / onTrace 闭包<br/>invoke 中途可写"]
+    INJ["detectInjection → writeSse?"]
+    ACC["UsageAccumulator"]
+    COMP["compileMultiAgentGraph({acc, confirmSession, onTrace, writeSse})"]
+    INV["graph.invoke(state)"]
+    DELTA["writeSse({delta})"]
+    WU["writeUsageToStream(chat/multi)"]
+    DISP["finally dispose()"]
+  end
+  RCM --> SSE --> LAST --> ABORT --> CS --> WS --> INJ --> ACC --> COMP --> INV
+  INV --> DELTA --> WU --> DISP
+
+  subgraph g["multi-agent/graph.ts"]
+    SN["supervisorNode"]
+    WN["workersNode · Promise.all"]
+    AN["aggregateNode"]
+  end
+  INV --> SN --> WN --> AN
+
+  SN --> SR["supervisorRoute"]
+  SR --> CLLMS["callLLM + route tool"]
+  CLLMS --> RD["RouteDecision"]
+  RD --> WSR["writeSse(supervisor_route)"]
+
+  WN --> GWF["getWorkerFn(name)"]
+  GWF --> RT["runRealtimeWorker"]
+  GWF --> KB["runKBWorker"]
+  GWF --> AC["runActionWorker"]
+  GWF --> GE["runGeneralWorker"]
+
+  RT --> LOOP1["callLLM ⇄ runToolSafely"]
+  KB --> LOOP2["callLLM ⇄ runToolSafely"]
+  AC --> LOOP3["callLLM ⇄ runToolSafely<br/>仅 draft_message"]
+  GE --> CLLMG["callLLM 一次 · 无工具"]
+
+  subgraph safe["runToolSafely"]
+    OTC["onTrace(tool_call)"]
+    VG["validateToolCall"]
+    NEED{"isToolRequiringConfirm?"}
+    RUN["findTool().run"]
+    PC["pending_confirm"]
+    WAIT["confirmSession.wait"]
+    CR["confirm_resolved"]
+    OTR["onTrace(tool_result)"]
+  end
+  LOOP1 & LOOP2 & LOOP3 --> OTC --> VG --> NEED
+  NEED -->|否| RUN --> OTR
+  NEED -->|是 draft_message| PC --> WAIT
+  WAIT -->|resolve| CR
+  CR -->|allow| RUN
+  CR -->|deny| OTR
+
+  WN --> WD["writeSse(worker_done)"]
+  AN --> AGG["aggregate(results)"]
+  AGG --> PASS["单 Worker 透传"]
+  AGG --> SUM["多结果 callLLM 汇总"]
+  AGG --> LEAK["detectLeakage"]
+    </div>
+    <div class="calltree"><span class="c">// routes/chatMulti.ts  —— 含 Token / Guard；LangSmith Trace 现网未挂（缺口）</span>
+<span class="m">registerChatMultiRoutes</span>
+  ├─ <span class="m">setSseHeaders</span>
+  ├─ 取 last user text（history 暂不进 Supervisor）
+  ├─ AbortController on res.close
+  ├─ <span class="m">new ConfirmSession</span>()
+  ├─ writeSse / onTrace 闭包（<span class="e">invoke 中途可写</span>）  <span class="c">// 前端过程面板 Trace</span>
+  ├─ <span class="e">[Guard·Input]</span> <span class="m">detectInjection</span> → writeSse(injection_detected?)
+  ├─ <span class="e">[Token]</span> <span class="m">new UsageAccumulator</span>()
+  ├─ <span class="m">compileMultiAgentGraph</span>({ accumulator, confirmSession, onTrace, writeSse })
+  │    ├─ onUsage = (source) => <span class="m">bindUsageCallback</span>(acc, source, defaultModel)
+  │    │    source ∈ <span class="ok">supervisor | worker | aggregate</span>
+  │    └─ graph.invoke({ userMessage, apiKey, … })
+  │         ├─ <span class="m">supervisorNode</span>
+  │         │    └─ <span class="m">supervisorRoute</span>
+  │         │         └─ <span class="m">callLLM</span>(route tool)
+  │         │              ├─ <span class="e">[Token]</span> parseUsage → onUsage(<span class="ok">"supervisor"</span>) → acc.record
+  │         │              └─ RouteDecision → writeSse(supervisor_route)
+  │         ├─ <span class="m">workersNode</span>
+  │         │    └─ Promise.all → <span class="m">getWorkerFn</span>(name)(ctx)
+  │         │         ctx.onUsage = onUsage(<span class="ok">"worker"</span>)
+  │         │         ├─ realtime/kb/action → callLLM ⇄ <span class="m">runToolSafely</span>
+  │         │         │    └─ 每次 callLLM：<span class="e">[Token]</span> → acc.record("worker")
+  │         │         └─ general → 一次 callLLM（无工具）
+  │         │         └─ writeSse(worker_done)
+  │         └─ <span class="m">aggregateNode</span> → <span class="m">aggregate</span>
+  │              ├─ 单成功 → 透传（可能 0 次 LLM）
+  │              ├─ 多结果 → callLLM → <span class="e">[Token]</span> onUsage(<span class="ok">"aggregate"</span>)
+  │              └─ <span class="e">[Guard·Output]</span> <span class="m">detectLeakage</span>
+  ├─ writeSse({ delta })
+  ├─ <span class="e">[Token]</span> <span class="m">writeUsageToStream</span>(…, "chat/multi") → store + SSE usage
+  └─ finally dispose()
+
+<span class="c">// runToolSafely —— Guard + 确认；无 LangSmith tool span（与单 Agent 不同）</span>
+<span class="m">runToolSafely</span>(name, rawArgs, { toolCallId, confirmSession, onTrace, signal })
+  ├─ onTrace(tool_call)                         <span class="c">// 前端 Trace，非 LangSmith</span>
+  ├─ <span class="e">[Guard·Tool]</span> <span class="m">validateToolCall</span>
+  ├─ <span class="m">isToolRequiringConfirm</span>?
+  │    ├─ no  → findTool().run
+  │    └─ yes → pending_confirm → wait → confirm_resolved → allow run / deny
+  └─ onTrace(tool_result)</div>
+    <p class="path">图：docs/chat-multi-flow.svg · docs/multi-agent-human-confirm-flow.svg · server/multi-agent/README.md</p>
+  </div>
+
+  <!-- ========== 5 ========== -->
+  <h2 id="confirm">5. 人工确认双连接（单 / 多共用）</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>长连接（卡住）</h3>
+      <ul class="compact">
+        <li>单：<span class="fn">applyToolCalls</span> → <span class="fn">runWithOptionalConfirm</span> → <span class="fn">wait</span></li>
+        <li>多：<span class="fn">runToolSafely</span> → <span class="fn">wait</span></li>
+        <li>SSE：<code>pending_confirm { confirmId, toolCallId, name, arguments }</code></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>短请求（解开）</h3>
+      <ul class="compact">
+        <li>UI：<span class="fn">resolveToolConfirm</span> → <span class="fn">confirmChatTool</span></li>
+        <li>HTTP：<span class="fn">registerChatConfirmRoutes</span></li>
+        <li><span class="fn">getConfirmSession</span>(confirmId) → <span class="fn">session.resolve</span>(toolCallId, action)</li>
+        <li>成功只表示解开 wait；run 仍在原 SSE 请求里</li>
+      </ul>
+    </div>
+  </div>
+  <div class="card">
+    <div class="mermaid">
+sequenceDiagram
+  participant UI as useChat / ToolTracePanel
+  participant API as streamChat
+  participant SSE as registerChatRoutes<br/>或 registerChatMultiRoutes
+  participant Gate as ConfirmSession
+  participant Tool as runWithOptionalConfirm<br/>或 runToolSafely
+  participant CF as registerChatConfirmRoutes
+
+  UI->>API: runStream / streamChat
+  API->>SSE: POST /api/chat 或 /multi
+  SSE->>Gate: new ConfirmSession + sessions.set
+  SSE->>Tool: 需确认工具
+  Tool->>UI: SSE pending_confirm
+  Tool->>Gate: await wait(toolCallId)
+  Note over Tool,Gate: SSE 连接保持打开
+  UI->>CF: confirmChatTool(confirmId, toolCallId, action)
+  CF->>Gate: getConfirmSession + resolve
+  Gate-->>Tool: Promise resolve(allow|deny)
+  Tool->>UI: SSE confirm_resolved
+  alt allow
+    Tool->>Tool: findTool().run / runToolCall
+  else deny
+    Tool->>Tool: 回填 {error: 用户拒绝}
+  end
+  Tool->>UI: SSE tool_result
+  SSE->>UI: delta / usage / DONE
+  SSE->>Gate: dispose()
+    </div>
+    <h3>方法调用树</h3>
+    <div class="calltree"><span class="c">// A. 会话创建（长连接入口，单 / 多共用）</span>
+<span class="m">registerChatRoutes</span>（单） 或 <span class="m">registerChatMultiRoutes</span>（多）
+  ├─ <span class="m">new ConfirmSession</span>()          <span class="c">// 构造时 sessions.set(confirmId, this)</span>
+  ├─ 把 confirmSession 传入：
+  │    单 → <span class="m">createChatStream</span>({ confirmSession, … })
+  │         └─ <span class="m">runConversation</span> → applyTools → <span class="m">applyToolCalls</span>(…, confirmSession, signal)
+  │    多 → <span class="m">compileMultiAgentGraph</span>({ confirmSession, onTrace, writeSse, … })
+  │         └─ actionWorker 等 → <span class="m">runToolSafely</span>(name, args, { toolCallId, confirmSession, onTrace, signal })
+  └─ finally <span class="m">confirmSession.dispose</span>()  <span class="c">// 未决项一律 deny；从 Map 注销</span>
+
+<span class="c">// B. 需确认工具名单（两端共用）</span>
+<span class="m">isToolRequiringConfirm</span>(name)  ← toolsRequiringConfirm.ts
+  └─ 当前仅 <span class="ok">draft_message</span>
+  └─ 有 ConfirmSession 时 <span class="m">toolSchemasForChat</span>(searchDocs, <span class="ok">true</span>) 才把 draft_message 暴露给模型
+
+<span class="c">// C. 长连接卡住路径 —— 单 Agent（applyToolCalls）</span>
+<span class="m">applyToolCalls</span>(toolCalls, messages, onTrace, turn, failures, confirmSession, signal)
+  ├─ onTrace(<span class="ok">tool_call</span>)
+  ├─ <span class="m">validateToolCall</span> → 拒绝则直接 tool_result.error
+  ├─ failures.<span class="m">isStopped</span>? → 熔断回填
+  ├─ <span class="m">isToolRequiringConfirm</span>(name)?
+  │    ├─ no  → <span class="m">runToolCall</span> → <span class="m">runToolWithTracing</span>? → findTool().run
+  │    └─ yes → <span class="m">runWithOptionalConfirm</span>({ call, confirmSession, onTrace, signal })
+  │              ├─ 无 session → { error: 未启用确认通道 }
+  │              ├─ onTrace(<span class="ok">pending_confirm</span> { confirmId, toolCallId, name, arguments })
+  │              ├─ <span class="e">await</span> <span class="m">confirmSession.wait</span>(toolCallId, name, args, signal)  <span class="c">// SSE 仍开着</span>
+  │              ├─ onTrace(<span class="ok">confirm_resolved</span> { toolCallId, action })
+  │              ├─ deny → { error: 用户拒绝执行该操作 }
+  │              └─ allow → <span class="m">runToolCall</span> → findTool().run
+  └─ onTrace(<span class="ok">tool_result</span>) → messages.push(role:"tool")
+
+<span class="c">// D. 长连接卡住路径 —— 多 Agent（runToolSafely，逻辑对齐 C）</span>
+<span class="m">runToolSafely</span>(name, rawArgs, { toolCallId, confirmSession, onTrace, signal })
+  ├─ onTrace(tool_call) → validateToolCall → findTool
+  ├─ 需确认? → pending_confirm → <span class="e">await</span> wait → confirm_resolved → allow? tool.run : deny error
+  └─ onTrace(tool_result)
+  <span class="c">// 多 Agent 无 runToolWithTracing；onTrace 经 writeSse 直推 SSE</span>
+
+<span class="c">// E. 短连接解开（第二条 HTTP，不关 SSE）</span>
+ToolTracePanel 点允许/拒绝
+  → App.vue @confirm → <span class="m">useChat.resolveToolConfirm</span>({ confirmId, toolCallId, action })
+       ├─ toolTrace 行 status → resolving
+       └─ <span class="m">confirmChatTool</span>  <span class="c">// src/api/chat.ts</span>
+            └─ POST /api/chat/confirm  JSON body
+                 → <span class="m">registerChatConfirmRoutes</span>
+                      ├─ <span class="m">getConfirmSession</span>(confirmId)   <span class="c">// 查 A 步登记的实例</span>
+                      ├─ 无 session → 404 会话已结束
+                      └─ <span class="m">session.resolve</span>(toolCallId, action)
+                           ├─ 无 pending → 404
+                           └─ ok → entry.resolve(action)  <span class="c">// 唤醒 C/D 里的 await wait</span>
+  <span class="c">// 注意：POST 成功 ≠ 工具已跑完；run 仍在原 SSE 请求线程继续</span>
+
+<span class="c">// F. 前端 SSE 收事件（runSseSession → streamChat / askRag）</span>
+<span class="m">useChat.onTrace</span>
+  ├─ pending_confirm → 追加 toolTrace[]，ToolTracePanel 展示参数 + 按钮
+  ├─ confirm_resolved → 更新同 toolCallId 的 pending 行 status（不重复追加）
+  └─ tool_result / delta / usage → 后续气泡与面板
+
+<span class="c">// G. 调试（可选）</span>
+GET /api/chat/confirm/:confirmId → <span class="m">session.listPending</span>()
+
+<span class="c">// 不走确认的路径</span>
+  /api/rag/chat · 只读工具 getWeather/getCurrentTime/searchDocs · 用户 stop() → signal abort → wait reject</div>
+    <ul class="compact">
+      <li>一次聊天 HTTP ↔ 一个 <span class="fn">ConfirmSession</span>；每个需确认 tool_call 用独立 <code>toolCallId</code> 做 wait/resolve 键</li>
+      <li>单 Agent 确认逻辑在 <span class="fn">runWithOptionalConfirm</span>（<code>applyToolCalls.ts</code> 内部）；多 Agent 在 <span class="fn">runToolSafely</span> 内联同等分支</li>
+      <li>前端必须在原 SSE 仍 <code>isStreaming</code> 时点确认；否则会话已 <span class="fn">dispose</span>，POST 返回 404</li>
+      <li><code>draft_message</code> 完整单/多链路见 <a href="#draft">§5b</a></li>
+    </ul>
+  </div>
+
+  <!-- ========== 5b draft_message ========== -->
+  <h2 id="draft">5b. <code>draft_message</code> 端到端（单 Agent / 多 Agent）</h2>
+  <p class="lede">学习用「有后果假工具」：模型填 <code>{ to, body }</code> → 必须人工确认 → 允许后才 <span class="fn">runDraftMessage</span> 模拟发送。天气/检索等只读工具<strong>不进</strong>确认名单。</p>
+
+  <div class="card">
+    <h3>工具注册与暴露条件</h3>
+    <div class="mermaid">
+flowchart LR
+  SCH["schemas/draftMessage.ts<br/>draftMessageTool"] --> REG["tools/index.ts toolList"]
+  METH["methods/draftMessage.ts<br/>runDraftMessage"] --> REG
+  REG --> FIND["findTool('draft_message')"]
+  LIST["toolsRequiringConfirm<br/>REQUIRES_CONFIRM"] --> IRC["isToolRequiringConfirm"]
+  IRC --> ATC["applyToolCalls / runToolSafely"]
+  GUARD["toolCallGuard ALLOWED_TOOLS"] --> VG["validateToolCall"]
+  REG --> TSC["toolSchemasForChat(searchDocs, includeConfirmTools)"]
+  TSC -->|单 Agent·有 ConfirmSession| EXP["暴露给 requestCompletion"]
+  ACT["actionWorker 手写 tools 数组"] -->|多 Agent| EXP2["仅 draft_message 进 callLLM"]
+    </div>
+    <ul class="compact">
+      <li>单 Agent：<code>registerChatRoutes</code> 总会 <span class="fn">new ConfirmSession</span> → <span class="fn">requestCompletion</span> 里 <span class="fn">toolSchemasForChat</span>(searchDocs, <strong>true</strong>) 才挂 schema</li>
+      <li>多 Agent：只有 <span class="fn">runActionWorker</span> 挂 <code>draft_message</code>；realtime/kb/general Worker <strong>不</strong>暴露该工具</li>
+      <li>MCP <span class="fn">createStep1McpServer</span> 本期<strong>不含</strong> draft_message（确认走聊天 SSE，非 MCP）</li>
+    </ul>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>单 Agent 总览（POST /api/chat）</h3>
+      <div class="mermaid">
+flowchart TB
+  U["用户：帮我给小王发一条通知…"] --> RS["runStream → POST /api/chat"]
+  RS --> CS["createChatStream + ConfirmSession"]
+  CS --> SYS["buildSystemPrompt<br/>含 draft_message 规则"]
+  SYS --> RC["runConversation"]
+  RC --> ASK["askModel → requestCompletion<br/>tools 含 draft_message"]
+  ASK --> TC["tool_calls: draft_message {to,body}"]
+  TC --> AT["applyTools → applyToolCalls"]
+  AT --> ROC["runWithOptionalConfirm"]
+  ROC --> PC["SSE pending_confirm"]
+  PC --> WAIT["await ConfirmSession.wait"]
+  WAIT --> CF["POST /api/chat/confirm allow/deny"]
+  CF --> RUN["allow → runToolCall → runDraftMessage"]
+  RUN --> TR["SSE tool_result · simulated"]
+  TR --> ASK2["askModel 再看结果"]
+  ASK2 --> REP["reply → detectLeakage → delta"]
+      </div>
+    </div>
+    <div class="card">
+      <h3>多 Agent 总览（POST /api/chat/multi）</h3>
+      <div class="mermaid">
+flowchart TB
+  U2["用户：起草一条消息发给…"] --> RM["runStream multi → POST /api/chat/multi"]
+  RM --> SUP["supervisorRoute → route 工具"]
+  SUP --> RT["SSE supervisor_route<br/>workers 含 action"]
+  RT --> AW["runActionWorker(task)"]
+  AW --> LLM["callLLM · tools=[draft_message]"]
+  LLM --> TC2["tool_calls draft_message"]
+  TC2 --> RTS["runToolSafely"]
+  RTS --> PC2["SSE pending_confirm"]
+  PC2 --> WAIT2["await wait · 同 ConfirmSession"]
+  WAIT2 --> CF2["POST /api/chat/confirm"]
+  CF2 --> RUN2["allow → findTool().run → runDraftMessage"]
+  RUN2 --> WD["SSE worker_done"]
+  WD --> AGG["aggregate → detectLeakage → delta"]
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>方法调用树 · 单 Agent（<code>draft_message</code>）</h3>
+    <div class="calltree"><span class="c">// 触发：multiAgent=false · 用户意图为起草/发送</span>
+<span class="m">useChat.send</span> → <span class="m">runStream</span> → <span class="m">streamChat</span> → POST /api/chat
+
+<span class="m">registerChatRoutes</span>
+  ├─ <span class="m">new ConfirmSession</span>()
+  └─ <span class="m">createChatStream</span>({ confirmSession, searchDocs, onDelta, onTrace, onUsage })
+       ├─ <span class="m">buildSystemPrompt</span>(searchDocs)
+       │    └─ SYSTEM_PROMPT 段：用户要求起草/发送 → <span class="ok">必须调用 draft_message</span>
+       └─ <span class="m">runConversation</span>
+            ├─ <span class="m">prefetchSearchDocsIfEnabled</span>?   <span class="c">// 与 draft_message 无关；searchDocs 开关</span>
+            └─ StateGraph invoke
+                 ├─ askModel → <span class="m">requestCompletion</span>(messages, options, apiKey)
+                 │    └─ tools: <span class="m">toolSchemasForChat</span>(searchDocs, <span class="ok">true</span>)
+                 │         └─ 含 <span class="ok">draftMessageTool</span>（schemas/draftMessage.ts）
+                 ├─ 模型返回 tool_calls[].name === <span class="ok">"draft_message"</span>
+                 │    arguments: JSON.stringify({ to, body })
+                 └─ applyTools → <span class="m">applyToolCalls</span>
+                      ├─ onTrace(<span class="ok">tool_call</span>, name=draft_message, arguments={to,body})
+                      ├─ <span class="m">validateToolCall</span>("draft_message", rawArgs)   <span class="c">// 白名单 + 长度</span>
+                      ├─ <span class="m">isToolRequiringConfirm</span>("draft_message") → <span class="ok">true</span>
+                      └─ <span class="m">runWithOptionalConfirm</span>
+                           ├─ onTrace(<span class="ok">pending_confirm</span> { confirmId, toolCallId, name, arguments })
+                           ├─ <span class="e">await</span> <span class="m">confirmSession.wait</span>(toolCallId, …)
+                           │    <span class="c">// 前端 ToolTracePanel 展示 to/body · 允许/拒绝</span>
+                           ├─ 用户 → <span class="m">resolveToolConfirm</span> → POST /api/chat/confirm → <span class="m">session.resolve</span>
+                           ├─ onTrace(<span class="ok">confirm_resolved</span>)
+                           ├─ deny → tool_result { error: 用户拒绝… } → 再问模型
+                           └─ allow → <span class="m">runToolCall</span>
+                                └─ <span class="m">runToolWithTracing</span>? → <span class="m">findTool</span>("draft_message").run
+                                     └─ <span class="m">runDraftMessage</span>(rawArguments)
+                                          ├─ <span class="m">parseDraftMessageArgs</span> → { to, body }
+                                          └─ <span class="m">executeDraftMessage</span> → { ok, simulated, message, … }
+                      ├─ onTrace(<span class="ok">tool_result</span>)
+                      └─ messages.push(role:"tool", content=JSON.stringify(result))
+                 ├─ askModel（读 tool 结果，组织最终回复）
+                 └─ reply → <span class="m">normalizeKnowledgeAnswer</span>? · <span class="m">detectLeakage</span> → onDelta
+
+<span class="c">// 单 Agent 不会走路径：无 ConfirmSession 时 schema 已过滤 draft_message，模型不应调到</span></div>
+  </div>
+
+  <div class="card">
+    <h3>方法调用树 · 多 Agent（<code>draft_message</code>）</h3>
+    <div class="calltree"><span class="c">// 触发：multiAgent=true · Supervisor 路由含 action Worker</span>
+<span class="m">useChat.send</span> → <span class="m">runStream</span> → <span class="m">streamChat</span>(multiAgent:true) → POST /api/chat/multi
+
+<span class="m">registerChatMultiRoutes</span>
+  ├─ <span class="m">new ConfirmSession</span>()
+  ├─ writeSse / onTrace 闭包
+  └─ <span class="m">compileMultiAgentGraph</span>({ confirmSession, onTrace, writeSse, accumulator })
+       └─ graph.<span class="m">invoke</span>({ userMessage, … })
+            ├─ <span class="m">supervisorNode</span>
+            │    └─ <span class="m">supervisorRoute</span>
+            │         └─ <span class="m">callLLM</span>(route 工具) → RouteDecision
+            │              └─ workers 含 { name: <span class="ok">"action"</span>, task: "…起草/发送…" }
+            │         └─ writeSse(<span class="ok">supervisor_route</span>)
+            ├─ <span class="m">workersNode</span> → Promise.all
+            │    └─ <span class="m">runActionWorker</span>({ task, confirmSession, onTrace, signal, onUsage, … })
+            │         ├─ system: 只负责 draft_message
+            │         ├─ <span class="m">callLLM</span>(tools = [findTool("draft_message").schema])   <span class="c">// 不经 toolSchemasForChat</span>
+            │         ├─ assistant.tool_calls → draft_message
+            │         └─ for each call:
+            │              └─ <span class="m">runToolSafely</span>("draft_message", arguments, { toolCallId, confirmSession, onTrace, signal })
+            │                   ├─ onTrace(tool_call)
+            │                   ├─ validateToolCall
+            │                   ├─ onTrace(pending_confirm) → <span class="e">await</span> wait → confirm_resolved
+            │                   ├─ deny → { error } / allow → <span class="m">tool.run</span> → <span class="m">runDraftMessage</span>
+            │                   └─ onTrace(tool_result)
+            │         ├─ messages 回填 role:tool → 可再 callLLM 一轮（MAX_TURNS=3）
+            │         └─ return WorkerResult { worker:"action", output, toolsCalled }
+            │    └─ writeSse(<span class="ok">worker_done</span>)
+            └─ <span class="m">aggregateNode</span> → <span class="m">aggregate</span> → detectLeakage → writeSse(delta)
+
+<span class="c">// 多 Agent 注意：realtime/kb Worker 即使带 confirmSession 也不会调 draft_message</span>
+<span class="c">// Supervisor 若误路由到 general，可能不调工具、只文字回复——看 eval 与面板 supervisor_route</span></div>
+    <p class="path">图：docs/human-confirm-flow.svg · docs/multi-agent-human-confirm-flow.svg · docs/human-confirm-changelog.md</p>
+  </div>
+
+  <div class="card">
+    <h3>前端审阅（两端相同）</h3>
+    <div class="calltree"><span class="c">// SSE pending_confirm 到达后</span>
+<span class="m">streamChat</span> / multi 同解析逻辑
+  → useChat.<span class="m">onTrace</span> → toolTrace[] 追加 { kind:"pending_confirm", confirmId, toolCallId, name:"draft_message", arguments:{to,body}, status:"pending" }
+  → <span class="m">ToolTracePanel.vue</span> 展示 to/body + 「允许」「拒绝」
+  → @confirm → <span class="m">resolveToolConfirm</span> → <span class="m">confirmChatTool</span>
+  → onTrace confirm_resolved 时把同行 status 改为 allow/deny（不重复插行）
+  → 随后 tool_result 展示 simulated 结果；最终 delta 为模型总结</div>
+  </div>
+
+  <!-- ========== 6 ========== -->
+  <h2 id="rag">6. 资料问答 RAG（阶段 3）</h2>
+  <div class="card">
+    <h3>总览图（方法级）</h3>
+    <div class="mermaid">
+flowchart TB
+  FE["runRag → askRag SSE"] --> API["registerRagChatRoutes"]
+  API --> SSE["setSseHeaders + writeSse"]
+  SSE --> INJ["detectInjection → injection_detected?"]
+  SSE --> ACC["UsageAccumulator + bindUsage(rag)"]
+  INJ --> TR["traceRagRequest?"]
+  ACC --> TR
+  TR --> AFD["answerFromDocs + onTrace"]
+
+  AFD --> TC["tool_call searchDocs"]
+  TC --> VG["validateToolCall"]
+  VG -->|拒绝| DENY["tool_result.error · 不检索"]
+  VG -->|通过| RTR["rag-retrieve → retrieveForAnswer"]
+  RTR --> QE["queryEnhance<br/>rewrite · kbRoute · Multi|HyDE"]
+  QE --> RET["retrieve · embed · cosine<br/>可带 sources 硬过滤"]
+  RTR --> JUDGE{"judgeRetrieval"}
+  JUDGE -->|empty| EMPTY["calledModel=false"]
+  JUDGE -->|ok| RR["rerankHits → Top5"]
+
+  RR --> BRP["buildRagPrompt"]
+  BRP --> CRM["rag-llm → completeRagMessages · onUsage"]
+  CRM --> NORM["normalizeKnowledgeAnswer"]
+  NORM --> LEAK["detectLeakage"]
+  LEAK -->|leaked| SAFE["safeText + output_leak_blocked"]
+  LEAK -->|ok| OK["answer"]
+  SAFE --> OUT["rag_meta(+enhance) + delta + usage + DONE"]
+  OK --> OUT
+  EMPTY --> OUT
+  DENY --> OUT
+
+  subgraph ingest["离线入库 rag:ingest"]
+    CK["chunkMarkdown"] --> EM["embed"] --> VS["LocalVectorStore"]
+  end
+    </div>
+    <div class="calltree"><span class="c">// 前端</span>
+<span class="m">runRag</span> → <span class="m">askRag</span>（SSE）→ ToolTracePanel + RagHitPanel（含问句增强 meta）
+
+<span class="c">// routes/ragChat.ts</span>
+<span class="m">registerRagChatRoutes</span>
+  ├─ <span class="m">setSseHeaders</span>
+  ├─ <span class="e">[Guard·Input]</span> <span class="m">detectInjection</span> → writeSse(injection_detected?)
+  ├─ <span class="e">[Token]</span> <span class="m">UsageAccumulator</span> + <span class="m">bindUsageCallback</span>(…, <span class="ok">"rag"</span>)
+  ├─ <span class="e">[Trace]</span> <span class="m">isLangSmithTracingEnabled</span>? → <span class="m">traceRagRequest</span>
+  └─ <span class="m">answerFromDocs</span>(…, onTrace)
+       ├─ onTrace(tool_call searchDocs)
+       ├─ <span class="m">toPublicHits</span>  <span class="c">// 命中面板，不含 embedding</span>
+       ├─ <span class="e">[Guard·Tool]</span> <span class="m">validateToolCall</span>("searchDocs")
+       │    └─ 拒绝 → tool_result.error · 不 retrieve
+       ├─ <span class="e">[Trace]</span> <span class="m">runRagRetrieveWithTracing</span> → retrieveForAnswer
+       │    └─ <span class="ok">queryEnhance</span>：见 <a href="#rag-enhance">§6b</a>
+       ├─ onTrace(tool_result + rewrite/kbRoute/multi/hyde 摘要)
+       ├─ empty → 不调模型
+       └─ 有命中
+            ├─ <span class="m">buildRagPrompt</span>
+            ├─ <span class="e">[Trace]</span> <span class="m">runRagLlmWithTracing</span> → completeRagMessages → onUsage
+            ├─ <span class="m">normalizeKnowledgeAnswer</span>
+            └─ <span class="e">[Guard·Output]</span> <span class="m">detectLeakage</span> → output_leak_blocked?
+  ├─ writeSse(rag_meta: hits + rewriteMeta/kbRouteMeta/multiQueryMeta/hydeMeta …) + writeSse(delta)
+  └─ <span class="e">[Token]</span> <span class="m">writeUsageToStream</span> → [DONE]
+
+入库：chunkMarkdown → embed → LocalVectorStore（rag:ingest）</div>
+    <p class="path">图：docs/rag-chat-flow.svg · 问句增强：docs/rag-query-enhance-flow.svg · 改动清单：docs/rag-input-output-guard-changelog.md</p>
+  </div>
+
+  <!-- ========== 6b queryEnhance ========== -->
+  <h2 id="rag-enhance">6b. 检索前问句增强（额外课 · 已接线）</h2>
+  <p class="lede">独立计划，不改 stage3 笔记正文。挂点在 <span class="fn">retrieveForAnswer</span>；闸门 / 重排 / prompt / Guard 逻辑保持不变。UI 气泡仍显示用户原句。细泳道：<a href="./rag-query-enhance-flow.svg">rag-query-enhance-flow.svg</a></p>
+
+  <div class="card">
+    <h3>总览图（方法级 · 含分支）</h3>
+    <div class="mermaid">
+flowchart TB
+  FE["runRag → askRag SSE"] --> AFD["answerFromDocs"]
+  AFD --> TG["validateToolCall searchDocs"]
+  TG -->|拒绝| DENY["不 retrieve"]
+  TG -->|通过| RFA["retrieveForAnswer"]
+
+  RFA --> RQ["resolveQueryForRetrieve"]
+  RQ --> PI["parseIntent 始终跑"]
+  PI --> SW1{"RAG_QUERY_REWRITE?"}
+  SW1 -->|关| DIS["status=disabled<br/>queryUsed=原句"]
+  SW1 -->|开| RW["rewriteQuery"]
+  RW -->|chitchat 短路| CH["rewritten=原句"]
+  RW -->|LLM| PJ["parseRewriteJson"]
+  PJ -->|ok| OK["status=ok<br/>queryUsed=rewritten"]
+  RW -->|throw| FB["status=fallback<br/>queryUsed=原句"]
+  DIS --> KR
+  CH --> KR
+  OK --> KR
+  FB --> KR
+
+  KR["resolveKbRoute<br/>匹配用原句"] --> SW2{"RAG_KB_ROUTE / FORCE?"}
+  SW2 -->|关| ALL["route=all · 不过滤"]
+  SW2 -->|FORCE| FORC["status=forced"]
+  SW2 -->|规则| RULE["routeKbByRules<br/>notes/hr_policy/none"]
+  ALL --> BR
+  FORC --> NONECHK
+  RULE --> NONECHK{"route=none?"}
+  NONECHK -->|是| SKIP["跳过 search<br/>message≠分数判空"]
+  NONECHK -->|否| BR{"召回策略"}
+
+  BR -->|HYDE 优先| HY["resolveHydeQuery"]
+  HY -->|ok| HOK["retrieve embedText=hydeDoc"]
+  HY -->|fallback| HFB["retrieve embedText=queryUsed"]
+  BR -->|MULTI 且未开 HyDE| MQ["buildMultiQueries"]
+  MQ -->|"&lt;2路"| MSK["skipped → retrieve 单路"]
+  MQ -->|≥2路| SMS["searchMultiQuery<br/>批量embed·分路search·max合并"]
+  BR -->|默认| SQ["retrieve queryUsed + sources"]
+
+  HOK --> JUDGE
+  HFB --> JUDGE
+  MSK --> JUDGE
+  SMS --> JUDGE
+  SQ --> JUDGE["judgeRetrieval queryUsed"]
+  JUDGE -->|empty| META1["带回四类 meta"]
+  JUDGE -->|ok| RR["rerankHits queryUsed"]
+  RR --> META2["RetrievalJudgment + metas"]
+  META2 --> SSE["rag_meta SSE"]
+  SSE --> PANEL["RagHitPanel 问句增强"]
+  SKIP --> SSE
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>完整调用树（从前端到向量库 · 含回退路径）</h3>
+    <div class="calltree"><span class="c">// ========== A. 前端入口 ==========</span>
+<span class="m">App.vue</span> ragMode → <span class="m">useChat.runRag</span>
+  └─ <span class="m">askRag</span>（POST /api/rag/chat SSE）
+       ├─ onTrace(tool_call / tool_result…)     → ToolTracePanel（资料问答侧可无 confirm）
+       └─ onRagMeta → message.rag
+            ├─ hits / empty / topScore
+            ├─ rewriteMeta · kbRouteMeta · multiQueryMeta · hydeMeta
+            └─ <span class="m">RagHitPanel</span>「问句增强」区（右侧栏）
+
+<span class="c">// ========== B. 路由层 ==========</span>
+<span class="m">registerRagChatRoutes</span>
+  ├─ detectInjection → injection_detected?
+  ├─ UsageAccumulator + bindUsage("rag")
+  ├─ traceRagRequest? → answerFromDocs
+  ├─ writeSse(<span class="ok">rag_meta</span>: hits + 四类 meta)
+  ├─ writeSse(delta: answer)
+  └─ writeUsageToStream → [DONE]
+
+<span class="c">// ========== C. answerFromDocs ==========</span>
+<span class="m">answerFromDocs</span>(question, history, signal, …)
+  ├─ onTrace(tool_call searchDocs)
+  ├─ <span class="m">validateToolCall</span>("searchDocs")
+  │    └─ 拒绝 → tool_result.error · 不 retrieve · 不调 LLM
+  ├─ <span class="m">runRagRetrieveWithTracing</span> → <span class="m">retrieveForAnswer</span>(…, { signal })
+  ├─ onTrace(tool_result: empty/topScore/rewrite/kbRoute/multiQuery/hyde 摘要)
+  ├─ empty → buildRagPrompt 固定文案 · calledModel=false
+  └─ 有命中
+       ├─ buildRagPrompt → runRagLlmWithTracing → completeRagMessages
+       ├─ normalizeKnowledgeAnswer → detectLeakage?
+       └─ 返回 RagAnswer{ hits, rewriteMeta, kbRouteMeta, multiQueryMeta, hydeMeta }
+
+<span class="c">// ========== D. retrieveForAnswer · 本课主干 ==========</span>
+<span class="m">retrieveForAnswer</span>(question, topK, minTopScore, options?)
+
+  <span class="c">// D1 扩写</span>
+  ├─ <span class="m">resolveQueryForRetrieve</span>(question, { signal })     <span class="e">RAG_QUERY_REWRITE</span>
+  │    ├─ <span class="m">parseIntent</span>(原句)                         <span class="c">// 关开关也跑，写入 ruleIntent</span>
+  │    ├─ <span class="m">isQueryRewriteEnabled</span>() === false
+  │    │    └─ → status=<span class="ok">disabled</span> · queryUsed=原句 · rewritten=null
+  │    └─ true
+  │         ├─ <span class="m">rewriteQuery</span>(原句, { signal })
+  │         │    ├─ 再 <span class="m">parseIntent</span>：intent=chitchat → 短路 rewritten=原句（不调 LLM）
+  │         │    ├─ 无 LLM_API_KEY / MOCK_MODE=1 → <span class="e">throw</span>
+  │         │    ├─ fetch chat/completions（temperature=0.2 · 不传 history）
+  │         │    └─ <span class="m">parseRewriteJson</span> → RewriteResult{ intent, slots, keywords, rewritten }
+  │         ├─ 成功 → status=<span class="ok">ok</span> · queryUsed=rewritten
+  │         └─ catch → status=<span class="ok">fallback</span> · queryUsed=原句 · reason · <span class="c">不往外抛</span>
+
+  <span class="c">// D2 路由（匹配文本=用户原句，不是扩写句）</span>
+  ├─ <span class="m">resolveKbRoute</span>({ question: original, rewriteMeta, forceRoute })  <span class="e">RAG_KB_ROUTE</span>
+  │    ├─ !enabled &amp;&amp; 无 FORCE → status=<span class="ok">disabled</span> · route=all · sourcesAllowed=null
+  │    ├─ forceRoute | <span class="m">getForcedKbRoute</span>() → status=<span class="ok">forced</span> · <span class="m">sourcesForRoute</span>
+  │    └─ else <span class="m">routeKbByRules</span>(原句, intentHint)
+  │         ├─ weather/time 口语 / 关键词 → notes | hr_policy | none | all
+  │         └─ <span class="m">sourcesForRoute</span>(route)
+  │              ├─ all → null（不过滤）
+  │              ├─ none → []（空池）
+  │              ├─ notes → ["stage3-rag-notes.md"]
+  │              └─ hr_policy → ["stage5-hr-policy-notes.md"]
+  ├─ route === <span class="ok">"none"</span>
+  │    └─ 立即 return empty + message「路由为 none…」
+  │         · multiQueryMeta=disabled · hydeMeta=disabled
+  │         · <span class="c">≠ judgeRetrieval 分数判空</span>
+
+  <span class="c">// D3 召回策略三选一（HyDE 优先于 Multi）</span>
+  ├─ <span class="m">isHydeEnabled</span>() &amp;&amp; <span class="m">isMultiQueryEnabled</span>()
+  │    └─ console.warn：本轮优先 HyDE，跳过多路
+  │
+  ├─ <span class="e">路径 A · RAG_HYDE</span>
+  │    ├─ <span class="m">resolveHydeQuery</span>(original, queryUsed, { signal })
+  │    │    ├─ 关开关 → status=disabled · embedText=queryUsed
+  │    │    ├─ <span class="m">generateHydeDoc</span>(original)     <span class="c">// LLM 假想资料段落 · ≤600 字 · 非答用户</span>
+  │    │    │    ├─ 成功 → status=ok · hydeDoc · embedText=hydeDoc
+  │    │    │    └─ throw → status=fallback · embedText=queryUsed · reason
+  │    ├─ <span class="m">retrieve</span>(embedText, CANDIDATE_K, { sources })
+  │    │    └─ embed([text]) → LocalVectorStore.search(vec, topK, { sources })
+  │    └─ multiQueryMeta = skipped（「本轮走 HyDE」）
+  │
+  ├─ <span class="e">路径 B · RAG_MULTI_QUERY</span>（且未开 HyDE）
+  │    ├─ <span class="m">buildMultiQueries</span>(original, rewriteMeta)   ≤3 · 去重
+  │    │    ├─ 候选：queryUsed · keywords 拼接 · original · synthesizeAngles(…)
+  │    │    └─ &lt;2 条 → status=skipped · 退回 <span class="m">retrieve</span>(queryUsed)
+  │    └─ ≥2 条 → <span class="m">searchMultiQuery</span>(queries, { perQueryTopK, mergeLimit, sources })
+  │         ├─ LocalVectorStore.load 一次
+  │         ├─ <span class="m">embed</span>(queries[]) 批量
+  │         ├─ 每路 store.search(vectors[i], …)
+  │         └─ <span class="m">mergeHitsByMaxScore</span>（同 chunk.id 取 max 余弦）→ rawHits
+  │              · meta: queries / perQueryHitCounts / perQueryTopIds / mergedCount
+  │
+  └─ <span class="e">路径 C · 默认单路</span>
+       └─ <span class="m">retrieve</span>(queryUsed, CANDIDATE_K, { sources: sourcesAllowed })
+
+  <span class="c">// D4 闸门 + 重排（问句侧永远用 queryUsed，不用假文档）</span>
+  ├─ <span class="m">judgeRetrieval</span>(rawHits, minTopScore, <span class="ok">queryUsed</span>)
+  │    └─ empty → 带回 rewriteMeta / kbRouteMeta / multiQueryMeta / hydeMeta
+  ├─ !rerankerReady → hits = rawHits.slice(0, topK)
+  └─ <span class="m">rerankHits</span>(<span class="ok">queryUsed</span>, rawHits, topK) → injected / rankedAll
+       └─ 返回 Judgment + 四类 meta
+
+<span class="c">// ========== E. CLI（不经 SSE）==========</span>
+<span class="m">rag:search</span> → retrieveForAnswer → 打印 rewrite/kbRoute/multiQuery/hyde + hits
+<span class="m">rag:rewrite</span> → rewriteQuery | resolveQueryForRetrieve(--resolve)
+<span class="m">rag:hyde</span>    → generateHydeDoc（只看假文档）
+<span class="m">rag:ask</span>     → answerFromDocs</div>
+    <ul class="compact">
+      <li><strong>默认建议</strong>：日常开 <code>RAG_QUERY_REWRITE</code> + <code>RAG_KB_ROUTE</code>；Multi / HyDE 作可选，勿默认全开</li>
+      <li><strong>纪律</strong>：对照一次只开一招召回增强；HyDE+Multi 同开时代码优先 HyDE；不要为刷分改 <code>MIN_TOP_SCORE</code></li>
+      <li><strong>模拟双库</strong>：<code>stage3-rag-notes.md</code>（notes）+ <code>docs-sample/stage5-hr-policy-notes.md</code>（hr_policy）</li>
+      <li>学习笔记：<a href="./rag-query-enhance-notes.md">rag-query-enhance-notes.md</a> · 计划：<code>rag-query-intent-rewrite-learning-plan.md</code></li>
+    </ul>
+    <p class="path">源码：server/rag/queryEnhance/{parseIntent,rewriteQuery,kbRoute,multiQuery,hyde,index}.ts · retrieve.ts · answer.ts · routes/ragChat.ts · src/api/rag.ts · RagHitPanel.vue</p>
+  </div>
+
+  <!-- ========== 7 ========== -->
+  <h2 id="cross">7. 横切：Token 计费 · 安全 Guard · Trace（方法级）</h2>
+  <p class="lede">三条能力横切挂在业务链路上；下面拆开画调用逻辑。细泳道 SVG：<a href="./crosscutting-token-guard-trace-flow.svg">crosscutting-token-guard-trace-flow.svg</a></p>
+
+  <div class="card">
+    <h3>7.1 挂载矩阵（谁有 / 谁缺）</h3>
+    <div class="mermaid">
+flowchart TB
+  subgraph chat["POST /api/chat"]
+    C1["Token ✅ askModel"]
+    C2["InputGuard ✅"]
+    C3["ToolGuard ✅"]
+    C4["OutputGuard ✅"]
+    C5["SSE onTrace ✅"]
+    C6["LangSmith ✅ chat-request/askModel/tool"]
+  end
+  subgraph multi["POST /api/chat/multi"]
+    M1["Token ✅ supervisor/worker/aggregate"]
+    M2["InputGuard ✅"]
+    M3["ToolGuard ✅ runToolSafely"]
+    M4["OutputGuard ✅ aggregate"]
+    M5["SSE onTrace ✅"]
+    M6["LangSmith ❌ 未挂"]
+  end
+  subgraph rag["POST /api/rag/chat"]
+    R1["Token ✅ rag"]
+    R2["InputGuard ✅ detectInjection"]
+    R3["ToolGuard ✅ searchDocs 检索前"]
+    R4["OutputGuard ✅ detectLeakage"]
+    R5["SSE Trace ✅"]
+    R6["LangSmith ✅ rag-request/retrieve/llm"]
+  end
+    </div>
+    <table class="map">
+      <thead>
+        <tr><th>横切</th><th>/api/chat</th><th>/api/chat/multi</th><th>/api/rag/chat</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Token</td>
+          <td>bindUsageCallback("askModel") → writeUsageToStream</td>
+          <td>source 分桶 supervisor/worker/aggregate → writeUsageToStream</td>
+          <td>bindUsageCallback("rag") → writeUsageToStream</td>
+        </tr>
+        <tr>
+          <td>Input Guard</td>
+          <td>createChatStream → detectInjection → onTrace</td>
+          <td>chatMulti → detectInjection → writeSse</td>
+          <td>ragChat → detectInjection → SSE injection_detected</td>
+        </tr>
+        <tr>
+          <td>Tool Guard</td>
+          <td>applyToolCalls → validateToolCall</td>
+          <td>runToolSafely → validateToolCall</td>
+          <td>answerFromDocs → validateToolCall("searchDocs")</td>
+        </tr>
+        <tr>
+          <td>Output Guard</td>
+          <td>reply → detectLeakage</td>
+          <td>aggregate → detectLeakage</td>
+          <td>answerFromDocs → detectLeakage → SSE output_leak_blocked</td>
+        </tr>
+        <tr>
+          <td>前端 Trace（SSE）</td>
+          <td>onTrace → ToolTracePanel</td>
+          <td>onTrace/writeSse → 同面板</td>
+          <td>askRag SSE → 同面板 + RagHitPanel</td>
+        </tr>
+        <tr>
+          <td>LangSmith</td>
+          <td>traceChatRequest / traceAskModel / runToolWithTracing</td>
+          <td>未接入</td>
+          <td>traceRagRequest / rag-retrieve / rag-llm</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>7.2 Token 计费调用图 + 树</h3>
+    <div class="mermaid">
+flowchart TB
+  subgraph entry["请求入口"]
+    E1["chat: new UsageAccumulator<br/>bindUsageCallback(acc,'askModel')"]
+    E2["multi: new UsageAccumulator<br/>onUsage(source)=bindUsageCallback(acc,source)"]
+    E3["rag: new UsageAccumulator<br/>bindUsageCallback(acc,'rag')"]
+  end
+  subgraph llm["每次 LLM HTTP"]
+    REQ["requestCompletion 或 callLLM 或 completeRagMessages"]
+    PARSE["parseUsageFromResponse(data)"]
+    CB["onUsage(usage, model)"]
+    REC["accumulator.record(model, source, usage)"]
+  end
+  E1 & E2 & E3 --> REQ --> PARSE --> CB --> REC
+  subgraph end["请求结束"]
+    WU["writeUsageToStream<br/>toRecord + appendUsageRecord + SSE usage"]
+    FE["streamChat/askRag onUsage → lastUsage<br/>fetchUsageSummary → UsagePanel"]
+  end
+  REC --> WU --> FE
+    </div>
+    <div class="calltree"><span class="c">// Token 全链路（三次请求共用同一 Accumulator 语义）</span>
+<span class="e">[入口]</span>
+  <span class="m">new UsageAccumulator</span>()
+  <span class="m">bindUsageCallback</span>(acc, source, defaultModel)
+    → 返回 (usage, model) => acc.record(model, source, usage)
+
+<span class="e">[每次 LLM]</span>
+  <span class="m">requestCompletion</span> | multi <span class="m">callLLM</span> | rag <span class="m">completeRagMessages</span>
+    → fetch /chat/completions
+    → <span class="m">parseUsageFromResponse</span>(body)
+    → options.onUsage?.(usage, model)     <span class="c">// 已绑好的 callback</span>
+    → <span class="m">UsageAccumulator.record</span>(model, source, usage)
+         source: askModel | supervisor | worker | aggregate | rag
+         跳过: usage 空 / totalTokens=0（Mock、失败）
+
+<span class="e">[收尾]</span>
+  chat / multi / rag 均为 SSE: <span class="m">writeUsageToStream</span>(res, acc, endpoint, model)
+    ├─ acc.isEmpty? return
+    ├─ <span class="m">toRecord</span> → <span class="m">estimateCostUsd</span> / <span class="m">mergeUsage</span> / <span class="m">primaryModel</span>
+    ├─ <span class="m">appendUsageRecord</span> → data/usage-log.json
+    └─ res.write({ type:"usage", ...record })
+
+<span class="e">[前端]</span>
+  streamChat / askRag 解析 usage → useChat.onUsage → lastUsage
+  <span class="m">fetchUsageSummary</span> → GET /api/usage → UsagePanel
+  <span class="m">registerUsageRoutes</span>: GET 汇总 / DELETE 清空</div>
+  </div>
+
+  <div class="card">
+    <h3>7.3 安全 Guard 调用图 + 树</h3>
+    <div class="mermaid">
+flowchart TB
+  U["用户文本"] --> IN["detectInjection<br/>inputGuard.ts"]
+  IN -->|level≠none| MARK["onTrace / writeSse<br/>injection_detected<br/>不拦截"]
+  IN --> CONT["继续业务"]
+
+  TC["模型 tool_calls"] --> VG["validateToolCall<br/>toolCallGuard.ts"]
+  VG -->|拒绝| ERR["回填 {error: reason}<br/>不执行工具"]
+  VG -->|通过| RUN["run / wait 确认"]
+
+  OUT["最终回复文本"] --> DL["detectLeakage<br/>outputGuard.ts"]
+  DL -->|leaked| BLOCK["SSE output_leak_blocked<br/>+ safeText"]
+  DL -->|ok| DELTA["onDelta / finalOutput / rag delta"]
+
+  FAIL["工具业务失败"] --> TRACK["createConsecutiveFailureTracker"]
+  TRACK -->|超限| STOP["停止再调同工具 / 回填"]
+    </div>
+    <div class="calltree"><span class="c">// 三道 Guard + 工具失败（阶段 5 · injection / resilience）</span>
+
+<span class="e">[1 Input]</span> <span class="m">detectInjection</span>(userText) → { level, matchedRules }
+  挂载: <span class="m">createChatStream</span> · <span class="m">registerChatMultiRoutes</span> · <span class="m">registerRagChatRoutes</span>
+  行为: 只打日志；三条链路均 → onTrace/writeSse(injection_detected)，<span class="e">不阻断</span>
+  system 加固: chat SYSTEM_PROMPT_GUARD · rag RAG_SYSTEM 安全约束段
+
+<span class="e">[2 Tool]</span> <span class="m">validateToolCall</span>(name, rawArguments)
+  挂载: <span class="m">applyToolCalls</span> · <span class="m">runToolSafely</span> · <span class="m">answerFromDocs</span>（searchDocs）
+  检查: 白名单 ALLOWED_TOOLS · 参数长度 · JSON 可解析
+  拒绝: 回填 error / tool_result.error，不 run / 不 retrieve
+
+<span class="e">[3 Output]</span> <span class="m">detectLeakage</span>(text) → { leaked, matchedFingerprints, safeText }
+  挂载: runConversation <span class="m">reply</span> · multi <span class="m">aggregate</span> · rag <span class="m">answerFromDocs</span>
+  命中: 三条链路 → onTrace/writeSse(output_leak_blocked) + safeText
+  指纹: 含单 Agent / multi Worker / RAG_SYSTEM 短语
+
+<span class="e">[降级]</span> <span class="m">createConsecutiveFailureTracker</span> / <span class="m">isToolErrorResult</span>
+  挂载: applyToolCalls（同工具连续失败上限）
+  Mock/无 Key: onTrace(<span class="ok">degradation</span>) → streamMock</div>
+  </div>
+
+  <div class="card">
+    <h3>7.4 Trace：前端 SSE vs LangSmith（两套，勿混）</h3>
+    <div class="mermaid">
+flowchart LR
+  subgraph sse["给用户看 · SSE onTrace"]
+    OT["onTrace / writeSse"]
+    TP["ToolTracePanel"]
+    EV["tool_call / tool_result / searchDocs_empty<br/>pending_confirm / confirm_resolved<br/>injection_detected / output_leak_blocked<br/>degradation / supervisor_route / worker_done<br/>rag_meta（仅 RAG）"]
+  end
+  subgraph ls["给开发看 · LangSmith"]
+    EN["isLangSmithTracingEnabled"]
+    ROOT["traceChatRequest · chat-request"]
+    ASK["traceAskModel · askModel"]
+    TOOL["runToolWithTracing → traceToolRun · tool"]
+  end
+  RC["runConversation 仅单 Agent"] --> EN
+  EN -->|true| ROOT --> ASK
+  RC --> applyTools["applyToolCalls"] --> TOOL
+  CHAT["chat + multi"] --> OT --> EV --> TP
+    </div>
+    <div class="calltree"><span class="c">// A. 前端过程 Trace（chat / multi / rag 均有 SSE）</span>
+业务节点 → options.onTrace?.(event) 或 writeSse(event)
+  → SSE data: { type, … }
+  → <span class="m">streamChat</span> / <span class="m">askRag</span> 解析 → useChat.onTrace → toolTrace[]
+  → <span class="m">ToolTracePanel</span>（确认按钮走 resolveToolConfirm；RAG 无 confirm）
+
+事件类型见 server/react/types.ts ToolTraceHandler
+
+<span class="c">// B. LangSmith</span>
+环境: LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY + LANGCHAIN_PROJECT
+
+<span class="m">runConversation</span>（/api/chat）
+  └─ <span class="m">traceChatRequest</span> → askModel / tool spans
+
+<span class="m">ragChat</span>（/api/rag/chat）
+  └─ <span class="m">traceRagRequest</span> → <span class="m">rag-retrieve</span> / <span class="m">rag-llm</span>
+
+刻意不上报: 完整 messages、API Key；预览字段截断（见 tracing/langsmith.ts 头注释）
+
+<span class="c">// 缺口</span>
+  multi：无 LangSmith span（Token / Guard / SSE Trace 已有）</div>
+    <p class="path">docs/crosscutting-token-guard-trace-flow.svg · stage5-token-cost / prompt-injection / tracing / resilience 学习计划</p>
+  </div>
+
+
+  <!-- ========== 7b tools ========== -->
+  <h2 id="tools">7b. 工具注册表（阶段 2 / 4 共用）</h2>
+  <div class="card">
+    <div class="mermaid">
+flowchart LR
+  IDX["tools/index.ts toolList"] --> SCH["schemas/* 给模型的定义"]
+  IDX --> METH["methods/* run 实现"]
+  IDX --> FIND["findTool(name)"]
+  TSC["toolSchemasForChat(searchDocs, confirmSession?)"] --> REQ["requestCompletion tools 参数"]
+  subgraph names["已注册"]
+    W["getWeather"]
+    T["getCurrentTime"]
+    S["searchDocs → executeSearchDocs → retrieveForAnswer"]
+    D["draft_message · 需确认"]
+  end
+  IDX --> names
+    </div>
+    <ul class="compact">
+      <li><span class="fn">searchDocs</span>：单 Agent 两条路——① prefetch 强制检索写 system；② 模型主动 tool_call 走 <span class="fn">applyToolCalls</span></li>
+      <li><span class="fn">draft_message</span>：仅在有 <span class="fn">ConfirmSession</span> 时通过 <span class="fn">toolSchemasForChat</span> 暴露给模型；多 Agent 由 <span class="fn">actionWorker</span> 调用</li>
+      <li>RAG 专用路径不经过 toolList：内部用 <span class="fn">validateToolCall("searchDocs")</span> + <span class="fn">retrieveForAnswer</span>（语义对齐工具层）</li>
+    </ul>
+  </div>
+
+  <!-- ========== 8 ========== -->
+  <h2 id="pending">8. 计划中尚未单独交付（对照 learning-plan）</h2>
+  <div class="card">
+    <ul class="compact">
+      <li><span class="badge now">当前</span> <strong>交付页</strong>：调试页、日志页、成本页 + 整理 eval 数据集（现有面板可先用，专页未拆）</li>
+      <li><span class="badge done">已结</span> 检索前意图/扩写/路由/Multi-Query/HyDE（见 <a href="#rag-enhance">§6b</a> · <code>rag-query-intent-rewrite-learning-plan.md</code>）</li>
+      <li><span class="badge later">后置</span> RAG 上传文档完整应用（现 <code>rag:ingest</code> + 资料问答；见 <code>dynamic-kb-learning-plan.md</code>）</li>
+      <li><span class="badge later">后置</span> FastAPI + Docker</li>
+      <li><span class="badge later">后置</span> 工程优化见 <code>post-learning-optimization-plan.md</code>（学完再做）</li>
+    </ul>
+  </div>
+
+  <footer class="note">
+    生成说明：本页按 <code>learning-plan.md</code> 与仓库现网代码对照整理（2026-09 同步）；方法名以 <code>export function/class</code> 为准。发现遗漏请对照 <code>Code/</code> 模块说明书。
+    协作红线：不允许私自删除代码注释。细泳道请打开 <a href="./flows-index.html">flows-index.html</a>。
+  </footer>
+</div>
+</body>
+</html>

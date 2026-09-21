@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>step1-chat · 模块时序图</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0; background: #f1f4f3; color: #1b2426;
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lede { color: #5c6b70; margin: 0 0 28px; font-size: 14.5px; }
+  figure {
+    margin: 0 0 34px; background: #fff; border: 1px solid #d8e0e1; border-radius: 8px;
+    overflow: hidden; box-shadow: 0 1px 2px rgba(16,24,26,.05), 0 6px 20px rgba(16,24,26,.05);
+  }
+  .fhead { padding: 10px 16px; border-bottom: 1px solid #e3e9ea; }
+  .no { font-weight: 600; font-size: 13.5px; }
+  figure img { display: block; width: 100%; height: auto; padding: 16px; background: #fff; }
+  figcaption {
+    padding: 8px 16px 12px; font-size: 12.5px; color: #5c6b70;
+    border-top: 1px solid #eef2f2; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>step1-chat · 模块时序图</h1>
+  <p class="lede">由 scripts/render-seq-svg.mjs 直接生成的标准 SVG 时序图，无需任何渲染器，浏览器 / Quick Look 直接打开。源码数据在 scripts/seq-data.mjs。</p>
+  <p class="lede">另有泳道流程图（含方法名 + Token/Guard/Trace）：见 <a href="../docs/flows-index.html">docs/flows-index.html</a>。</p>
+<figure>
+  <div class="fhead"><span class="no">图 2 · 链路 A：普通对话（SSE + 工具调用）</span></div>
+  <img src="seq-chat.svg" alt="图 2 · 链路 A：普通对话（SSE + 工具调用）">
+  <figcaption>tool calling 闭环：决定 → 执行 → 回填 → 再问，全程非流式两次请求；前端每次读到 data 帧就渲染一段。</figcaption>
+</figure>
+<figure>
+  <div class="fhead"><span class="no">图 1 · 架构与数据边界</span></div>
+  <img src="arch.svg" alt="图 1 · 架构与数据边界">
+  <figcaption>两条链路共用前端状态与 Express，但接口、协议、system 与历史存储完全隔离；本地模型与向量库只服务资料链路。</figcaption>
+</figure>
+<figure>
+  <div class="fhead"><span class="no">图 3 · 链路 B：资料问答（RAG 流水线）</span></div>
+  <img src="seq-rag.svg" alt="图 3 · 链路 B：资料问答（RAG 流水线）">
+  <figcaption>空结果不消耗模型调用；RagHitView 去掉 1024 维向量再回前端，引用编号只认本次注入的 promptIndex。</figcaption>
+</figure>
+<figure>
+  <div class="fhead"><span class="no">图 4 · 离线入库 rag:ingest</span></div>
+  <img src="seq-ingest.svg" alt="图 4 · 离线入库 rag:ingest">
+  <figcaption>同一 source 只允许一份数据：replaceSource 先删旧再写新，禁止直接 push 造成新旧两版并存。</figcaption>
+</figure>
+<figure>
+  <div class="fhead"><span class="no">图 5 · 状态与生命周期</span></div>
+  <img src="seq-lifecycle.svg" alt="图 5 · 状态与生命周期">
+  <figcaption>watch([messages, isStreaming, ragMode]) 在非流式时把当前模式的历史写回 localStorage，普通对话与资料问答各一份。</figcaption>
+</figure>
+<figure>
+  <div class="fhead"><span class="no">图 6 · 单点验证脚本顺序</span></div>
+  <img src="seq-scripts.svg" alt="图 6 · 单点验证脚本顺序">
+  <figcaption>每条命令只练一个环节，失败只重跑那一条；入库成功 ≠ 检索合格，检索有命中 ≠ 可以注入。</figcaption>
+</figure>
+</div>
+</body>
+</html>

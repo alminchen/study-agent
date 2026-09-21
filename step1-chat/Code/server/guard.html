@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>11 Guard · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../server/rag.html">RAG</a>
+    <a href="../server/guard.html">Guard</a>
+    <a href="../server/usage.html">Usage</a>
+    <a href="../frontend/composables.html">useChat</a>
+    <a href="../guide/crosscutting.html">横切对照</a>
+  </nav>
+  <main class="layout">
+    <h1>11 · Guard <span class="badge">server/guard/</span></h1>
+    <p class="lede">
+      三道门横切片：<strong>输入</strong>只标记风险、<strong>工具</strong>可拒绝执行、<strong>输出</strong>可替换泄露文本。
+      与业务编排解耦，单 Agent / 多 Agent / RAG 三条链路复用同一套函数。
+      前端通过 SSE（injection_detected、tool_result.error、output_leak_blocked）在 Trace 面板看见防护过程。
+    </p>
+
+    <div class="card">
+      <h3>挂载点速查</h3>
+      <ul class="compact">
+        <li><strong>Input</strong>：<code>createChatStream</code>（chat.ts）· <code>chatMulti</code> · <code>ragChat</code> → <code>detectInjection</code></li>
+        <li><strong>Tool</strong>：<code>applyToolCalls</code> · <code>runToolSafely</code> · <code>answerFromDocs</code>（校验 searchDocs）→ <code>validateToolCall</code></li>
+        <li><strong>Output</strong>：单 Agent reply · multi <code>aggregate</code> · RAG <code>answerFromDocs</code> → <code>detectLeakage</code></li>
+      </ul>
+    </div>
+
+    <!-- ========== inputGuard ========== -->
+    <h2><span class="file-path">server/guard/inputGuard.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">RiskLevel / GuardResult / Rule（类型）</div>
+        <div class="sig">type RiskLevel = "none" | "medium" | "high"<br/>interface GuardResult { level; matchedRules: string[] }<br/>interface Rule { id; level: "medium"|"high"; pattern: RegExp }</div>
+        <p><strong>做什么：</strong>约定检测结果形状与规则表项。level 取命中规则中的最高档；matchedRules 列出所有命中的规则 id，便于调试与 SSE 展示。</p>
+        <ol class="steps">
+          <li>none：未命中任何规则。</li>
+          <li>medium：仅可疑话术（可能误杀正常讨论）。</li>
+          <li>high：明确注入意图（忽略指令、越狱、索要 system prompt 等）。</li>
+        </ol>
+        <div class="why">结果结构化后，路由层可统一发 injection_detected，而把「是否硬拒绝」留给后续策略——教学仓库默认不切断，便于观察全链路。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">RULES（模块常量）</div>
+        <div class="sig">const RULES: Rule[] — high 组 + medium 组正则</div>
+        <p><strong>做什么：</strong>用轻量正则表达常见 Prompt Injection 话术，无外部依赖、不调模型。</p>
+        <ol class="steps">
+          <li><strong>HIGH</strong>：ignore_instructions（中/英）、new_role、output_system_prompt、dan_jailbreak。</li>
+          <li><strong>MEDIUM</strong>：role_play_request、base64_extract、developer_mode。</li>
+          <li>每条规则有稳定 id，命中后进入 matchedRules，便于 Trace「命中了哪条」。</li>
+        </ol>
+        <div class="why">教学阶段用规则引擎足够演示「输入层防护」概念；上生产再换分类器/策略引擎时，可保留 GuardResult 契约不变。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">detectInjection</div>
+        <div class="sig">export function detectInjection(input: string): GuardResult</div>
+        <p><strong>做什么：</strong>扫描用户输入文本，返回最高风险等级与全部命中规则 id。<strong>不修改、不拦截</strong>输入本身——调用方自行决定放行 / 降级 / 拒绝。</p>
+        <ol class="steps">
+          <li>初始化 matchedRules=[]，level="none"。</li>
+          <li>遍历 RULES：pattern.test(input) 则 push rule.id。</li>
+          <li>若规则为 high → level="high"；否则仅当当前不是 high 时升为 medium。</li>
+          <li>返回 { level, matchedRules }（可同时命中多条）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>input</code></td><td>用户原文（chat 末条 user / rag question 等）</td></tr>
+            <tr><td>出参</td><td><code>GuardResult</code></td><td>level + matchedRules</td></tr>
+          </tbody>
+        </table>
+        <div class="flow">
+          <strong>上下游：</strong>
+          调用方 — <code>server/chat.ts</code>（createChatStream）、<code>routes/chatMulti.ts</code>、<code>routes/ragChat.ts</code>。
+          命中后通常 SSE 推 <code>injection_detected</code> → 前端 onTrace → ToolTracePanel。
+          本函数不调用其它模块。
+        </div>
+        <div class="why"><strong>只标记不拦截</strong>：教学上先看见风险事件与后续链路是否仍执行；一刀切断会导致学员无法观察 ReAct/RAG。真正硬拦截可在学完后再在路由层加策略。</div>
+      </div>
+    </div>
+
+    <!-- ========== toolCallGuard ========== -->
+    <h2><span class="file-path">server/guard/toolCallGuard.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">ALLOWED_TOOLS / MAX_ARGUMENTS_LENGTH</div>
+        <div class="sig">Set("getWeather","getCurrentTime","searchDocs","draft_message") · MAX_ARGUMENTS_LENGTH = 2048</div>
+        <p><strong>做什么：</strong>定义工具名白名单与参数字符串长度上限。模型幻觉出不存在的工具名、或注入超长 payload 时，在执行前被拒绝。</p>
+        <ol class="steps">
+          <li>白名单与项目真实注册工具对齐；新增工具必须同步改此处。</li>
+          <li>2048 字符上限针对 arguments 原始字符串（不是美化后的 JSON）。</li>
+        </ol>
+        <div class="why">工具执行有副作用（查天气、写草稿、检索）；执行前闸门比「跑起来再炸」更安全，也给模型一条可回填的 error 文案以改道。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ToolCallGuardResult</div>
+        <div class="sig">interface ToolCallGuardResult { allowed: boolean; reason?: string }</div>
+        <p><strong>做什么：</strong>校验结果。allowed=false 时 reason 供 applyToolCalls / runToolSafely 回填给模型或推 SSE tool_result.error。</p>
+        <div class="why">把「拒绝原因」结构化，前端/模型都能读到同一句话，排障不用翻服务端日志。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">validateToolCall</div>
+        <div class="sig">export function validateToolCall(name: string, rawArguments: string): ToolCallGuardResult</div>
+        <p><strong>做什么：</strong>在真正执行工具之前，校验单个 tool_call：白名单 → 长度 → JSON 可解析。快速、无副作用。</p>
+        <ol class="steps">
+          <li>若 name 不在 ALLOWED_TOOLS → <code>{ allowed:false, reason: 工具「x」不在白名单… }</code>。</li>
+          <li>若 rawArguments.length &gt; 2048 → 拒绝（疑似注入超长 payload）。</li>
+          <li>尝试 JSON.parse(rawArguments)；失败 → 拒绝「不是合法 JSON」。</li>
+          <li>全部通过 → <code>{ allowed:true }</code>（不返回解析后的对象，调用方自行再 parse）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>name</code></td><td>模型返回的函数名</td></tr>
+            <tr><td>入参</td><td><code>rawArguments</code></td><td>模型返回的 arguments 字符串</td></tr>
+            <tr><td>出参</td><td><code>ToolCallGuardResult</code></td><td>是否允许 + 可选原因</td></tr>
+          </tbody>
+        </table>
+        <div class="flow">
+          <strong>上下游：</strong>
+          <code>react/applyToolCalls.ts</code>（单 Agent）·
+          <code>multi-agent/runToolSafely.ts</code>（多 Agent）·
+          <code>rag/answer.ts</code>（对 searchDocs 做同语义校验，拒绝则不检索不调模型）。
+          不调用其它 Guard。
+        </div>
+        <div class="why">三处共用同一函数，保证「聊天工具」与「RAG 内部检索」对白名单语义一致，Trace 面板也能显示同一工具名 searchDocs。</div>
+      </div>
+    </div>
+
+    <!-- ========== outputGuard ========== -->
+    <h2><span class="file-path">server/guard/outputGuard.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">FINGERPRINTS / LEAK_THRESHOLD / REPLACEMENT</div>
+        <div class="sig">FINGERPRINTS: string[] · LEAK_THRESHOLD = 2 · REPLACEMENT = 固定安全文案</div>
+        <p><strong>做什么：</strong>从各链路 system prompt 中抽取关键短语作为指纹。模型回复若同时包含多个指纹，判定为泄露 system 内容，替换为安全回复。</p>
+        <ol class="steps">
+          <li>指纹覆盖：单 Agent chat system、多 Agent Worker/Aggregate system、RAG system（rag/prompt.ts）。</li>
+          <li>阈值 = 2：命中 ≥2 个片段才判泄露，降低单句误杀。</li>
+          <li>REPLACEMENT 为固定中文道歉 + 引导提问，不回显任何指纹原文。</li>
+        </ol>
+        <div class="why">防「把 system 原文复述给用户」。指纹库增补时<strong>只增不删</strong>，避免旧 system 句式仍可能被模型吐出却漏检。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">OutputGuardResult</div>
+        <div class="sig">interface OutputGuardResult { leaked: boolean; safeText: string; matchedFingerprints: string[] }</div>
+        <p><strong>做什么：</strong>统一输出层结果。leaked=true 时 safeText 为替换文案；否则 safeText 为原文。matchedFingerprints 无论是否泄露都带回，便于 SSE 与调试。</p>
+        <div class="why">调用方只需写 <code>const text = guard.safeText</code>，不必自己分支拼替换句；Trace 仍能展示命中了哪些指纹。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">detectLeakage</div>
+        <div class="sig">export function detectLeakage(output: string): OutputGuardResult</div>
+        <p><strong>做什么：</strong>检测模型最终回复是否泄露 system prompt 内容。使用简单 includes 匹配指纹；达到阈值则替换。</p>
+        <ol class="steps">
+          <li>遍历 FINGERPRINTS，若 output.includes(fp) 则记入 matched。</li>
+          <li>若 matched.length ≥ LEAK_THRESHOLD(2) → 返回 leaked=true、safeText=REPLACEMENT、matchedFingerprints=matched。</li>
+          <li>否则 leaked=false、safeText=原文、仍返回已命中的（可能 0 或 1 个）指纹列表。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>output</code></td><td>规范化后的模型回复文本</td></tr>
+            <tr><td>出参</td><td><code>OutputGuardResult</code></td><td>是否泄露、应用文本、命中指纹</td></tr>
+          </tbody>
+        </table>
+        <div class="flow">
+          <strong>上下游：</strong>
+          <code>react/runConversation.ts</code>（单 Agent 最终 reply）·
+          <code>multi-agent/aggregate.ts</code>（汇总输出）·
+          <code>rag/answer.ts</code>（normalize 之后）。
+          泄露时路由可再推 SSE <code>output_leak_blocked</code> → 前端 Trace。
+        </div>
+        <div class="why">输出层是最后一道门：即使用户注入成功骗模型「复述规则」，用户侧仍看不到完整 system。阈值 2 在召回与误杀之间取教学友好折中。</div>
+      </div>
+    </div>
+
+    <h2>三道门如何配合</h2>
+    <div class="card">
+      <ol class="steps">
+        <li><strong>输入</strong>：看见攻击意图 → Trace 亮红，但默认继续跑，方便对照「标记 vs 拦截」。</li>
+        <li><strong>工具</strong>：挡住幻觉工具名与脏参数 → 回填 error，模型可改口，不会真执行。</li>
+        <li><strong>输出</strong>：挡住 system 原文外泄 → 用户只看到安全替换句，同时 Trace 记录指纹命中。</li>
+      </ol>
+      <div class="why">分层比「一个大拦截器」更清晰：每层职责单一，三条业务链路可以按需挂载，不必 fork 三份防护代码。</div>
+    </div>
+
+    <footer class="note">
+      上一篇 <a href="../server/rag.html">RAG</a> ·
+      下一篇 <a href="../server/usage.html">Usage</a> ·
+      横切说明见 <a href="../guide/crosscutting.html">crosscutting</a>
+    </footer>
+  </main>
+</body>
+</html>

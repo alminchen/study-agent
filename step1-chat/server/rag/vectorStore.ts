@@ -64,9 +64,22 @@ export class LocalVectorStore {
     return this.records.filter((record) => record.source === source).length;
   }
 
-  /** 按余弦相似度取 TopK（分数越高越像）。 */
-  search(queryVec: number[], topK: number): SearchHit[] {
-    return this.records
+  /** 按余弦相似度取 TopK（分数越高越像）。
+   *
+   * 单元 5：options.sources 非空时只在这些 source 上比向量（硬过滤）。
+   * 传入 [] → 候选池为空（路由 none）；不传 / undefined → 全库。
+   */
+  search(
+    queryVec: number[],
+    topK: number,
+    options?: { sources?: string[] | null },
+  ): SearchHit[] {
+    let pool = this.records;
+    if (options?.sources != null) {
+      const allowed = new Set(options.sources);
+      pool = this.records.filter((record) => allowed.has(record.source));
+    }
+    return pool
       .map((chunk) => ({ chunk, score: cosine(chunk.embedding, queryVec) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, topK);

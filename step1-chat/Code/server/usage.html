@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>12 Token / Usage · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../server/guard.html">Guard</a>
+    <a href="../server/usage.html">Usage</a>
+    <a href="../server/tracing.html">Tracing</a>
+    <a href="../frontend/api.html">前端 API</a>
+    <a href="../frontend/composables.html">useChat</a>
+  </nav>
+  <main class="layout">
+    <h1>12 · Token / Usage <span class="badge">server/usage/</span></h1>
+    <p class="lede">
+      请求级 Token 累加与成本估算。核心事实：用户发 1 条消息 ≠ 只调 1 次 LLM。
+      单 Agent ReAct 可能 askModel 多轮；多 Agent 含 Supervisor / Worker / Aggregate；RAG 通常 0 或 1 次。
+      本目录负责解析 API usage → 请求内累加 → 单价估算 → 落盘汇总；前端经 SSE usage 事件与 GET <code>/api/usage</code> 展示。
+    </p>
+
+    <div class="card">
+      <p><strong>典型挂载（路由层）：</strong>创建 <code>UsageAccumulator</code> → <code>bindUsageCallback</code> 传给 complete/callLLM → 请求结束 <code>writeUsageToStream</code>（见 routes/sse）推 SSE 并 <code>appendUsageRecord</code>。</p>
+    </div>
+
+    <!-- ========== types.ts ========== -->
+    <h2><span class="file-path">server/usage/types.ts</span></h2>
+    <div class="card">
+      <p>数据分层：单次 LLM 原始用量 → 一次 HTTP 请求摘要 → 持久化记录 → 全局汇总。类型本身无运行时逻辑，但是所有模块的契约。</p>
+
+      <div class="method">
+        <div class="name">TokenUsage</div>
+        <div class="sig">interface TokenUsage { promptTokens: number; completionTokens: number; totalTokens: number }</div>
+        <p><strong>做什么：</strong>描述<strong>单次</strong> LLM 调用的用量，对应 OpenAI 兼容响应里的 usage 字段（经 parseUsage 转成 camelCase）。</p>
+        <ol class="steps">
+          <li><code>promptTokens</code>：输入侧（system + 历史 + 工具回填等）。</li>
+          <li><code>completionTokens</code>：模型生成侧。</li>
+          <li><code>totalTokens</code>：通常为二者之和；部分平台不返回 total 时由解析层相加。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>parseUsageFromResponse 产出 → Accumulator.record 消费 → pricing.estimateCostUsd / mergeUsage。</div>
+        <div class="why">先固定「单次调用」原子单位，才能在请求级做相加与按模型估价，而不会把 ReAct 多轮误当成一次调用。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">UsageRecord</div>
+        <div class="sig">interface UsageRecord { id; timestamp; endpoint; model; promptTokens; completionTokens; totalTokens; llmCalls; estimatedCostUsd }</div>
+        <p><strong>做什么：</strong>写入 store 的<strong>请求级</strong>完整记录。一次用户提问（一条 HTTP）对应一条，即使内部调了多次 LLM 也合并为一条。</p>
+        <table class="params">
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td><code>usage_{timestamp}_{random}</code></td></tr>
+            <tr><td><code>endpoint</code></td><td><code>"chat" | "chat/multi" | "rag/chat"</code></td></tr>
+            <tr><td><code>model</code></td><td>主模型名（出现次数最多；无调用用请求默认）</td></tr>
+            <tr><td><code>llmCalls</code></td><td>本次请求内有效 LLM 次数</td></tr>
+            <tr><td><code>estimatedCostUsd</code></td><td>按单价表估算，非真实账单</td></tr>
+          </tbody>
+        </table>
+        <div class="why">前端「累计」与「最近记录」需要可持久化的行；把多轮 LLM 压成一行，对用户心智是「这次提问花了多少」，而不是「第 3 次 askModel 花了多少」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">UsageSummary</div>
+        <div class="sig">interface UsageSummary { totalRequests; total*Tokens; totalCostUsd; byEndpoint; byModel; recent }</div>
+        <p><strong>做什么：</strong>GET <code>/api/usage</code> 返回的全局汇总结构：总量 + 按 endpoint/model 分组 + 最近记录倒序切片。</p>
+        <ol class="steps">
+          <li><code>byEndpoint</code> / <code>byModel</code>：各含 requests、totalTokens、costUsd。</li>
+          <li><code>recent</code>：原始 UsageRecord 列表（store 默认最多 50 条展示）。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>getUsageSummary 生成 → 前端 <a href="../frontend/api.html">fetchUsageSummary</a> → UsagePanel。</div>
+        <div class="why">分组字段让学员对比「multi 是否比单 Agent 更贵」「某模型是否更耗 token」，而不是只看一个总数字。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">UsageSnapshot</div>
+        <div class="sig">interface UsageSnapshot { endpoint; model; promptTokens; completionTokens; totalTokens; llmCalls; estimatedCostUsd }</div>
+        <p><strong>做什么：</strong>推给前端 SSE / JSON 的<strong>单次请求</strong>摘要。字段与 Record 相近，但不含 id / timestamp（展示用即时面板）。</p>
+        <ol class="steps">
+          <li>由 Accumulator.toSnapshot(endpoint, fallbackModel) 生成。</li>
+          <li>经 writeUsageToStream 写成 <code>type:"usage"</code> 事件；前端 onUsage 写入 lastUsage。</li>
+        </ol>
+        <div class="why">SSE 事件应轻量；持久化身份（id/时间）只在落盘时需要，不必每次打字流里携带。</div>
+      </div>
+    </div>
+
+    <!-- ========== parseUsage.ts ========== -->
+    <h2><span class="file-path">server/usage/parseUsage.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">parseUsageFromResponse</div>
+        <div class="sig">export function parseUsageFromResponse(data: unknown): TokenUsage | null</div>
+        <p><strong>做什么：</strong>从 chat/completions 非流式响应 JSON 中提取 usage，规范化为 TokenUsage。缺失或全 0 返回 null，调用方跳过 record。</p>
+        <ol class="steps">
+          <li>校验 data 为对象；取 <code>data.usage</code>，非对象则 null。</li>
+          <li>读 snake_case：prompt_tokens / completion_tokens / total_tokens，用 Number 转数字，缺省 0。</li>
+          <li>若无 total_tokens，用 prompt+completion 相加。</li>
+          <li>三者皆 ≤0 视为无效（Mock 或异常）→ null。</li>
+          <li>否则返回 camelCase TokenUsage。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>data</code></td><td>fetch 后 JSON.parse 的完整响应</td></tr>
+            <tr><td>出参</td><td><code>TokenUsage | null</code></td><td>有效用量或跳过标记</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>调用方包括 react/complete.ts、multi-agent/llm.ts、rag/complete.ts。不处理 stream:true（流式通常无完整 usage）。</div>
+        <div class="why">各 LLM 封装层统一解析，避免 prompt_tokens 字段名差异散落；Mock 返回 null 后 Accumulator 自然跳过，空请求不会污染账本。</div>
+      </div>
+    </div>
+
+    <!-- ========== pricing.ts ========== -->
+    <h2><span class="file-path">server/usage/pricing.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">MODEL_PRICING / DEFAULT_PRICING（模块常量）</div>
+        <div class="sig">Record&lt;modelId, { inputPer1M; outputPer1M }&gt; · DEFAULT = { 0.2, 0.8 }</div>
+        <p><strong>做什么：</strong>手工维护各模型「美元 / 百万 token」单价表；未知模型走偏保守的默认价，避免低估。</p>
+        <ol class="steps">
+          <li>表中含 deepseek-chat、deepseek-v4-flash、gpt-5.4-mini、gpt-5.6-sol 等学习 demo 近似价。</li>
+          <li>新模型需手动加一行；不以平台实时价 API 为准。</li>
+        </ol>
+        <div class="why">本模块只做估算教学，不是财务系统。不考虑缓存命中、套餐价、thinking token 单独计费。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">estimateCostUsd</div>
+        <div class="sig">export function estimateCostUsd(model: string, usage: TokenUsage): number</div>
+        <p><strong>做什么：</strong>按模型单价估算<strong>单次</strong> LLM 调用的美元成本。</p>
+        <ol class="steps">
+          <li>查 MODEL_PRICING[model]，没有则 DEFAULT_PRICING。</li>
+          <li><code>inputCost = promptTokens/1e6 × inputPer1M</code>。</li>
+          <li><code>outputCost = completionTokens/1e6 × outputPer1M</code>。</li>
+          <li>返回二者之和。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>model</code></td><td>本次调用 model id</td></tr>
+            <tr><td>入参</td><td><code>usage</code></td><td>该次 TokenUsage</td></tr>
+            <tr><td>出参</td><td><code>number</code></td><td>估算 USD</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>UsageAccumulator.estimatedCostUsd 对每次 entry 调用后相加。</div>
+        <div class="why">按「每次调用」估价再求和，才能正确处理同一请求内混用不同 model 的情况；若先 merge token 再乘单一单价会算错。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">mergeUsage</div>
+        <div class="sig">export function mergeUsage(usages: TokenUsage[]): TokenUsage</div>
+        <p><strong>做什么：</strong>把多次 TokenUsage 的 prompt/completion/total 简单相加，得到请求级合并用量。</p>
+        <ol class="steps">
+          <li>reduce 初始全 0。</li>
+          <li>逐字段累加返回新对象。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>Accumulator.mergedUsage()。</div>
+        <div class="why">合并逻辑单独成函数，便于单测「三轮 ReAct token 是否相加正确」，也不和估价逻辑缠在一起。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">formatCostUsd</div>
+        <div class="sig">export function formatCostUsd(cost: number): string</div>
+        <p><strong>做什么：</strong>把成本格式化为前端可读美元字符串。极小非零值显示 <code>&lt;$0.000001</code>，避免全零误导。</p>
+        <ol class="steps">
+          <li>cost===0 → "$0"。</li>
+          <li>0 &lt; cost &lt; 1e-6 → "&lt;$0.000001"。</li>
+          <li>否则 <code>$${cost.toFixed(6)}</code>。</li>
+        </ol>
+        <div class="why">短对话成本常低于百分之一美分；直接 toFixed 成 $0.000000 会让学员以为「没计费」。</div>
+      </div>
+    </div>
+
+    <!-- ========== accumulator.ts ========== -->
+    <h2><span class="file-path">server/usage/accumulator.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">UsageSource（类型）</div>
+        <div class="sig">type UsageSource = "askModel" | "supervisor" | "worker" | "aggregate" | "rag"</div>
+        <p><strong>做什么：</strong>标记每次 LLM 调用来自哪一层，便于调试分析（当前未直接暴露给前端面板，但写入 entries 供后续扩展）。</p>
+        <div class="why">多 Agent 一次提问可能 5+ 次 LLM；没有 source 标签就无法解释「钱花在 Supervisor 还是 Worker」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">class UsageAccumulator</div>
+        <div class="sig">class UsageAccumulator { record; get llmCalls; get isEmpty; mergedUsage; primaryModel; estimatedCostUsd; toSnapshot; toRecord }</div>
+        <p><strong>做什么：</strong>单次 HTTP 请求内的 Token 累加器。每个 API 入口 new 一个实例；请求结束 toSnapshot / toRecord。</p>
+        <ol class="steps">
+          <li>内部 <code>entries: { model, source, usage }[]</code>。</li>
+          <li>生命周期：路由创建 → 各 LLM 层 record → 结束写 SSE + store。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>chat / chatMulti / ragChat 路由持有实例；complete/callLLM 经 bindUsageCallback 写入。</div>
+        <div class="why">请求级实例避免全局可变状态串台；一次提问一条账，符合用户心智。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">UsageAccumulator.record</div>
+        <div class="sig">record(model: string, source: UsageSource, usage: TokenUsage | null | undefined): void</div>
+        <p><strong>做什么：</strong>记录一次有效 LLM 调用。null/undefined 或 totalTokens≤0 时跳过（Mock、失败、空响应）。</p>
+        <ol class="steps">
+          <li>守卫：无 usage 或 total≤0 → return。</li>
+          <li>push 一条 { model, source, usage }。</li>
+        </ol>
+        <div class="why">跳过无效条目，保证 llmCalls 与合并 token 只反映真实计费调用。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">get llmCalls / get isEmpty</div>
+        <div class="sig">get llmCalls(): number · get isEmpty(): boolean</div>
+        <p><strong>做什么：</strong><code>llmCalls</code> 返回 entries.length；<code>isEmpty</code> 表示没有任何有效 LLM 调用（例如 RAG 检索判空不调模型、纯 Mock）。</p>
+        <ol class="steps">
+          <li>只读访问内部数组长度，无副作用。</li>
+        </ol>
+        <div class="why">路由层可据此决定是否仍推 usage 事件或如何展示「0 token」；语义比直接暴露 entries 更清晰。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">mergedUsage</div>
+        <div class="sig">mergedUsage(): TokenUsage</div>
+        <p><strong>做什么：</strong>把所有 entry 的 usage 交给 mergeUsage，得到请求级合计 token。</p>
+        <div class="flow"><strong>上下游：</strong>toSnapshot 使用。</div>
+        <div class="why">展示用「总计」字段，不要求前端自己加。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">primaryModel</div>
+        <div class="sig">primaryModel(fallback: string): string</div>
+        <p><strong>做什么：</strong>取出现次数最多的 model 作为「主模型名」；无 entries 时返回 fallback（请求参数里的 defaultModel）。</p>
+        <ol class="steps">
+          <li>空 → fallback。</li>
+          <li>用 Map 计每个 model 出现次数。</li>
+          <li>遍历取 count 最大者；平局保留先扫到的最大值逻辑。</li>
+        </ol>
+        <div class="why">多 Agent 可能同 model 多次；面板需要一个简洁的「本次用了哪个模型」标签，而不是列出全部。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">estimatedCostUsd</div>
+        <div class="sig">estimatedCostUsd(): number</div>
+        <p><strong>做什么：</strong>对每次 entry 分别 estimateCostUsd 后求和。</p>
+        <ol class="steps">
+          <li>reduce 累加 <code>estimateCostUsd(e.model, e.usage)</code>。</li>
+        </ol>
+        <div class="why">见 pricing：必须按次估价，不能先 merge 再乘价。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">toSnapshot</div>
+        <div class="sig">toSnapshot(endpoint: UsageRecord["endpoint"], fallbackModel: string): UsageSnapshot</div>
+        <p><strong>做什么：</strong>生成前端 SSE 用摘要：合并 token、主模型、llmCalls、估算成本，不含 id/timestamp。</p>
+        <ol class="steps">
+          <li>merged = mergedUsage()。</li>
+          <li>组装 UsageSnapshot 字段并返回。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>writeUsageToStream / toRecord 内部。</div>
+        <div class="why">同一套数字既推 SSE 又落盘，避免两处手写字段不一致。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">toRecord</div>
+        <div class="sig">toRecord(endpoint, fallbackModel): UsageRecord</div>
+        <p><strong>做什么：</strong>在 snapshot 基础上加 id 与 timestamp，供 store 持久化。</p>
+        <ol class="steps">
+          <li>调用 toSnapshot。</li>
+          <li>id = <code>usage_${Date.now()}_${random}</code>；timestamp = Date.now()。</li>
+          <li>展开 snapshot 字段返回完整 UsageRecord。</li>
+        </ol>
+        <div class="why">id 带随机后缀避免同毫秒并发撞车；时间戳供 recent 倒序与排障。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">UsageCallback / bindUsageCallback</div>
+        <div class="sig">type UsageCallback = (usage: TokenUsage, model: string) =&gt; void<br/>bindUsageCallback(accumulator, source, defaultModel): UsageCallback</div>
+        <p><strong>做什么：</strong>把 Accumulator 绑定成可直接传给 complete.ts / callLLM 的 onUsage 回调；source 与 defaultModel 闭包固定。</p>
+        <ol class="steps">
+          <li>返回函数 <code>(usage, model) =&gt; accumulator.record(model || defaultModel, source, usage)</code>。</li>
+          <li>model 为空时用 defaultModel，避免写入空字符串。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>accumulator</code></td><td>当前请求实例</td></tr>
+            <tr><td>入参</td><td><code>source</code></td><td>askModel / supervisor / worker / aggregate / rag</td></tr>
+            <tr><td>入参</td><td><code>defaultModel</code></td><td>兜底模型名</td></tr>
+            <tr><td>出参</td><td><code>UsageCallback</code></td><td>可注入 LLM 层</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>路由创建多个 bind（例如 supervisor 与 worker 不同 source）→ 各 LLM 封装在拿到 parseUsage 结果后调用。</div>
+        <div class="why">闭包固定 source，避免每次 callLLM 忘传标签；接口形状与现有 onUsage 对齐，改动面最小。</div>
+      </div>
+    </div>
+
+    <!-- ========== store.ts ========== -->
+    <h2><span class="file-path">server/usage/store.ts</span></h2>
+    <div class="card">
+      <p>存储策略（学习 demo）：内存数组 + <code>data/usage-log.json</code> 双写；最多 500 条；GET recent 最多 50 条。生产应换 Redis/时序库。</p>
+
+      <div class="method">
+        <div class="name">loadFromDisk（内部）</div>
+        <div class="sig">function loadFromDisk(): UsageRecord[]</div>
+        <p><strong>做什么：</strong>进程启动时读 JSON；文件不存在或解析失败返回空数组，保证服务能起来。</p>
+        <ol class="steps">
+          <li>existsSync(LOG_FILE) 否 → []。</li>
+          <li>readFileSync + JSON.parse；非数组 → []。</li>
+          <li>catch → []。</li>
+        </ol>
+        <div class="why">用量日志损坏不应阻断聊天主路径；宁可空账本，不可启动崩溃。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">persist（内部）</div>
+        <div class="sig">function persist(): void</div>
+        <p><strong>做什么：</strong>把当前 records 写回磁盘；必要时创建 data/ 目录。</p>
+        <ol class="steps">
+          <li>目录不存在则 mkdirSync recursive。</li>
+          <li>writeFileSync pretty JSON（缩进 2）。</li>
+        </ol>
+        <div class="why">pretty 打印方便学员打开文件肉眼看账；demo 体量下性能可接受。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">appendUsageRecord</div>
+        <div class="sig">export function appendUsageRecord(record: UsageRecord): void</div>
+        <p><strong>做什么：</strong>追加一条请求级用量；超过 MAX_RECORDS(500) 时截断最旧的，然后 persist。</p>
+        <ol class="steps">
+          <li><code>records = [...records, record]</code>。</li>
+          <li>若 length &gt; 500，<code>slice(-500)</code>。</li>
+          <li>persist()。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>writeUsageToStream（及路由结束路径）调用。</div>
+        <div class="why">硬上限防止 JSON 无限膨胀撑爆磁盘；环形保留最近记录对教学足够。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">clearUsageRecords</div>
+        <div class="sig">export function clearUsageRecords(): void</div>
+        <p><strong>做什么：</strong>清空内存与磁盘日志（DELETE /api/usage）。</p>
+        <ol class="steps">
+          <li>records = []；persist() 写出空数组。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>DELETE 路由 → 前端 clearUsageHistory。</div>
+        <div class="why">demo 一键清账，方便对比实验前后成本。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">getUsageSummary</div>
+        <div class="sig">export function getUsageSummary(): UsageSummary</div>
+        <p><strong>做什么：</strong>遍历全部 records，计算总量、按 endpoint/model 聚合，并返回最近 MAX_RECENT(50) 条倒序记录。</p>
+        <ol class="steps">
+          <li>初始化 byEndpoint / byModel 空对象与各 total 计数。</li>
+          <li>对每条 record：累加 prompt/completion/total/cost；按 endpoint、model 递增 requests/tokens/cost。</li>
+          <li>recent = reverse(records).slice(0, 50)。</li>
+          <li>组装 UsageSummary 返回。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>GET /api/usage → 前端 UsagePanel 累计区。</div>
+        <div class="why">汇总在服务端做，前端只渲染；避免把完整 500 条都下发后再分组。</div>
+      </div>
+    </div>
+
+    <footer class="note">
+      上一篇 <a href="../server/guard.html">Guard</a> ·
+      下一篇 <a href="../server/tracing.html">Tracing</a> ·
+      前端消费见 <a href="../frontend/api.html">usage.ts</a> / <a href="../frontend/composables.html">useChat</a>
+    </footer>
+  </main>
+</body>
+</html>

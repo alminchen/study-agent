@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>step1-chat · 流程 SVG 索引</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0; background: #f1f4f3; color: #1b2426;
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lede { color: #5c6b70; margin: 0 0 12px; font-size: 14.5px; }
+  .lede a { color: #2563eb; text-decoration: none; }
+  .lede a:hover { text-decoration: underline; }
+  nav.toc {
+    margin: 0 0 32px; padding: 14px 16px; background: #fff;
+    border: 1px solid #d8e0e1; border-radius: 8px; font-size: 13.5px;
+  }
+  nav.toc strong { display: block; margin-bottom: 8px; font-size: 12.5px; color: #5c6b70; }
+  nav.toc a { color: #1b2426; text-decoration: none; margin-right: 14px; white-space: nowrap; }
+  nav.toc a:hover { color: #2563eb; }
+  figure {
+    margin: 0 0 34px; background: #fff; border: 1px solid #d8e0e1; border-radius: 8px;
+    overflow: hidden; box-shadow: 0 1px 2px rgba(16,24,26,.05), 0 6px 20px rgba(16,24,26,.05);
+  }
+  .fhead {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px;
+    padding: 10px 16px; border-bottom: 1px solid #e3e9ea;
+  }
+  .no { font-weight: 600; font-size: 13.5px; }
+  .doc-link { font-size: 12.5px; color: #5c6b70; }
+  .doc-link a { color: #2563eb; text-decoration: none; }
+  .doc-link a:hover { text-decoration: underline; }
+  figure img { display: block; width: 100%; height: auto; padding: 16px; background: #f8fafc; }
+  figcaption {
+    padding: 8px 16px 12px; font-size: 12.5px; color: #5c6b70;
+    border-top: 1px solid #eef2f2; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>step1-chat · 流程 SVG 索引</h1>
+  <p class="lede">泳道流程图（含方法名、调用链，以及 <strong>Token / Guard / Trace</strong> 横切）。浏览器直接打开本页即可浏览。</p>
+  <p class="lede">Markdown 索引：<a href="./flows-index.md">flows-index.md</a> · 时序图：<a href="../diagrams/index.html">diagrams/index.html</a> · <strong>学习计划对照拓扑</strong>：<a href="./project-topology.html">project-topology.html</a></p>
+
+  <nav class="toc" aria-label="目录">
+    <strong>跳转</strong>
+    <a href="#crosscutting">0 横切总览</a>
+    <a href="#chat-react">1 单 Agent</a>
+    <a href="#chat-multi">2 多 Agent</a>
+    <a href="#rag-chat">3 资料问答</a>
+    <a href="#rag-enhance">3b 问句增强</a>
+    <a href="#human-confirm">4 人工确认(单)</a>
+    <a href="#multi-human-confirm">4b 人工确认(多)</a>
+    <a href="#messages">5 messages</a>
+    <a href="#resilience">6 失败地图</a>
+    <a href="#tools">7 工具发现</a>
+  </nav>
+
+  <figure id="crosscutting">
+    <div class="fhead">
+      <span class="no">0 · 横切总览（Token · Guard · Trace）</span>
+      <span class="doc-link">源码 usage/ · guard/ · tracing/</span>
+    </div>
+    <img src="./crosscutting-token-guard-trace-flow.svg" alt="Token 计费 · 安全拦截 · Tracing 横切总览">
+    <figcaption>crosscutting-token-guard-trace-flow.svg — 插入点总览 → Token 流 → Guard 三道门 → Trace 双通道 → 三端点对照 → /api/chat 时序</figcaption>
+  </figure>
+
+  <figure id="chat-react">
+    <div class="fhead">
+      <span class="no">1 · 单 Agent ReAct + 横切</span>
+      <span class="doc-link">文档 <a href="./project-messages-flow.md">project-messages-flow.md</a> §三</span>
+    </div>
+    <img src="./chat-react-flow.svg" alt="单 Agent POST /api/chat 含 Token Guard Trace">
+    <figcaption>chat-react-flow.svg — Accumulator(askModel) · detectInjection · validateToolCall · detectLeakage · LangSmith chat-request · writeUsageToStream</figcaption>
+  </figure>
+
+  <figure id="chat-multi">
+    <div class="fhead">
+      <span class="no">2 · 多 Agent + 横切</span>
+      <span class="doc-link">文档 <a href="./project-messages-flow.md">project-messages-flow.md</a> §四</span>
+    </div>
+    <img src="./chat-multi-flow.svg" alt="多 Agent POST /api/chat/multi 含 Token Guard">
+    <figcaption>chat-multi-flow.svg — Worker mini ReAct 每轮 callLLM → onUsage("worker") 累加；并行 Worker 写入同一 Accumulator；再 + supervisor / aggregate</figcaption>
+  </figure>
+
+  <figure id="rag-chat">
+    <div class="fhead">
+      <span class="no">3 · 资料问答 RAG + 横切缺口</span>
+      <span class="doc-link">文档 <a href="./rag-input-output-guard-changelog.md">rag-input-output-guard-changelog.md</a> · <a href="./project-messages-flow.md">project-messages-flow.md</a> §五</span>
+    </div>
+    <img src="./rag-chat-flow.svg" alt="资料问答检索全链与 Token">
+    <figcaption>rag-chat-flow.svg — retrieve→judge→rerank · Token(rag) · 三道 Guard · SSE Trace · LangSmith rag-request</figcaption>
+  </figure>
+
+  <figure id="rag-enhance">
+    <div class="fhead">
+      <span class="no">3b · 检索前问句增强（额外课）</span>
+      <span class="doc-link">计划 <a href="../../rag-query-intent-rewrite-learning-plan.md">rag-query-intent-rewrite-learning-plan.md</a> · 笔记 <a href="./rag-query-enhance-notes.md">rag-query-enhance-notes.md</a> · 拓扑 <a href="./project-topology.html#rag-enhance">§6b</a></span>
+    </div>
+    <img src="./rag-query-enhance-flow.svg" alt="意图扩写路由 Multi-Query HyDE">
+    <figcaption>rag-query-enhance-flow.svg — 泳道：挂点→扩写(ok/fallback)→路由(none 早退)→HyDE|Multi|单路细链→闸门重排仍用 queryUsed→rag_meta→RagHitPanel；含调用树与开关矩阵</figcaption>
+  </figure>
+
+  <figure id="human-confirm">
+    <div class="fhead">
+      <span class="no">4 · 人工确认（单 Agent）</span>
+      <span class="doc-link">文档 <a href="./human-confirm-changelog.md">human-confirm-changelog.md</a></span>
+    </div>
+    <img src="./human-confirm-flow.svg" alt="单 Agent 人工确认完整泳道">
+    <figcaption>human-confirm-flow.svg — 四泳道完整 wait/resolve/dispose；§6 横切归属（Token/Guard/Trace 挂在父 /api/chat）</figcaption>
+  </figure>
+
+  <figure id="multi-human-confirm">
+    <div class="fhead">
+      <span class="no">4b · 人工确认（多 Agent）</span>
+      <span class="doc-link">文档 <a href="./multi-agent-human-confirm-changelog.md">multi-agent-human-confirm-changelog.md</a></span>
+    </div>
+    <img src="./multi-agent-human-confirm-flow.svg" alt="多 Agent 人工确认完整泳道">
+    <figcaption>multi-agent-human-confirm-flow.svg — chatMulti Session · graph 中途 SSE · actionWorker · runToolSafely wait · 共用 /api/chat/confirm</figcaption>
+  </figure>
+
+  <figure id="messages">
+    <div class="fhead">
+      <span class="no">5 · messages 拼装总览</span>
+      <span class="doc-link">文档 <a href="./project-messages-flow.md">project-messages-flow.md</a></span>
+    </div>
+    <img src="./messages-assembly-flow.svg" alt="messages 三层 × 三条链路总览">
+    <figcaption>messages-assembly-flow.svg — 前端 / HTTP / LLM 三层 · 三条链路对比</figcaption>
+  </figure>
+
+  <figure id="resilience">
+    <div class="fhead">
+      <span class="no">6 · 失败地图</span>
+      <span class="doc-link">文档 <a href="./resilience-failure-map.md">resilience-failure-map.md</a></span>
+    </div>
+    <img src="./resilience-failure-flow.svg" alt="失败地图与恢复策略">
+    <figcaption>resilience-failure-flow.svg — LLM / 工具 / 检索 / RAG / 前端 失败与是否可继续</figcaption>
+  </figure>
+
+  <figure id="tools">
+    <div class="fhead">
+      <span class="no">7 · 工具注册与发现</span>
+      <span class="doc-link">文档 <a href="./dynamic-tool-discovery.md">dynamic-tool-discovery.md</a></span>
+    </div>
+    <img src="./dynamic-tool-discovery-flow.svg" alt="工具静态注册 vs 动态发现">
+    <figcaption>dynamic-tool-discovery-flow.svg — 静态 toolList 现状 vs discoverTools 目标形态</figcaption>
+  </figure>
+</div>
+</body>
+</html>

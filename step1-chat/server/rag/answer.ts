@@ -1,3 +1,11 @@
+import { normalizeKnowledgeAnswer } from "../answer-style/knowledgeAnswer.js";
+import { detectLeakage } from "../guard/outputGuard.js";
+import { validateToolCall } from "../guard/toolCallGuard.js";
+import type { ToolTraceHandler } from "../react/types.js";
+import {
+  runRagLlmWithTracing,
+  runRagRetrieveWithTracing,
+} from "../tracing/langsmith.js";
 import { completeRagMessages } from "./complete.js";
 import { buildRagPrompt, type RagMessage } from "./prompt.js";
 import { retrieveForAnswer } from "./retrieve.js";
@@ -27,6 +35,26 @@ export interface RagAnswer {
   question: string;
   /** 原始召回 TopK；usedInPrompt 看 promptIndex 是否为 null */
   hits: RagHitView[];
+  /**
+   * outputGuard 命中 system/资料规则指纹时为 true；
+   * 此时 answer 已是 safeText 替换文案。
+   */
+  outputLeakBlocked?: boolean;
+  /** 泄露检测命中的指纹（仅 outputLeakBlocked 时有） */
+  matchedFingerprints?: string[];
+  /** toolGuard 拒绝检索时为 true */
+  toolGuardBlocked?: boolean;
+  /**
+   * 检索前问句增强（单元 4）。
+   * question 字段仍是用户原句；真正 embed 用的是 rewriteMeta.queryUsed。
+   */
+  rewriteMeta?: import("./queryEnhance/types.js").RewriteMeta;
+  /** 多库路由（单元 5） */
+  kbRouteMeta?: import("./queryEnhance/types.js").KbRouteMeta;
+  /** 多路召回（单元 6） */
+  multiQueryMeta?: import("./queryEnhance/types.js").MultiQueryMeta;
+  /** HyDE 假文档检索（单元 7） */
+  hydeMeta?: import("./queryEnhance/types.js").HydeMeta;
 }
 
 function toPublicHits(
@@ -54,18 +82,104 @@ function toPublicHits(
 }
 
 /**
- * 问句 → 检索判空 → 拼 prompt →（有资料才）调 LLM。
+ * 问句 → toolGuard(searchDocs) → 检索判空 → 拼 prompt →（有资料才）调 LLM。
  * 空结果直接返回固定文案，不消耗模型调用。
  * history 只应包含当前问题之前的 user/assistant，当前问句由 question 单独传入。
+ *
+ * 安全（与单 Agent 对齐语义）：
+ * - Tool：检索前 validateToolCall("searchDocs", { question })；拒绝则不 retrieve、不调模型。
+ * - Output：模型回复经 normalizeKnowledgeAnswer 后再 detectLeakage；泄露则换 safeText。
+ * - Input：由 routes/ragChat.ts 对 question 调 detectInjection（只标记；SSE injection_detected）。
+ * - Trace：onTrace 推 tool_call / tool_result / output_leak_blocked（SSE）。
+ * - LangSmith：retrieve / LLM 分别走 runRagRetrieveWithTracing / runRagLlmWithTracing。
  */
 export async function answerFromDocs(
   question: string,
   history: RagMessage[] = [],
   signal?: AbortSignal,
   model?: string,
+  onUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void,
+  onTrace?: ToolTraceHandler,
+  usageHooks?: {
+    onRewriteUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
+    onHydeUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
+  },
 ): Promise<RagAnswer> {
   const trimmed = question.trim();
-  const judgment = await retrieveForAnswer(trimmed);
+  const rawArgs = JSON.stringify({ question: trimmed });
+
+  // ---- Tool Guard：把「内部检索」当成 searchDocs 白名单调用校验（与 chat 工具层对齐）----
+  onTrace?.({ type: "tool_call", name: "searchDocs", arguments: { question: trimmed } });
+  const toolGuard = validateToolCall("searchDocs", rawArgs);
+  if (!toolGuard.allowed) {
+    const reason = toolGuard.reason ?? "工具调用被拒绝";
+    onTrace?.({ type: "tool_result", name: "searchDocs", result: { error: reason } });
+    return {
+      empty: true,
+      answer: `检索被拦截：${reason}`,
+      calledModel: false,
+      topScore: null,
+      question: trimmed,
+      hits: [],
+      toolGuardBlocked: true,
+    };
+  }
+
+  const judgment = await runRagRetrieveWithTracing(trimmed, async () => {
+    // signal 传入：用户停止时扩写 / HyDE HTTP 也能 abort
+    const result = await retrieveForAnswer(trimmed, undefined, undefined, {
+      signal,
+      onRewriteUsage: usageHooks?.onRewriteUsage,
+      onHydeUsage: usageHooks?.onHydeUsage,
+    });
+    return {
+      ...result,
+      // 供 LangSmith processOutputs 摘要（不影响后续解构）
+      hitCount: result.rawHits.length,
+    };
+  });
+
+  onTrace?.({
+    type: "tool_result",
+    name: "searchDocs",
+    result: {
+      empty: judgment.empty,
+      topScore: judgment.topScore,
+      hitCount: judgment.rawHits.length,
+      injectedCount: judgment.hits.length,
+      // 过程面板可见：扩写是否启用 / 用了哪句去搜（不替代 hits 详情）
+      rewrite: judgment.rewriteMeta
+        ? {
+            status: judgment.rewriteMeta.status,
+            queryUsed: judgment.rewriteMeta.queryUsed,
+            intent: judgment.rewriteMeta.intent,
+          }
+        : undefined,
+      kbRoute: judgment.kbRouteMeta
+        ? {
+            status: judgment.kbRouteMeta.status,
+            route: judgment.kbRouteMeta.route,
+            sourcesAllowed: judgment.kbRouteMeta.sourcesAllowed,
+          }
+        : undefined,
+      multiQuery: judgment.multiQueryMeta
+        ? {
+            status: judgment.multiQueryMeta.status,
+            n: judgment.multiQueryMeta.queries.length,
+            merge: judgment.multiQueryMeta.merge,
+            mergedCount: judgment.multiQueryMeta.mergedCount,
+          }
+        : undefined,
+      hyde: judgment.hydeMeta
+        ? {
+            status: judgment.hydeMeta.status,
+            chars: judgment.hydeMeta.hydeDoc?.length ?? 0,
+            preview: (judgment.hydeMeta.hydeDoc ?? "").slice(0, 80) || undefined,
+          }
+        : undefined,
+    },
+  });
+
   const prompt = buildRagPrompt({ question: trimmed, judgment, history });
   const hits = toPublicHits(judgment.rawHits, judgment.rankedAll, judgment.hits);
   if (prompt.empty) {
@@ -76,16 +190,41 @@ export async function answerFromDocs(
       topScore: judgment.topScore,
       question: trimmed,
       hits,
+      rewriteMeta: judgment.rewriteMeta,
+      kbRouteMeta: judgment.kbRouteMeta,
+      multiQueryMeta: judgment.multiQueryMeta,
+      hydeMeta: judgment.hydeMeta,
     };
   }
 
-  const answer = await completeRagMessages(prompt.messages, signal, model);
+  const resolvedModel = model || process.env.LLM_MODEL || "deepseek-chat";
+  const { content } = await runRagLlmWithTracing(prompt.messages.length, resolvedModel, () =>
+    completeRagMessages(prompt.messages, signal, model, onUsage),
+  );
+  const normalized = normalizeKnowledgeAnswer(content);
+  // ---- outputGuard：防 RAG system / 规则指纹泄露（对齐 chat reply / multi aggregate）----
+  const leak = detectLeakage(normalized);
+  if (leak.leaked) {
+    console.warn(
+      `[OutputGuard] rag 检测到 system/规则泄露，已替换。命中: ${leak.matchedFingerprints.join(", ")}`,
+    );
+    onTrace?.({
+      type: "output_leak_blocked",
+      matchedFingerprints: leak.matchedFingerprints,
+    });
+  }
   return {
     empty: false,
-    answer,
+    answer: leak.safeText,
     calledModel: true,
     topScore: judgment.topScore,
     question: trimmed,
     hits,
+    outputLeakBlocked: leak.leaked ? true : undefined,
+    matchedFingerprints: leak.leaked ? leak.matchedFingerprints : undefined,
+    rewriteMeta: judgment.rewriteMeta,
+    kbRouteMeta: judgment.kbRouteMeta,
+    multiQueryMeta: judgment.multiQueryMeta,
+    hydeMeta: judgment.hydeMeta,
   };
 }

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>03 useChat · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../frontend/app.html">前端壳</a>
+    <a href="../frontend/composables.html">useChat</a>
+    <a href="../frontend/api.html">前端 API</a>
+    <a href="../frontend/components.html">组件</a>
+    <a href="../server/usage.html">Usage</a>
+    <a href="../server/guard.html">Guard</a>
+  </nav>
+  <main class="layout">
+    <h1>03 · useChat <span class="badge">src/composables/</span></h1>
+    <p class="lede">
+      前端唯一聊天状态中枢（Vue composable）。负责 messages / 流式标志 / ToolTrace / Usage / 模式开关；
+      按 <code>ragMode</code> 把发送分到普通对话（<code>runStream</code> → <a href="../frontend/api.html">streamChat</a>）或资料问答（<code>runRag</code> → <a href="../frontend/api.html">askRag</a>）。
+      两边共用 <code>runSseSession</code> 骨架。不负责拼 system、跑 ReAct、检索或计 Token——那些都在服务端。
+    </p>
+
+    <div class="card">
+      <p><strong>阅读顺序建议：</strong>历史键与 loadHistory → useChat 初始化与 watch → runSseSession → runStream / runRag → send / retry / stop / clear → resolveToolConfirm → 各 setter。</p>
+    </div>
+
+    <h2><span class="file-path">src/composables/useChat.ts</span></h2>
+
+    <!-- ========== 模块级常量与工具 ========== -->
+    <h3>模块级常量与 id</h3>
+    <div class="card">
+      <div class="method">
+        <div class="name">HISTORY_KEY / RAG_HISTORY_KEY / MODEL_KEY / …</div>
+        <div class="sig">const HISTORY_KEY = "step1-chat:history" · RAG_HISTORY_KEY · MODEL_KEY · RAG_MODE_KEY · SEARCH_KB_KEY · MULTI_AGENT_KEY</div>
+        <p><strong>做什么：</strong>为 localStorage 约定稳定键名。普通对话与资料问答各有独立历史键；模型、RAG 开关、知识库检索开关、多 Agent 开关各自持久化，刷新页面后恢复用户上次选择。</p>
+        <ol class="steps">
+          <li><code>HISTORY_KEY</code> / <code>RAG_HISTORY_KEY</code>：两套消息数组，切换模式互不污染。</li>
+          <li><code>MULTI_AGENT_KEY</code>：缺省视为多 Agent（只有显式存过 <code>"0"</code> 才是单 Agent）。</li>
+          <li><code>SEARCH_KB_KEY</code> 与 multi 独立——勾选「搜索知识库」不会隐式改 endpoint。</li>
+        </ol>
+        <div class="why">键名带项目前缀，避免与同域其它 demo 冲突；开关拆开存储，防止学员把「开搜索」误当成「走 multi」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">createId</div>
+        <div class="sig">() =&gt; `msg_${Date.now()}_${idCounter++}`</div>
+        <p><strong>做什么：</strong>为每条 ChatMessage 生成前端本地 id，供列表 key、占位气泡 patch、不可变更新定位使用。不与服务端会话 id 对齐。</p>
+        <ol class="steps">
+          <li>读取闭包内递增计数器，拼上当前毫秒时间戳。</li>
+          <li>保证同毫秒内连续造多条消息也不会撞 id。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>被 send（user 气泡）、runSseSession（assistant 占位）调用；组件侧用 id 做 v-for key。</div>
+        <div class="why">纯前端 id 足够驱动 UI 更新；若强行等服务端回执再插气泡，流式首包会晚一拍、体验变差。</div>
+      </div>
+    </div>
+
+    <!-- ========== loadHistory / historyKey ========== -->
+    <h3>历史读写辅助（模块内私有）</h3>
+    <div class="card">
+      <div class="method">
+        <div class="name">loadHistory</div>
+        <div class="sig">loadHistory(key: string): ChatMessage[]</div>
+        <p><strong>做什么：</strong>从 localStorage 反序列化历史消息，并对旧版 RAG 字段做兼容补全，避免缺字段导致面板渲染异常。</p>
+        <ol class="steps">
+          <li><code>localStorage.getItem(key)</code>；无数据则返回空数组。</li>
+          <li><code>JSON.parse</code>；若不是数组则返回 <code>[]</code>。</li>
+          <li>对每条消息：若无 <code>rag</code> 原样返回；若有，则补齐 <code>question</code>（缺省空串）以及每个 hit 的 <code>rerankRank</code> / <code>rerankScore</code>（缺省 <code>null</code>）。</li>
+          <li>任意异常（坏 JSON、配额等）吞掉并返回 <code>[]</code>，保证应用能启动。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>类型 / 说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>key</code></td><td>localStorage 键，通常来自 <code>historyKey(ragMode)</code></td></tr>
+            <tr><td>出参</td><td><code>ChatMessage[]</code></td><td>可直接赋给 <code>messages</code> ref；坏数据时为空数组</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>useChat 初始化、setRagMode 切换时调用。不写盘。</div>
+        <div class="why">教学仓库会演进字段（例如增加 rerank）。兼容读比「清用户历史」更友好；写路径仍由 watch / persist 写出完整新结构。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">historyKey</div>
+        <div class="sig">historyKey(ragMode: boolean): string</div>
+        <p><strong>做什么：</strong>按当前是否资料问答模式，返回应对应的 localStorage 键。</p>
+        <ol class="steps">
+          <li><code>ragMode === true</code> → <code>RAG_HISTORY_KEY</code>。</li>
+          <li>否则 → <code>HISTORY_KEY</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>ragMode</code></td><td>是否资料问答</td></tr>
+            <tr><td>出参</td><td><code>string</code></td><td>两个常量键之一</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>loadHistory、persist、watch、clear、setRagMode 都经此函数取键，避免到处硬编码字符串。</div>
+        <div class="why">单点映射：以后若再加第三种会话类型，只改这一处即可。</div>
+      </div>
+    </div>
+
+    <!-- ========== useChat ========== -->
+    <h3>导出：useChat()</h3>
+    <div class="card">
+      <div class="method">
+        <div class="name">useChat</div>
+        <div class="sig">export function useChat(): { messages, model, ragMode, …, send, retry, stop, clear, … }</div>
+        <p><strong>做什么：</strong>创建并绑定一整套聊天会话状态与操作方法。App / 顶栏 / 气泡区 / Trace / Usage 面板都应消费同一份返回值，而不是各自再 fetch。</p>
+        <ol class="steps">
+          <li>从 localStorage 恢复 <code>ragMode</code>、<code>searchKb</code>、<code>multiAgent</code>（默认 multi）、<code>model</code>、<code>messages</code>。</li>
+          <li>初始化 <code>isStreaming</code>、<code>error</code>、<code>toolTrace</code>、<code>lastUsage</code>、<code>usageSummary</code>、<code>serverMode</code>。</li>
+          <li><code>onMounted</code>：拉 health 与 usage 汇总。</li>
+          <li>注册 watch：非流式时把当前模式历史落盘。</li>
+          <li>返回 refs + 公开方法（见下文各节）。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>被 <a href="../frontend/app.html">App.vue</a> 调用；内部依赖 <a href="../frontend/api.html">chat / rag / usage API</a>。</div>
+        <div class="why">Composable 集中状态，避免「气泡一份 Trace、面板另一份 Trace」的双源真相；教学上也能一眼看见「前端只做会话壳」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">refreshUsageSummary（内部）</div>
+        <div class="sig">async function refreshUsageSummary(): Promise&lt;void&gt;</div>
+        <p><strong>做什么：</strong>请求服务端累计用量，写入 <code>usageSummary</code>，供 UsagePanel「累计」区块展示。</p>
+        <ol class="steps">
+          <li>调用 <code>fetchUsageSummary()</code>（GET <code>/api/usage</code>）。</li>
+          <li>无论成功与否，把返回值（可能为 <code>null</code>）赋给 <code>usageSummary</code>。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>onMounted、runSseSession 的 onUsage 回调触发。对应服务端 <a href="../server/usage.html">getUsageSummary</a>。</div>
+        <div class="why">单次请求的 Token 靠 SSE <code>usage</code> 事件即时展示；累计需要跨请求持久化，故另拉汇总接口，避免前端自己再算一遍账。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">watch([messages, isStreaming, ragMode])</div>
+        <div class="sig">watch(..., () =&gt; { if (!isStreaming) localStorage.setItem(historyKey(...), JSON.stringify(messages)) })</div>
+        <p><strong>做什么：</strong>在消息或模式变化且<strong>当前不在流式中</strong>时，把当前模式对应的历史写入 localStorage。</p>
+        <ol class="steps">
+          <li>任一依赖变化触发回调。</li>
+          <li>若 <code>isStreaming</code> 为 true，直接跳过（半成品气泡不落盘）。</li>
+          <li>否则 <code>setItem(historyKey(ragMode), stringify(messages))</code>。</li>
+        </ol>
+        <div class="why">流式过程中每来一个 delta 都会改 messages；若边流边写盘，刷新会留下残缺助手气泡。等流结束后再持久化更稳。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">persistCurrentHistory</div>
+        <div class="sig">function persistCurrentHistory(): void</div>
+        <p><strong>做什么：</strong>立即把当前模式历史写盘，不关心 streaming 标志。用于切换模式前「先落当前会话」、以及 send 落 user 后立刻固化。</p>
+        <ol class="steps">
+          <li><code>localStorage.setItem(historyKey(ragMode.value), JSON.stringify(messages.value))</code>。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>send、setRagMode 调用；与 watch 互补（watch 防半成品，本函数强制落完整快照）。</div>
+        <div class="why">切模式时必须先存再载，否则旧模式未写盘就被 messages 覆盖成另一条历史。</div>
+      </div>
+    </div>
+
+    <!-- ========== runSseSession ========== -->
+    <h3>核心骨架：runSseSession</h3>
+    <div class="card">
+      <div class="method">
+        <div class="name">runSseSession</div>
+        <div class="sig">async function runSseSession(history: ChatMessage[], options: { emptyErrorFallback: string; start: (ctx) =&gt; Promise&lt;boolean&gt; }): Promise&lt;void&gt;</div>
+        <p><strong>做什么：</strong>普通对话与资料问答共用的 SSE 会话外壳。负责开流、插占位助手气泡、注入统一回调、以及中止/失败时的文案收尾。真正选哪个 endpoint、拼什么 body，全部交给 <code>options.start</code>。</p>
+        <ol class="steps">
+          <li><strong>开流：</strong>新建 <code>AbortController</code>，赋给模块级 <code>abortController</code>；置 <code>isStreaming=true</code>，清空 <code>error</code> / <code>toolTrace</code> / <code>lastUsage</code>。</li>
+          <li><strong>占位：</strong><code>createId()</code> 造空 content 的 assistant，拼进 <code>history</code> 后写入 <code>messages</code>。</li>
+          <li><strong>patchLatest：</strong>闭包内不可变更新该 assistant（按 id map 替换），供 onDelta / onRagMeta 使用。</li>
+          <li><strong>调用 start：</strong>传入 signal、patchLatest，以及四个统一回调——
+            <ul class="compact">
+              <li><code>onDelta</code>：拼接正文（流式打字）。</li>
+              <li><code>onTrace</code>：追加过程步骤；若 kind 为 <code>confirm_resolved</code>，只改对应 pending 行的 status，不追加新行。</li>
+              <li><code>onUsage</code>：写 <code>lastUsage</code> 并 <code>refreshUsageSummary</code>。</li>
+              <li><code>onError</code>：写顶栏/气泡用的 <code>error</code> 字符串。</li>
+            </ul>
+          </li>
+          <li><strong>收尾：</strong>清 abort 引用、关 streaming；若用户 abort 且正文仍空 →「已停止生成。」；若未完成且非 abort 且正文空 → 用 error 或 <code>emptyErrorFallback</code> 填气泡；最后把 latest 写回 messages。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>history</code></td><td>已含本轮 user（及之前消息）的完整列表</td></tr>
+            <tr><td>入参</td><td><code>emptyErrorFallback</code></td><td>失败且无 error 文案时的兜底气泡字</td></tr>
+            <tr><td>入参</td><td><code>start</code></td><td>具体 API 启动器，返回是否「正常跑完」</td></tr>
+            <tr><td>出参</td><td>—</td><td>副作用更新 refs；无返回值</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>仅被 runStream / runRag 调用。start 内再调 streamChat 或 askRag。stop() 通过 abort 打断同一 controller。</div>
+        <div class="why">chat 与 rag 都改成 SSE 后外壳同构；抽公共函数避免两套「占位 / 中止 / 空泡」逻辑漂移。差异只留在 start 闭包里（endpoint、rag_meta）。</div>
+      </div>
+    </div>
+
+    <!-- ========== runStream / runRag ========== -->
+    <h3>链路适配：runStream / runRag</h3>
+    <div class="card">
+      <div class="method">
+        <div class="name">runStream</div>
+        <div class="sig">async function runStream(history: ChatMessage[], selectedModel: string): Promise&lt;void&gt;</div>
+        <p><strong>做什么：</strong>普通对话入口。把历史压成 <code>{role, content}[]</code>，带上当前模型、searchDocs、multiAgent，交给 <code>streamChat</code>；endpoint 由 multiAgent 决定，searchDocs 只进 body。</p>
+        <ol class="steps">
+          <li>调用 <code>runSseSession(history, { emptyErrorFallback: "请求失败，请重试。", start })</code>。</li>
+          <li>start 内调用 <code>streamChat({ messages, model, signal, searchDocs, multiAgent, onDelta, onTrace, onUsage, onError })</code>。</li>
+          <li><code>multiAgent true</code> → POST <code>/api/chat/multi</code>；false → <code>/api/chat</code>（由 api 层选路）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>history</code></td><td>含本轮 user 的完整 ChatMessage 列表</td></tr>
+            <tr><td>入参</td><td><code>selectedModel</code></td><td>当前模型 id</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>send / retry 在非 RAG 时调用 → streamChat → 服务端 chat / multi 路由。</div>
+        <div class="why">选路字段显式传入，避免「有 searchDocs 就隐式 multi」。教学上能独立演示「单 Agent + 开搜索」与「多 Agent + 不开搜索」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">runRag</div>
+        <div class="sig">async function runRag(history: ChatMessage[], selectedModel: string): Promise&lt;void&gt;</div>
+        <p><strong>做什么：</strong>资料问答入口。从 history 倒找最后一条 user 作为 question；把「去掉末条 user」的 prior 作为 history 传给后端；SSE 过程事件进 Trace，命中元数据进 <code>message.rag</code>，答案走 delta。</p>
+        <ol class="steps">
+          <li>提取 <code>question</code>（末条 user 的 trim 内容）。</li>
+          <li><code>prior = history.slice(0, -1)</code> 再 map 成 role/content，避免 prompt 重复当前问句。</li>
+          <li><code>runSseSession</code>，fallback「资料问答失败。」。</li>
+          <li>start 调 <code>askRag</code>；额外提供 <code>onRagMeta</code>：用 patchLatest 写入 empty / calledModel / topScore / question / hits。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>send / retry 在 ragMode 时调用 → askRag → <code>/api/rag/chat</code>。服务端先 toolGuard(searchDocs) 再检索。</div>
+        <div class="why">服务端 buildRagPrompt 会再拼当前 question；若 prior 仍含末条 user，模型会看到重复问句。rag_meta 与 delta 分开，避免只靠拼字丢 hits。</div>
+      </div>
+    </div>
+
+    <!-- ========== send / retry / stop / clear ========== -->
+    <h3>用户操作：send / retry / stop / clear</h3>
+    <div class="card">
+      <div class="method">
+        <div class="name">send</div>
+        <div class="sig">async function send(content: string): Promise&lt;void&gt;</div>
+        <p><strong>做什么：</strong>用户点发送或回车时的入口。先落 user 气泡并落盘，再按 ragMode 选择 runRag 或 runStream。</p>
+        <ol class="steps">
+          <li>trim；空串或已在 streaming 则直接 return。</li>
+          <li>构造 user ChatMessage（createId + createdAt）。</li>
+          <li><code>history = [...messages, userMessage]</code>，写回 messages，并 <code>persistCurrentHistory()</code>。</li>
+          <li><code>ragMode</code> ? <code>await runRag(history, model)</code> : <code>await runStream(history, model)</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>content</code></td><td>输入框原文；内部 trim</td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>输入区组件调用。后续进入 runSseSession 骨架。</div>
+        <div class="why">先落 user 再开流，保证刷新或中途失败时至少能看到用户原话；streaming 互斥防止双开 SSE。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">retry</div>
+        <div class="sig">async function retry(): Promise&lt;void&gt;</div>
+        <p><strong>做什么：</strong>去掉末尾失败/空的 assistant（若有），用最后一条 user 再跑同一链路，不新增 user 气泡。</p>
+        <ol class="steps">
+          <li>streaming 中直接 return。</li>
+          <li>若末条是 assistant，则 slice 掉；否则保留当前列表。</li>
+          <li>校验：非空且末条必须是 user，否则 return。</li>
+          <li>按 ragMode 再调 runRag 或 runStream。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>UI「重试」按钮。复用同一条 user，避免历史里叠两个相同问句。</div>
+        <div class="why">失败气泡往往是空壳或错误文案；保留它再发会污染上下文。剥掉再跑与用户「再试一次」心智一致。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">stop</div>
+        <div class="sig">function stop(): void</div>
+        <p><strong>做什么：</strong>中止当前 SSE。对活跃的 AbortController 调用 abort；runSseSession 收尾逻辑会识别 aborted 并可能写入「已停止生成。」。</p>
+        <ol class="steps">
+          <li><code>abortController?.abort()</code>；无进行中请求时为空操作。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>UI 停止按钮、clear() 内部也会先 stop。fetch 的 signal 来自同一 controller。</div>
+        <div class="why">用标准 AbortSignal 打断 fetch/reader，比自建「忽略后续事件」标志更干净，也不会把迟到的 delta 误写进新一轮气泡。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">clear</div>
+        <div class="sig">function clear(): void</div>
+        <p><strong>做什么：</strong>清空当前模式会话：停流、清空消息与过程状态，并把当前模式历史写成空数组。</p>
+        <ol class="steps">
+          <li><code>stop()</code> 打断可能进行中的请求。</li>
+          <li>messages / error / toolTrace / lastUsage 归零。</li>
+          <li><code>localStorage.setItem(historyKey(ragMode), "[]")</code>——只清当前模式，另一模式历史保留。</li>
+        </ol>
+        <div class="why">「清空」应对应当前教学链路；若连 RAG 历史一并删掉，学员切回资料问答会困惑「对话哪去了」。</div>
+      </div>
+    </div>
+
+    <!-- ========== resolveToolConfirm ========== -->
+    <h3>人工确认：resolveToolConfirm</h3>
+    <div class="card">
+      <div class="method">
+        <div class="name">resolveToolConfirm</div>
+        <div class="sig">async function resolveToolConfirm(payload: { confirmId: string; toolCallId: string; action: "allow" | "deny" }): Promise&lt;void&gt;</div>
+        <p><strong>做什么：</strong>过程面板点「允许 / 拒绝」时调用。只做 UI 状态标记 + POST 确认接口；<strong>不会</strong>在这里继续跑工具，也<strong>不会</strong>再发一轮聊天。后续 tool_result / delta 仍走原未结束的 SSE（runStream 里的 streamChat 循环）。</p>
+        <ol class="steps">
+          <li>把匹配的 <code>pending_confirm</code> 行 status 标成 <code>resolving</code>（按钮不可再点）。</li>
+          <li><code>await confirmChatTool(payload)</code> → POST <code>/api/chat/confirm</code>，解开服务端 ConfirmSession 的 wait。</li>
+          <li>失败则写 error，并把该行 status 恢复为 <code>pending</code> 便于重试。</li>
+          <li>成功后：服务端推 confirm_resolved / tool_result / 后续 delta；前端 onTrace 会更新 pending 行，无需再 send。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>方向</th><th>名称</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>入参</td><td><code>confirmId</code></td><td>服务端确认会话 id</td></tr>
+            <tr><td>入参</td><td><code>toolCallId</code></td><td>对应工具调用 id，用于匹配 Trace 行</td></tr>
+            <tr><td>入参</td><td><code>action</code></td><td><code>allow</code> 或 <code>deny</code></td></tr>
+          </tbody>
+        </table>
+        <div class="flow"><strong>上下游：</strong>ToolTracePanel 按钮 → confirmChatTool。前提：原聊天 SSE 仍挂着（isStreaming true）。资料问答无人工确认，不会走到此函数。</div>
+        <div class="why">确认闸门在服务端 await wait；前端若再 send 会开第二条 SSE，confirm 会话对不上且会 404。把「点确认」与「继续生成」解耦，是单连接编排的关键设计。</div>
+      </div>
+    </div>
+
+    <!-- ========== setters ========== -->
+    <h3>Setter：模型与模式开关</h3>
+    <div class="card">
+      <div class="method">
+        <div class="name">changeModel</div>
+        <div class="sig">function changeModel(nextModel: string): void</div>
+        <p><strong>做什么：</strong>切换当前模型 id，并持久化到 <code>MODEL_KEY</code>。不中断正在进行的流（下次 send 才生效）。</p>
+        <ol class="steps">
+          <li><code>model.value = nextModel</code>。</li>
+          <li><code>localStorage.setItem(MODEL_KEY, nextModel)</code>。</li>
+        </ol>
+        <div class="why">模型选择是偏好而非会话身份；与历史消息分开存，避免「换模型却丢聊天记录」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">setSearchKb</div>
+        <div class="sig">function setSearchKb(next: boolean): void</div>
+        <p><strong>做什么：</strong>切换「普通对话是否把 searchDocs 交给服务端」开关，写入 <code>SEARCH_KB_KEY</code>（"1"/"0"）。</p>
+        <ol class="steps">
+          <li>更新 <code>searchKb</code> ref 并落盘。</li>
+          <li>仅影响后续 runStream 请求体；不改 multiAgent，也不改 endpoint。</li>
+        </ol>
+        <div class="why">与多 Agent 解耦：学员可单独观察「单 Agent + 强制检索」行为，而不被强制切到 multi 路由。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">setMultiAgent</div>
+        <div class="sig">function setMultiAgent(next: boolean): void</div>
+        <p><strong>做什么：</strong>切换是否走多 Agent 端点；true 存 "1"，false 存 "0"。缺省未写过 key 时初始化为 true。</p>
+        <ol class="steps">
+          <li>更新 <code>multiAgent</code> ref 并落盘。</li>
+          <li>下一次 runStream → streamChat 据此选 <code>/api/chat/multi</code> 或 <code>/api/chat</code>。</li>
+        </ol>
+        <div class="why">用「显式存过 0」判定单 Agent，让第一次打开仓库的学员直接看到多 Agent 路径（教学默认值）。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">setRagMode</div>
+        <div class="sig">function setRagMode(next: boolean): void</div>
+        <p><strong>做什么：</strong>在普通对话与资料问答之间切换。先落当前历史，再载入另一条链路的历史，并清空过程态。</p>
+        <ol class="steps">
+          <li>若 next 与当前相同，或正在 streaming，直接 return（流式中禁止切换）。</li>
+          <li><code>persistCurrentHistory()</code> 保存当前模式。</li>
+          <li>更新 <code>ragMode</code> 与 localStorage <code>RAG_MODE_KEY</code>。</li>
+          <li><code>messages = loadHistory(historyKey(next))</code>。</li>
+          <li>清空 error / toolTrace / lastUsage（过程面板属于「当前这次请求」，不应带到另一模式）。</li>
+        </ol>
+        <div class="flow"><strong>上下游：</strong>顶栏模式切换。互斥两条会话空间，对应两套 HISTORY 键。</div>
+        <div class="why">两条链路的 system / 工具 / 资料语义不同，混历史会让学员误以为「同一会话」。流式中禁止切换，避免 abort 与换盘竞态。</div>
+      </div>
+    </div>
+
+    <footer class="note">
+      源码：<span class="file-path">src/composables/useChat.ts</span> ·
+      下一篇 <a href="../frontend/api.html">前端 API</a> ·
+      横切计费见 <a href="../server/usage.html">Usage</a> ·
+      防护见 <a href="../server/guard.html">Guard</a>
+    </footer>
+  </main>
+</body>
+</html>

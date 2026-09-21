@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>09 多 Agent · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../server/react.html">← 上一篇</a>
+    <a href="../server/rag.html">下一篇 →</a>
+  </nav>
+  <main class="layout">
+    <h1>09 · 多 Agent <span class="badge">server/multi-agent/</span></h1>
+    <p class="lede">
+      Supervisor 路由 → 一个或多个 Worker（各自 mini ReAct）→ Aggregate 汇总。
+      与单 Agent 共用工具实现、ConfirmSession、toolCallGuard / outputGuard 语义，但编排与确认挂载点不同。
+    </p>
+
+    <h2>模块地图与真实调用链</h2>
+    <div class="card">
+      <div class="flow">
+        <strong>入口</strong>
+        <code>POST /api/chat/multi</code>（<code>routes/chatMulti.ts</code>）
+        → <code>new ConfirmSession()</code> + <code>UsageAccumulator</code> + <code>writeSse</code>/<code>onTrace</code>
+        → <code>compileMultiAgentGraph(options).invoke(state)</code>
+        → 中途 SSE：<code>supervisor_route</code> / <code>pending_confirm</code> / <code>worker_done</code> …
+        → 整图结束后 <code>delta</code> + <code>usage</code> + <code>[DONE]</code>
+        → <code>finally confirmSession.dispose()</code>
+      </div>
+      <div class="flow">
+        <strong>图内</strong>
+        START → <code>supervisorNode</code>（<code>supervisorRoute</code>）
+        → <code>workersNode</code>（<code>Promise.all</code> + <code>getWorkerFn</code>）
+        → <code>aggregateNode</code>（<code>aggregate</code> + <code>detectLeakage</code>）
+        → END
+      </div>
+      <div class="why">
+        确认必须在 <code>graph.invoke</code> <em>进行中</em> 经 <code>onTrace</code> 推 SSE：若等整图结束再推，
+        <code>runToolSafely</code> 里 <code>await wait</code> 时前端永远收不到 <code>pending_confirm</code>。
+        因此 Session / Trace / writeSse 走编译期闭包，不进 LangGraph State。
+      </div>
+    </div>
+
+    <!-- ========== graph.ts ========== -->
+    <h2><span class="file-path">graph.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">MultiAgentGraphOptions</div>
+        <div class="sig">interface · 编译时注入，不进 State</div>
+        <table class="params">
+          <thead><tr><th>字段</th><th>类型</th><th>作用</th></tr></thead>
+          <tbody>
+            <tr><td><code>accumulator?</code></td><td><code>UsageAccumulator</code></td><td>请求级 Token 累加；各节点 <code>onUsage(source)</code></td></tr>
+            <tr><td><code>defaultModel?</code></td><td><code>string</code></td><td>usage 记录默认模型名</td></tr>
+            <tr><td><code>confirmSession?</code></td><td><code>ConfirmSession</code></td><td>未传则需确认工具安全降级</td></tr>
+            <tr><td><code>onTrace?</code></td><td><code>ToolTraceHandler</code></td><td>tool_call / pending_confirm / confirm_resolved …</td></tr>
+            <tr><td><code>writeSse?</code></td><td><code>(payload) =&gt; void</code></td><td>multi 专有：supervisor_route / worker_done</td></tr>
+          </tbody>
+        </table>
+        <div class="why">State 只放可序列化业务字段；跨请求确认与 SSE 写出口是请求级副作用，闭包注入更干净。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">compileMultiAgentGraph(options?)</div>
+        <div class="sig">→ CompiledGraph（可 invoke）</div>
+        <p>注册三个节点并线性连边；按 source 绑定 <code>bindUsageCallback(acc, source, defaultModel)</code>。</p>
+        <ol class="steps">
+          <li><strong>supervisorNode</strong>：调用 <code>supervisorRoute</code>，<code>writeSse({ type:"supervisor_route", workers })</code>，返回 <code>{ routeDecision }</code>。</li>
+          <li><strong>workersNode</strong>：对 <code>decision.workers</code> <code>Promise.all</code>；<code>getWorkerFn</code> 缺失则造 error 结果；每个 Worker 完成后立刻 <code>worker_done</code>；返回 <code>{ workerResults }</code>。</li>
+          <li><strong>aggregateNode</strong>：调用 <code>aggregate</code>，返回 <code>{ finalOutput }</code>。</li>
+        </ol>
+        <div class="flow">
+          State 字段：<code>userMessage / apiKey / baseUrl / model / signal</code>（入口只读）·
+          <code>routeDecision</code>（supervisor 写）· <code>workerResults</code>（workers 写）· <code>finalOutput</code>（aggregate 写）
+        </div>
+        <div class="why">
+          不用条件边拆多个 Worker 节点：JS 侧并行不如 node 内 <code>Promise.all</code>；Worker 数量 1~N 动态，条件边要枚举组合不实际。三节点线性图更易教、易 Trace。
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== supervisor.ts ========== -->
+    <h2><span class="file-path">supervisor.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">WorkerName</div>
+        <div class="sig">"realtime" | "kb" | "action" | "general"</div>
+        <p>白名单：路由解析后非法 name 会被滤掉。</p>
+      </div>
+      <div class="method">
+        <div class="name">RouteDecision</div>
+        <div class="sig">{ workers: { name: WorkerName; task: string }[] }</div>
+        <p>每个 Worker 拿到的是 Supervisor 拆出的 <em>子任务</em>，不是整段用户原文（除非兜底 general）。</p>
+      </div>
+      <div class="method">
+        <div class="name">supervisorRoute(options)</div>
+        <div class="sig">→ Promise&lt;RouteDecision&gt;</div>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>userMessage</code></td><td>本轮用户原文</td></tr>
+            <tr><td><code>apiKey / baseUrl? / model?</code></td><td>透传 LLM 配置</td></tr>
+            <tr><td><code>signal?</code></td><td>断开 / 超时 abort</td></tr>
+            <tr><td><code>onUsage?</code></td><td>Token；图里绑 <code>source="supervisor"</code></td></tr>
+          </tbody>
+        </table>
+        <ol class="steps">
+          <li><code>callLLM</code>：system = 路由提示；tools = 伪工具 <code>route</code>；<code>toolChoice: "auto"</code>（DeepSeek thinking 不能强制 tool_choice 函数名）。</li>
+          <li>失败 / 无 tool_calls / JSON 坏 / 过滤后空 → <code>fallback(task)</code> → 仅 general。</li>
+          <li>成功：解析第一个 tool_call 的 arguments → 白名单 filter → 返回。</li>
+        </ol>
+        <div class="why">
+          用 Function Calling 输出结构化路由，比自由文本正则稳；Supervisor <em>只分发不回答</em>，避免把业务逻辑塞进路由层。多层兜底保证图永远能往下走。
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== llm.ts ========== -->
+    <h2><span class="file-path">llm.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">CallLLMOptions / CallLLMResult</div>
+        <p>统一非流式 chat/completions 入参与简化出参（ok、status、content、toolCalls、usage）。</p>
+      </div>
+      <div class="method">
+        <div class="name">callLLM(options)</div>
+        <div class="sig">→ Promise&lt;CallLLMResult&gt;</div>
+        <ol class="steps">
+          <li>拼 baseUrl / model 默认值；body 含 messages，可选 tools + tool_choice。</li>
+          <li><code>fetch(.../chat/completions)</code>，非 2xx → <code>ok:false</code> 不抛。</li>
+          <li><code>parseUsageFromResponse</code> → 可选 <code>onUsage</code>。</li>
+          <li>抽出 message.content 与 tool_calls。</li>
+        </ol>
+        <div class="why">
+          与 <code>react/complete.ts</code> 分开：multi 无 thinking 流式/ reasoning_content 回填需求；supervisor/worker/aggregate 共用薄封装，避免复制粘贴 headers。
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== runToolSafely.ts ========== -->
+    <h2><span class="file-path">runToolSafely.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">runToolSafely(name, rawArguments, options)</div>
+        <div class="sig">→ Promise&lt;unknown&gt;</div>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>name</code></td><td>工具函数名</td></tr>
+            <tr><td><code>rawArguments</code></td><td>模型给的 JSON 字符串</td></tr>
+            <tr><td><code>options.toolCallId</code></td><td>与 confirm API 对齐的键</td></tr>
+            <tr><td><code>options.confirmSession?</code></td><td>人工确认会话</td></tr>
+            <tr><td><code>options.onTrace?</code></td><td>过程事件</td></tr>
+            <tr><td><code>options.signal?</code></td><td>wait 可被 abort</td></tr>
+          </tbody>
+        </table>
+        <ol class="steps">
+          <li>尝试 JSON.parse → <code>onTrace(tool_call)</code>。</li>
+          <li><code>validateToolCall</code>；拒绝则 <code>tool_result.error</code> 返回，不执行。</li>
+          <li><code>findTool</code>；未知工具 → error。</li>
+          <li>若 <code>isToolRequiringConfirm</code>：无 Session → 降级 error；有则 <code>pending_confirm</code> → <code>await wait</code> → <code>confirm_resolved</code> → allow 才 <code>tool.run</code>，deny 回填拒绝。</li>
+          <li>普通工具直接 <code>run</code>；最后一律 <code>onTrace(tool_result)</code>。</li>
+        </ol>
+        <div class="why">
+          多 Agent 不走 <code>applyToolCalls</code>，但确认/Guard 必须同语义，故抽「安全执行」共用路径。Guard 在确认之前：非法调用不必打扰用户。
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== aggregate.ts ========== -->
+    <h2><span class="file-path">aggregate.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">aggregate(options)</div>
+        <div class="sig">→ Promise&lt;string&gt;</div>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>results</code></td><td>全部 WorkerResult</td></tr>
+            <tr><td><code>userMessage</code></td><td>用户原问，作汇总上下文</td></tr>
+            <tr><td><code>apiKey / baseUrl? / model? / signal?</code></td><td>LLM</td></tr>
+            <tr><td><code>onUsage?</code></td><td>图里 <code>source="aggregate"</code></td></tr>
+          </tbody>
+        </table>
+        <ol class="steps">
+          <li>单 Worker 且 <code>!error</code> → 直接 <code>guardFinalOutput(output)</code>（省一次 LLM）。</li>
+          <li>否则 <code>formatWorkerResults</code> 拼进 user 消息，<code>callLLM</code> 整合。</li>
+          <li>LLM 失败或空 content → <code>fallbackConcat</code> 再 guard。</li>
+          <li><code>guardFinalOutput</code> = <code>detectLeakage</code>，泄露则换 safeText。</li>
+        </ol>
+        <div class="why">
+          Aggregate 不是字符串 join：多来源要自然语言连贯。单路透传省成本；最终必过 outputGuard，防 Worker/Aggregate system 指纹泄露。
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== workers ========== -->
+    <h2><span class="file-path">workers/types.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">WorkerResult</div>
+        <table class="params">
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>worker</code></td><td>来源名，Aggregate 前缀用</td></tr>
+            <tr><td><code>output</code></td><td>成功自然语言 / 失败描述</td></tr>
+            <tr><td><code>toolsCalled</code></td><td>按序工具名；SSE worker_done / Evals</td></tr>
+            <tr><td><code>error</code></td><td>true 时汇总可提示部分失败</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="method">
+        <div class="name">WorkerContext</div>
+        <p><code>task</code>（子任务）+ LLM 配置 + <code>onUsage</code> + <code>confirmSession</code> + <code>onTrace</code>。由 graph workersNode 从 state/options 组装。</p>
+        <div class="why">每个 Worker 是独立迷你 Agent：自有 system、工具子集、消息列表，避免交叉污染。</div>
+      </div>
+    </div>
+
+    <h2><span class="file-path">workers/index.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">getWorkerFn(name)</div>
+        <div class="sig">WorkerName → (ctx) =&gt; Promise&lt;WorkerResult&gt; | undefined</div>
+        <p>注册表：realtime / kb / action / general → 对应 <code>run*Worker</code>。</p>
+        <div class="why">扩展只需新文件 + 注册一行；graph 不硬编码分支。</div>
+      </div>
+    </div>
+
+    <h2><span class="file-path">workers/realtimeWorker.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">runRealtimeWorker(ctx)</div>
+        <div class="flow">工具隔离：仅 getWeather + getCurrentTime · MAX_TURNS=3</div>
+        <ol class="steps">
+          <li>messages = system（天气/时间边界）+ user(task)。</li>
+          <li>循环：<code>callLLM</code> 带工具 → 无 tool_calls 则返回 content；有则 <code>runToolSafely</code> 回填 role:tool。</li>
+          <li>超轮次 → error「查询超时」。</li>
+        </ol>
+        <div class="why">模型看不到 searchDocs，自然不会越界检索；「今天天气」可同时调时间+天气。</div>
+      </div>
+    </div>
+
+    <h2><span class="file-path">workers/kbWorker.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">runKBWorker(ctx)</div>
+        <div class="flow">仅 searchDocs · 底层仍是 retrieveForAnswer（与单 Agent prefetch 同管线，控制流不同）</div>
+        <ol class="steps">
+          <li>同 realtime 的 mini ReAct 骨架。</li>
+          <li>prompt 强制先检索、标 [n]、无结果不编造。</li>
+        </ol>
+        <div class="why">多 Agent 下 KB 是按需 Worker；单 Agent 的 prefetch 是「开关强制先搜」。同一 executeSearchDocs，两种编排。</div>
+      </div>
+    </div>
+
+    <h2><span class="file-path">workers/actionWorker.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">runActionWorker(ctx)</div>
+        <div class="flow">仅 draft_message · 经 runToolSafely 挂确认闸门</div>
+        <ol class="steps">
+          <li>模型应调 draft_message；wait 期间 SSE pending_confirm。</li>
+          <li>用户 allow/deny 后继续循环，用一句话汇报模拟发送或拒绝。</li>
+        </ol>
+        <div class="why">有后果动作与闲聊 Worker 隔离，确认路径清晰；不把确认逻辑塞进 general。</div>
+      </div>
+    </div>
+
+    <h2><span class="file-path">workers/generalWorker.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">runGeneralWorker(ctx)</div>
+        <div class="flow">无工具 · 单次 callLLM</div>
+        <p>失败返回 error 结果；成功返回 content。toolsCalled 恒为 []。</p>
+        <div class="why">最简兜底：不循环、不工具，避免不确定意图误调天气/检索。</div>
+      </div>
+    </div>
+
+    <footer class="note"><a href="../server/rag.html">下一篇：RAG →</a></footer>
+  </main>
+</body>
+</html>

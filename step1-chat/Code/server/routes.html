@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HTTP 路由 · server/routes · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../index.html">总览</a>
+    <a href="./entry.html">入口</a>
+    <a href="./routes.html">路由</a>
+    <a href="./react.html">ReAct</a>
+    <a href="./multi-agent.html">多 Agent</a>
+    <a href="./rag.html">RAG</a>
+    <a href="./guard.html">Guard</a>
+    <a href="./usage.html">Usage</a>
+    <a href="./tracing.html">Tracing</a>
+    <a href="./tools-mcp.html">Tools</a>
+  </nav>
+  <main class="layout">
+    <h1>HTTP 路由 <span class="badge">server/routes/</span></h1>
+    <p class="lede">
+      路由层尽量薄：校验 body、声明 SSE、挂 AbortSignal / ConfirmSession / UsageAccumulator，再调用业务编排。
+      真正的 ReAct / 多 Agent / RAG 逻辑不在本目录。
+    </p>
+
+    <div class="card">
+      <table class="params">
+        <thead><tr><th>端点</th><th>文件</th><th>形态</th><th>核心下游</th></tr></thead>
+        <tbody>
+          <tr><td><code>GET /api/health</code></td><td>health.ts</td><td>JSON</td><td>getRuntimeConfig</td></tr>
+          <tr><td><code>GET/DELETE /api/usage</code></td><td>usage.ts</td><td>JSON</td><td>usage/store</td></tr>
+          <tr><td><code>POST /api/chat</code></td><td>chat.ts</td><td>SSE</td><td>createChatStream</td></tr>
+          <tr><td><code>POST /api/chat/multi</code></td><td>chatMulti.ts</td><td>SSE</td><td>compileMultiAgentGraph</td></tr>
+          <tr><td><code>POST /api/chat/confirm</code></td><td>chatConfirm.ts</td><td>JSON</td><td>ConfirmSession.resolve</td></tr>
+          <tr><td><code>GET /api/chat/confirm/:id</code></td><td>chatConfirm.ts</td><td>JSON</td><td>listPending</td></tr>
+          <tr><td><code>POST /api/rag/chat</code></td><td>ragChat.ts</td><td>SSE</td><td>answerFromDocs</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="toc card">
+      <a href="#index">index.ts</a>
+      <a href="#sse">sse.ts</a>
+      <a href="#health">health.ts</a>
+      <a href="#usage">usage.ts</a>
+      <a href="#chat">chat.ts</a>
+      <a href="#chatMulti">chatMulti.ts</a>
+      <a href="#chatConfirm">chatConfirm.ts</a>
+      <a href="#ragChat">ragChat.ts</a>
+    </nav>
+
+    <!-- index -->
+    <h2 id="index"><span class="file-path">index.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">registerRoutes</div>
+        <div class="sig">export function registerRoutes(app: Express): void</div>
+        <ol class="steps">
+          <li>依次调用：usage → health → ragChat → chat → chatConfirm → chatMulti。</li>
+          <li>每个 register* 只负责挂自己的路径；业务在各自文件。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody><tr><td><code>app</code></td><td>Express 实例（由 server/index.ts 创建）</td></tr></tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：<code>server/index.ts</code> · <strong>下游</strong>：六个 register* 模块</p>
+        <div class="why">集中挂载点，避免入口文件膨胀；增减端点只改本函数与对应文件。</div>
+      </div>
+    </div>
+
+    <!-- sse -->
+    <h2 id="sse"><span class="file-path">sse.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">setSseHeaders</div>
+        <div class="sig">export function setSseHeaders(res: express.Response): void</div>
+        <ol class="steps">
+          <li><code>Content-Type: text/event-stream; charset=utf-8</code></li>
+          <li><code>Cache-Control: no-cache, no-transform</code></li>
+          <li><code>Connection: keep-alive</code></li>
+          <li><code>X-Accel-Buffering: no</code>（关反向代理缓冲，保证块及时到浏览器）</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody><tr><td><code>res</code></td><td>Express 响应</td></tr></tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：chat / multi / ragChat handler 开头 · <strong>下游</strong>：后续 <code>res.write('data: …')</code></p>
+        <div class="why">三处 SSE 共用同一组头，避免某端点漏设导致 nginx 缓冲整段再吐。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">writeUsageToStream</div>
+        <div class="sig">export function writeUsageToStream(res, accumulator, endpoint, defaultModel): void</div>
+        <ol class="steps">
+          <li>若 <code>accumulator.isEmpty</code> 或响应已结束 → 直接 return（Mock / 检索判空未调 LLM）。</li>
+          <li><code>accumulator.toRecord(endpoint, defaultModel)</code> 合成 UsageRecord。</li>
+          <li><code>appendUsageRecord</code> 落盘。</li>
+          <li>SSE 推 <code>{ type:"usage", ...record }</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>res</code></td><td>SSE 响应</td></tr>
+            <tr><td><code>accumulator</code></td><td>本请求的 Token 累加器</td></tr>
+            <tr><td><code>endpoint</code></td><td><code>"chat" | "chat/multi" | "rag/chat"</code> 等</td></tr>
+            <tr><td><code>defaultModel</code></td><td>记录用模型名</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：三条聊天 SSE 在 [DONE] 前 · <strong>下游</strong>：usage store + 前端 UsagePanel</p>
+        <div class="why">落盘与推流绑在同一函数，保证「面板看到的累计」与文件一致；空累加跳过避免假 0 usage 噪声。</div>
+      </div>
+    </div>
+
+    <!-- health -->
+    <h2 id="health"><span class="file-path">health.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">registerHealthRoutes</div>
+        <div class="sig">export function registerHealthRoutes(app: Express): void</div>
+        <ol class="steps">
+          <li>注册 <code>GET /api/health</code>。</li>
+          <li>读 <code>getRuntimeConfig()</code>，返回 ok、mode(mock|api)、hasApiKey、model、baseUrl。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody><tr><td><code>app</code></td><td>Express</td></tr></tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：前端启动探测 · <strong>下游</strong>：runtimeConfig；无业务副作用</p>
+        <div class="why">前端据此显示「当前 Mock / 真实 API」，避免学员误以为没 Key 还能真调模型。</div>
+      </div>
+    </div>
+
+    <!-- usage -->
+    <h2 id="usage"><span class="file-path">usage.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">registerUsageRoutes</div>
+        <div class="sig">export function registerUsageRoutes(app: Express): void</div>
+        <ol class="steps">
+          <li><code>GET /api/usage</code> → <code>getUsageSummary()</code>（累计、按 endpoint/model 分组、最近记录）。</li>
+          <li><code>DELETE /api/usage</code> → <code>clearUsageRecords()</code>，返回 <code>{ ok: true }</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody><tr><td><code>app</code></td><td>Express</td></tr></tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：UsagePanel · <strong>下游</strong>：usage/store（data/usage-log.json）</p>
+        <div class="why">学习 demo 暴露清空接口；生产环境勿原样开放无鉴权 DELETE。</div>
+      </div>
+    </div>
+
+    <!-- chat -->
+    <h2 id="chat"><span class="file-path">chat.ts</span> · POST /api/chat</h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">registerChatRoutes</div>
+        <div class="sig">export function registerChatRoutes(app: Express): void</div>
+        <ol class="steps">
+          <li><code>setSseHeaders(res)</code>。</li>
+          <li>校验 <code>messages</code> 为数组；否则 SSE error 并 end。</li>
+          <li>AbortController：<code>res.on("close")</code> 时 abort（中止 LLM / 确认 wait）。</li>
+          <li><code>new ConfirmSession()</code> 登记到全局 Map（供 confirm 路由）。</li>
+          <li>UsageAccumulator + <code>bindUsageCallback(..., "askModel")</code>。</li>
+          <li><code>createChatStream</code>：onDelta → <code>{delta}</code>；onTrace → 原样 SSE（tool/confirm/injection…）。</li>
+          <li><code>writeUsageToStream(..., "chat")</code> → <code>data: [DONE]</code> → end。</li>
+          <li>catch 写 error；finally <code>confirmSession.dispose()</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>Body 字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>messages</code></td><td>必填数组（前端 user/assistant 历史）</td></tr>
+            <tr><td><code>model</code></td><td>可选；否则 runtimeConfig.model</td></tr>
+            <tr><td><code>searchDocs</code></td><td><code>=== true</code> 时服务端强制检索并挂 searchDocs 工具</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：前端取消「多 Agent」· <strong>下游</strong>：createChatStream → runConversation；确认 → POST /api/chat/confirm</p>
+        <div class="why">ConfirmSession 必须 per-request 创建并 finally dispose，否则 wait 泄漏。过程事件必须在流中途写出，不能等整段结束后再推 pending_confirm。</div>
+      </div>
+      <div class="card" style="background:#f8fafc;margin-top:0.5rem">
+        <strong>SSE 事件顺序（典型）</strong>
+        <ol class="steps">
+          <li>injection_detected / degradation（可选，来自 createChatStream）</li>
+          <li>tool_call / pending_confirm / confirm_resolved / tool_result …</li>
+          <li>delta（最终文字，可多次）</li>
+          <li>usage → [DONE]</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- chatMulti -->
+    <h2 id="chatMulti"><span class="file-path">chatMulti.ts</span> · POST /api/chat/multi</h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">registerChatMultiRoutes</div>
+        <div class="sig">export function registerChatMultiRoutes(app: Express): void</div>
+        <ol class="steps">
+          <li>SSE 头；校验 messages 非空且存在 user 内容；取<strong>最后一条 user</strong>作为本轮问句。</li>
+          <li>AbortController + ConfirmSession + writeSse / onTrace 闭包。</li>
+          <li><code>detectInjection(userText)</code>：level≠none 时 SSE <code>injection_detected</code>（只标记不拦截）。</li>
+          <li>UsageAccumulator；<code>compileMultiAgentGraph({ accumulator, confirmSession, onTrace, writeSse })</code>。</li>
+          <li><code>graph.invoke({ userMessage, apiKey, baseUrl, model, signal, … })</code>——过程中已写 supervisor_route / worker_done / 确认事件。</li>
+          <li>invoke 结束后写 <code>{ delta: finalOutput }</code>（整段，非逐字流式）。</li>
+          <li>writeUsageToStream endpoint=<code>"chat/multi"</code> → [DONE]；finally dispose。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>Body 字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>messages</code></td><td>非空；图只吃最后一条 user（history 暂不进 Supervisor）</td></tr>
+            <tr><td><code>model</code></td><td>可选</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：前端勾选「多 Agent」· <strong>下游</strong>：multi-agent/graph；确认共用 chatConfirm</p>
+        <div class="why">必须在 invoke 进行中写 SSE：actionWorker 可能 await ConfirmSession.wait；若整图结束后再推，前端永远收不到 pending_confirm。与单 Agent 防护语义对齐：input 本文件、tool 在 Worker、output 在 aggregate。</div>
+      </div>
+      <div class="card" style="background:#f8fafc;margin-top:0.5rem">
+        <strong>SSE 事件顺序</strong>
+        <ol class="steps">
+          <li>injection_detected? → supervisor_route →（确认链）→ worker_done×N</li>
+          <li>delta（Aggregate 后全文，已过 outputGuard）→ usage → [DONE]</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- chatConfirm -->
+    <h2 id="chatConfirm"><span class="file-path">chatConfirm.ts</span></h2>
+    <div class="card">
+      <p>与 SSE 聊天是两条 HTTP 线：长连接里 await wait；本文件短请求 JSON 解开 Promise。</p>
+
+      <div class="method">
+        <div class="name">registerChatConfirmRoutes</div>
+        <div class="sig">export function registerChatConfirmRoutes(app: Express): void</div>
+        <ol class="steps">
+          <li>挂载 POST 与 GET 两条路径（见下）。</li>
+          <li>本文件<strong>不 new</strong> ConfirmSession，只 get + resolve。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：前端确认按钮 · <strong>下游</strong>：getConfirmSession → session.resolve</p>
+        <div class="why">会话由聊天请求创建并登记；confirm 路由若自行 new，会得到空 Map 项，永远对不上 wait。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">POST /api/chat/confirm</div>
+        <div class="sig">(内部 handler) Body: { confirmId, toolCallId, action: "allow"|"deny" }</div>
+        <ol class="steps">
+          <li>校验三字段类型与 action 枚举；失败 400。</li>
+          <li><code>getConfirmSession(confirmId)</code>；无会话 → 404。</li>
+          <li><code>session.resolve(toolCallId, action)</code>；无 pending → 404。</li>
+          <li>成功 JSON <code>{ ok, confirmId, toolCallId, action }</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>confirmId</code></td><td>SSE pending_confirm 带来的会话 id</td></tr>
+            <tr><td><code>toolCallId</code></td><td>模型 tool_calls[].id</td></tr>
+            <tr><td><code>action</code></td><td>allow 后真正 run；deny 只回填错误</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：UI · <strong>下游</strong>：单 Agent applyToolCalls / 多 Agent runToolSafely 继续执行</p>
+        <div class="why">成功只表示「解开了 wait」；真正 run 仍在原 SSE 请求栈帧内。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">GET /api/chat/confirm/:confirmId</div>
+        <div class="sig">(内部 handler) → { confirmId, pending[] }</div>
+        <ol class="steps">
+          <li>查 session；无则 404。</li>
+          <li>返回 <code>listPending()</code>（toolCallId / name / arguments）。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：curl 联调 · <strong>下游</strong>：调试视图</p>
+        <div class="why">学习 demo 便于排查「点了按钮却 404」；正式产品可不暴露。</div>
+      </div>
+    </div>
+
+    <!-- ragChat -->
+    <h2 id="ragChat"><span class="file-path">ragChat.ts</span> · POST /api/rag/chat</h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">isRagHistoryItem（内部）</div>
+        <div class="sig">function isRagHistoryItem(item: unknown): item is RagMessage</div>
+        <ol class="steps">
+          <li>仅允许 role 为 user|assistant 且 content 为 string。</li>
+          <li>过滤掉前端误传的 system。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：req.body.history · <strong>下游</strong>：answerFromDocs history</p>
+        <div class="why">system 由 buildRagPrompt 固定注入，前端不能改资料规则。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">registerRagChatRoutes</div>
+        <div class="sig">export function registerRagChatRoutes(app: Express): void</div>
+        <ol class="steps">
+          <li>setSseHeaders；校验 question 非空字符串。</li>
+          <li>history 经 isRagHistoryItem 过滤；AbortController 绑 close。</li>
+          <li>inputGuard：detectInjection → 可选 SSE injection_detected（不拦截）。</li>
+          <li>UsageAccumulator + bindUsageCallback(..., "rag")。</li>
+          <li>runAnswer：answerFromDocs(..., onTrace→writeSse) → 写 <code>rag_meta</code>（hits/empty/…）→ 写 <code>{delta: answer}</code>（整段；complete 非流式）。</li>
+          <li>若 LangSmith 开启：外裹 <code>traceRagRequest</code>。</li>
+          <li>writeUsageToStream(..., "rag/chat") → [DONE]；取消时 error「已取消」。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>Body 字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>question</code></td><td>必填当前问句</td></tr>
+            <tr><td><code>history</code></td><td>可选，仅 user/assistant</td></tr>
+            <tr><td><code>model</code></td><td>可选</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：前端「资料问答」· <strong>下游</strong>：rag/answerFromDocs；Token / Guard / LangSmith</p>
+        <div class="why">独立于 /api/chat：不进 ReAct、不挂天气工具。用 delta 复用前端气泡逻辑，但答案一次推送；hits 走 rag_meta，避免只靠拼字丢面板数据。注释里旧写「JSON」以现行 SSE 源码为准。</div>
+      </div>
+      <div class="card" style="background:#f8fafc;margin-top:0.5rem">
+        <strong>SSE 事件顺序</strong>
+        <ol class="steps">
+          <li>injection_detected? → tool_call / tool_result（searchDocs）→ output_leak_blocked?</li>
+          <li>rag_meta → delta(answer) → usage? → [DONE]</li>
+        </ol>
+      </div>
+    </div>
+
+    <footer class="note">
+      <a href="./entry.html">← 服务端入口</a> ·
+      <a href="./react.html">单 Agent ReAct →</a> ·
+      <a href="./rag.html">RAG 实现 →</a>
+    </footer>
+  </main>
+</body>
+</html>

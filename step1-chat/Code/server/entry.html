@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>服务端入口 · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../index.html">总览</a>
+    <a href="../server/routes.html">路由</a>
+    <a href="../server/react.html">ReAct</a>
+    <a href="../server/rag.html">RAG</a>
+  </nav>
+  <main class="layout">
+    <h1>服务端入口 <span class="badge">server/</span></h1>
+    <p class="lede">
+      进程接线层：读环境、挂路由、启动监听；以及单 Agent 流式门面 <code>createChatStream</code>、
+      历史裁剪、Mock 假流、知识回答风格收敛。业务编排不在这里堆。
+    </p>
+
+    <h2><span class="file-path">server/index.ts</span></h2>
+    <div class="method">
+      <div class="name">进程入口（无 export，直接执行）</div>
+      <div class="sig">dotenv → express() → express.json → registerRoutes(app) → app.listen(PORT, HOST)</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>先 <code>dotenv.config(".env.local")</code> 再 <code>.env</code>：本机密钥优先，后者不覆盖已有值。</li>
+        <li><code>express.json({ limit: "1mb" })</code>：限制聊天 body 体积，防超大 history。</li>
+        <li>调用 <code>registerRoutes(app)</code> 挂上全部 API（本文件不写具体 path）。</li>
+        <li><code>listen</code> 后打印 mode（mock/api）与是否有 Key；无 Key 时 warn，仍可起服跑 Mock。</li>
+      </ol>
+      <div class="flow"><strong>上下游：</strong>npm run dev:server → 本文件 → routes/index → 各端点</div>
+      <div class="why">入口只做接线，找「哪个 URL 干什么」去 routes/；避免 index.ts 膨胀成上帝文件。</div>
+    </div>
+
+    <h2><span class="file-path">server/runtimeConfig.ts</span></h2>
+    <div class="method">
+      <div class="name">getRuntimeConfig</div>
+      <div class="sig">getRuntimeConfig(): { apiKey, forceMock, mockMode, model, baseUrl }</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>读 <code>LLM_API_KEY</code>（trim）；空串视为无 Key。</li>
+        <li><code>forceMock = MOCK_MODE===\"1\"</code>；<code>mockMode = forceMock || !apiKey</code>。</li>
+        <li>返回默认 model（LLM_MODEL 或 deepseek-chat）与 baseUrl。</li>
+      </ol>
+      <table class="params">
+        <tr><th>字段</th><th>含义</th></tr>
+        <tr><td><code>mockMode</code></td><td>路由层可据此决定是否走假流 / 健康检查文案</td></tr>
+        <tr><td><code>forceMock</code></td><td>即便有 Key 也强制 Mock（教学/演示）</td></tr>
+      </table>
+      <div class="flow"><strong>上游：</strong>index 启动日志、chat/multi/rag/health 路由 · <strong>下游：</strong>无，只读 env</div>
+      <div class="why">所有 handler 共用一处读配置，避免「某处忘了判 MOCK」导致半真半假。</div>
+    </div>
+
+    <h2><span class="file-path">server/chat.ts</span></h2>
+    <div class="method">
+      <div class="name">buildSystemPrompt（内部）</div>
+      <div class="sig">buildSystemPrompt(searchDocs: boolean): string</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>基座 <code>SYSTEM_PROMPT</code>：何时必须调 getWeather / getCurrentTime / draft_message。</li>
+        <li>按本轮 <code>searchDocs</code> 追加 KB_ON 或 KB_OFF 文案（强调「开关只对本轮生效」）。</li>
+        <li>末尾拼 <code>SYSTEM_PROMPT_GUARD</code> 防注入边界。</li>
+      </ol>
+      <div class="why">把「工具规则 / 知识库口吻 / 安全」三段拼接，比前端塞 system 更可控；KB 文案按轮切换，避免历史勾选污染本轮。</div>
+    </div>
+
+    <div class="method">
+      <div class="name">createChatStream</div>
+      <div class="sig">async createChatStream(options: CreateChatStreamOptions): Promise&lt;void&gt;</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>解析 apiKey / forceMock / searchDocs；拼 system（可被 options.systemPrompt 覆盖）。</li>
+        <li><code>clipMessages</code>：截最近 N 条 + 注入 system。</li>
+        <li>对最后一条 user 做 <code>detectInjection</code>：只 onTrace(injection_detected)，不拦截。</li>
+        <li>无 Key 或 forceMock → onTrace(degradation) → <code>streamMock</code> 后 return。</li>
+        <li>否则 <code>runConversation(…, apiKey)</code> 进入 ReAct（含 confirmSession / onUsage）。</li>
+      </ol>
+      <table class="params">
+        <tr><th>入参要点</th><th>说明</th></tr>
+        <tr><td>messages</td><td>前端 user/assistant；不含可信 system</td></tr>
+        <tr><td>searchDocs</td><td>本轮是否强制检索 + 挂 searchDocs 工具</td></tr>
+        <tr><td>confirmSession</td><td>有则需确认工具会 await wait</td></tr>
+        <tr><td>onDelta / onTrace / onUsage</td><td>由路由接到 SSE</td></tr>
+      </table>
+      <div class="flow"><strong>上游：</strong>routes/chat.ts · <strong>下游：</strong>clipMessages → inputGuard → streamMock | runConversation</div>
+      <div class="why">路由只管 HTTP/SSE；门面集中「裁剪 + 降级 + 进图」。资料问答故意不走这里，避免聊天工具 system 污染 RAG。</div>
+    </div>
+
+    <h2><span class="file-path">server/clipMessages.ts</span></h2>
+    <div class="method">
+      <div class="name">clipMessages</div>
+      <div class="sig">clipMessages(messages, systemPrompt, maxContextMessages): TextMessage[]</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li><code>messages.slice(-max)</code> 只留最近若干条（至少 1）。</li>
+        <li>返回 <code>[{role:system, content:systemPrompt}, ...recent]</code>。</li>
+      </ol>
+      <div class="why">成本与注意力：整段历史塞满会烧 Token；system 永远服务端注入，前端无法伪造规则。</div>
+    </div>
+
+    <h2><span class="file-path">server/mock/streamMock.ts</span></h2>
+    <div class="method">
+      <div class="name">streamMock</div>
+      <div class="sig">async streamMock({ messages, signal, onDelta }): Promise&lt;void&gt;</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>取最后一条 user 文本，拼一段说明「当前 Mock」的回复。</li>
+        <li>按 4 字切块，循环 onDelta + sleep(24ms) 模拟打字。</li>
+        <li>若 signal.aborted 则抛 AbortError，与真流式取消对齐。</li>
+      </ol>
+      <div class="why">无 Key 时前端仍能跑通 fetch+ReadableStream；不计 Token（外层 Accumulator 保持 empty）。</div>
+    </div>
+
+    <h2><span class="file-path">server/answer-style/knowledgeAnswer.ts</span></h2>
+    <div class="method">
+      <div class="name">normalizeKnowledgeAnswer</div>
+      <div class="sig">normalizeKnowledgeAnswer(raw: string): string</div>
+      <h4>做什么</h4>
+      <ol class="steps">
+        <li>删尾部「来源:」清单块。</li>
+        <li>删含 id=/source=/title= 的内部元信息行。</li>
+        <li>再兜底过滤 <code>[n] id=... source=...</code> 整行。</li>
+        <li>连续空行压成最多两个；trim。</li>
+      </ol>
+      <div class="flow"><strong>上游：</strong>RAG answerFromDocs、聊天知识库回答出口 · <strong>下游：</strong>通常再接 detectLeakage</div>
+      <div class="why">保留行内 [1][2]，去掉「检索结果打印感」；在 outputGuard 前清理，减少格式噪音误触指纹。</div>
+    </div>
+
+    <footer class="note">
+      <a href="../server/routes.html">下一篇：HTTP 路由 →</a>
+      · 相关细页：<a href="../server/react.html">ReAct</a> · <a href="../server/guard.html">Guard</a>
+    </footer>
+  </main>
+</body>
+</html>

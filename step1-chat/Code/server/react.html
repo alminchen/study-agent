@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>单 Agent ReAct · server/react · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../index.html">总览</a>
+    <a href="./entry.html">入口</a>
+    <a href="./routes.html">路由</a>
+    <a href="./react.html">ReAct</a>
+    <a href="./multi-agent.html">多 Agent</a>
+    <a href="./rag.html">RAG</a>
+    <a href="./guard.html">Guard</a>
+    <a href="./usage.html">Usage</a>
+    <a href="./tracing.html">Tracing</a>
+    <a href="./tools-mcp.html">Tools</a>
+  </nav>
+  <main class="layout">
+    <h1>单 Agent ReAct <span class="badge">server/react/</span></h1>
+    <p class="lede">
+      LangGraph 调度的「问模型 ↔ 执行工具 → 回复」循环，外加人工确认闸门、知识库 prefetch、连续失败熔断。
+      HTTP 接线见 <a href="./routes.html#chat">routes/chat.ts</a>；入口拼装见 <a href="./entry.html">createChatStream</a>（本页亦摘要）。
+    </p>
+
+    <div class="card">
+      <strong>现网主路径</strong>
+      <ol class="steps">
+        <li>createChatStream：clipMessages + inputGuard →（Mock 或）runConversation</li>
+        <li>prefetchSearchDocsIfEnabled（勾选知识库时）；判空则直接 onDelta 固定文案</li>
+        <li>LangGraph：START → askModel ⇄ applyTools → reply → END</li>
+        <li>需确认工具：pending_confirm → ConfirmSession.wait → POST confirm → allow/deny</li>
+      </ol>
+    </div>
+
+    <nav class="toc card">
+      <a href="#types">types.ts</a>
+      <a href="#runConversation">runConversation.ts</a>
+      <a href="#forLoop">runConversation.forLoop.ts</a>
+      <a href="#complete">complete.ts</a>
+      <a href="#applyToolCalls">applyToolCalls.ts</a>
+      <a href="#confirmGate">confirmGate.ts</a>
+      <a href="#toolsConfirm">toolsRequiringConfirm.ts</a>
+      <a href="#toolFailure">toolFailure.ts</a>
+      <a href="#prefetch">prefetchSearchDocs.ts</a>
+      <a href="#bridge">桥接：createChatStream / clip / mock</a>
+    </nav>
+
+    <!-- types -->
+    <h2 id="types"><span class="file-path">types.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">TextMessage</div>
+        <div class="sig">export interface TextMessage { role: "system"|"user"|"assistant"; content: string }</div>
+        <ol class="steps"><li>ReAct 循环里发给模型的普通对话句（不含 tool 回填）。</li></ol>
+        <p class="flow"><strong>上游</strong>：clipMessages / 前端历史 · <strong>下游</strong>：ProviderMessage 联合</p>
+        <div class="why">与带 tool_calls 的 assistant、role:tool 分开建模，避免类型上混用。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ProviderToolCall / ProviderChoice</div>
+        <div class="sig">export interface ProviderToolCall · ProviderChoice</div>
+        <ol class="steps">
+          <li>ToolCall：id、type、function.{name, arguments(string)}。</li>
+          <li>Choice：finish_reason + message（content / tool_calls / reasoning_content）。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：LLM chat/completions JSON · <strong>下游</strong>：askModel / applyToolCalls</p>
+        <div class="why">DeepSeek 思考模式：下一轮必须把 reasoning_content 原样带回 messages，故类型显式保留。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ProviderMessage</div>
+        <div class="sig">export type ProviderMessage = TextMessage | assistant+tool_calls | { role:"tool"; tool_call_id; content }</div>
+        <ol class="steps">
+          <li>assistant+tool_calls 与 role:"tool" 必须成对，id 才能对上。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：图状态 messages · <strong>下游</strong>：requestCompletion</p>
+        <div class="why">OpenAI 兼容协议硬约束；漏回填 tool 会导致下一轮 400。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ToolTraceHandler</div>
+        <div class="sig">export type ToolTraceHandler = (event: 联合类型) =&gt; void</div>
+        <ol class="steps">
+          <li>普通工具：tool_call → tool_result。</li>
+          <li>需确认：再插入 pending_confirm / confirm_resolved。</li>
+          <li>另有 searchDocs_empty/result、degradation、injection_detected、output_leak_blocked。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：react / chat · <strong>下游</strong>：路由 onTrace → SSE → 前端过程面板</p>
+        <div class="why">pending_confirm 必须带 confirmId，否则前端无法打 POST /api/chat/confirm。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ReactLoopOptions</div>
+        <div class="sig">export interface ReactLoopOptions { messages; model?; signal?; baseUrl?; onDelta; onTrace?; searchDocs?; onUsage?; confirmSession? }</div>
+        <ol class="steps">
+          <li>ReAct 循环最小选项，不绑死 chat.ts 的全部 CreateChatStreamOptions。</li>
+          <li>searchDocs=true：prefetch + tools 含 searchDocs。</li>
+          <li>confirmSession 传入才启用确认通道。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：createChatStream · <strong>下游</strong>：runConversation / requestCompletion / applyToolCalls</p>
+        <div class="why">把「HTTP 关心的字段」与「循环关心的字段」分层，便于单测循环而不起 Express。</div>
+      </div>
+    </div>
+
+    <!-- runConversation -->
+    <h2 id="runConversation"><span class="file-path">runConversation.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">compileReactGraph（内部）</div>
+        <div class="sig">function compileReactGraph(options, apiKey, failures): CompiledGraph</div>
+        <ol class="steps">
+          <li>必须按请求现组：节点闭包本请求的 options/apiKey/failures，禁止模块级单例。</li>
+          <li>声明状态 Annotation：messages、turn、toolCalls、assistantContent、assistantReasoningContent、finalText。</li>
+          <li>节点 askModel：requestCompletion（可包 LangSmith traceAskModel）；无 tool_calls → finalText=文字；有工具且未到上限 → finalText=null + 保存 toolCalls；达 MAX_MODEL_TURNS=5 → 停止文案。</li>
+          <li>节点 applyTools：pushAssistantWithTools（含 reasoning_content）→ applyToolCalls → turn+1。</li>
+          <li>节点 reply：searchDocs 时 normalizeKnowledgeAnswer → detectLeakage → onDelta(safeText)。</li>
+          <li>边：START→askModel；条件边 ask→applyTools|reply；applyTools→askModel；reply→END。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>options</code></td><td>本轮 ReactLoopOptions</td></tr>
+            <tr><td><code>apiKey</code></td><td>LLM Key</td></tr>
+            <tr><td><code>failures</code></td><td>跨节点共用的连续失败计数器</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：runConversation · <strong>下游</strong>：graph.invoke</p>
+        <div class="why">用图表达旧 for 循环的 if 分支：条件边 = routeAfterAsk；工具后再 ask = 边指回 askModel。failures 不能每节点新建，否则熔断失效。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">routeAfterAsk（内部）</div>
+        <div class="sig">function routeAfterAsk(state): "applyTools" | "reply"</div>
+        <ol class="steps"><li>finalText !== null → reply，否则 applyTools。</li></ol>
+        <p class="flow"><strong>上游</strong>：askModel 写状态 · <strong>下游</strong>：条件边映射</p>
+        <div class="why">把「有没有最终文字」从业务 if 抽成路由函数，图声明可读。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">runConversation</div>
+        <div class="sig">export async function runConversation(options: ReactLoopOptions, apiKey: string): Promise&lt;void&gt;</div>
+        <ol class="steps">
+          <li>createConsecutiveFailureTracker；复制 messages。</li>
+          <li>prefetchSearchDocsIfEnabled；若 empty → onTrace searchDocs_empty + onDelta 固定文案，return（不调 LLM）。</li>
+          <li>compileReactGraph → invoke 初值 turn=1、finalText=null 等。</li>
+          <li>若 LangSmith 开启，外裹 traceChatRequest。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>options</code></td><td>已 clip 的 messages + 回调</td></tr>
+            <tr><td><code>apiKey</code></td><td>非空真实 Key</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：createChatStream · <strong>下游</strong>：prefetch / LangGraph / SSE onDelta</p>
+        <div class="why">行为与 forLoop 备份对齐，调度改由 LangGraph；prefetch 判空对齐 RAG「无资料不烧 token」。</div>
+      </div>
+    </div>
+
+    <!-- forLoop -->
+    <h2 id="forLoop"><span class="file-path">runConversation.forLoop.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">runConversationForLoop</div>
+        <div class="sig">export async function runConversationForLoop(options, apiKey): Promise&lt;void&gt;</div>
+        <ol class="steps">
+          <li>备份实现；现网不调用，供对照教学。</li>
+          <li>for turn=1..5：requestCompletion → 无 tool_calls 则 onDelta return；达上限停止文案；否则 push assistant+tools → applyToolCalls 继续循环。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>options</code> / <code>apiKey</code></td><td>同 runConversation（注意：此备份未接 prefetch/confirm/outputGuard 全套演进）</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：文档/对照 · <strong>下游</strong>：理解「源码只有一处 requestCompletion 却在循环体内」</p>
+        <div class="why">保留手写循环，证明 LangGraph 边等价于 for+if，降低图抽象的认知负担。</div>
+      </div>
+    </div>
+
+    <!-- complete -->
+    <h2 id="complete"><span class="file-path">complete.ts</span>（react）</h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">requestCompletion</div>
+        <div class="sig">export async function requestCompletion(messages, options, apiKey): Promise&lt;CompletionResult&gt;</div>
+        <ol class="steps">
+          <li>按 searchDocs / confirmSession 决定 tools：<code>toolSchemasForChat(includeSearchDocs, includeConfirmTools)</code>。</li>
+          <li>POST chat/completions：stream:false，tool_choice:"auto"（不指定函数名——思考模式不支持）。</li>
+          <li>按 HTTP 状态映射中文错误（400/401/403/429/5xx）。</li>
+          <li>parseUsage → onUsage；返回 choices[0] 与 usage。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>messages</code></td><td>含可能的 tool 回填与 reasoning_content</td></tr>
+            <tr><td><code>options</code></td><td>ReactLoopOptions（signal/baseUrl/model/onUsage…）</td></tr>
+            <tr><td><code>apiKey</code></td><td>Bearer</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：askModel 节点 · <strong>下游</strong>：路由分支 / Token 累加</p>
+        <div class="why">无 confirmSession 时不把 draft_message 挂进 schema，避免模型调到却无 UI。带 tool_calls 的 assistant 须保留 reasoning_content。</div>
+      </div>
+    </div>
+
+    <!-- applyToolCalls -->
+    <h2 id="applyToolCalls"><span class="file-path">applyToolCalls.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">applyToolCalls</div>
+        <div class="sig">export async function applyToolCalls(toolCalls, messages, onTrace?, turn, failures, confirmSession?, signal?): Promise&lt;void&gt;</div>
+        <ol class="steps">
+          <li>按数组顺序逐个处理（一轮可多工具，如天气+时间）。</li>
+          <li>解析 arguments JSON（失败仍展示原始串）→ onTrace tool_call。</li>
+          <li>validateToolCall：拒绝 → {error}，不进确认/run。</li>
+          <li>failures.isStopped → 回填 stoppedResult，不再 run。</li>
+          <li>需确认名 → runWithOptionalConfirm；否则 runToolCall（LangSmith 包一层）。</li>
+          <li>failures.record；onTrace tool_result；push role:tool 消息。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>toolCalls</code></td><td>本轮模型返回的调用列表</td></tr>
+            <tr><td><code>messages</code></td><td>就地 push tool 回填</td></tr>
+            <tr><td><code>onTrace</code></td><td>过程面板</td></tr>
+            <tr><td><code>turn</code></td><td>当前询问轮次（日志/tracing）</td></tr>
+            <tr><td><code>failures</code></td><td>连续失败跟踪器</td></tr>
+            <tr><td><code>confirmSession</code></td><td>未传则需确认工具安全降级</td></tr>
+            <tr><td><code>signal</code></td><td>打断 wait</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：LangGraph applyTools · <strong>下游</strong>：tools methods / confirmGate / 下一轮 askModel</p>
+        <div class="why">失败一律变 {error} 不往外 throw，保证图能继续问模型改口。需确认但无 session → 绝不 run，防 draft_message 误执行。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">runWithOptionalConfirm（内部）</div>
+        <div class="sig">async function runWithOptionalConfirm({ call, parsedArgs, turn, onTrace, confirmSession, signal })</div>
+        <ol class="steps">
+          <li>无 session → { error: 未启用确认通道 }。</li>
+          <li>onTrace pending_confirm(confirmId, toolCallId, name, args)。</li>
+          <li>await confirmSession.wait；abort/dispose → 回填错误。</li>
+          <li>onTrace confirm_resolved；deny → 用户拒绝错误；allow → runToolCall。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：applyToolCalls · <strong>下游</strong>：前端 UI + POST confirm</p>
+        <div class="why">从主循环拆出确认路径，避免 for 过长；拒绝与失败同形状，模型处理路径统一。</div>
+      </div>
+    </div>
+
+    <!-- confirmGate -->
+    <h2 id="confirmGate"><span class="file-path">confirmGate.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">ConfirmSession</div>
+        <div class="sig">export class ConfirmSession</div>
+        <ol class="steps">
+          <li>构造：confirmId=UUID（可指定）；写入模块级 <code>sessions</code> Map。</li>
+          <li>一次 HTTP 聊天 ↔ 一个 Session；每个需确认 toolCallId 各自 wait/resolve。</li>
+          <li>请求结束必须 dispose。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：routes/chat、chatMulti new · <strong>下游</strong>：applyToolCalls / runToolSafely；chatConfirm get</p>
+        <div class="why">内存 Map 够单进程学习 demo；多机部署需换成共享存储（本仓库不处理）。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ConfirmSession.wait</div>
+        <div class="sig">wait(toolCallId, name, args, signal?): Promise&lt;"allow"|"deny"&gt;</div>
+        <ol class="steps">
+          <li>已 dispose / signal 已 abort → reject。</li>
+          <li>new Promise，登记 pending（含 abort 监听清理）。</li>
+          <li>resolve 时删 pending 并去掉 abort 监听。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>toolCallId</code></td><td>必须与 confirm POST 一致</td></tr>
+            <tr><td><code>name</code> / <code>args</code></td><td>调试与前端审阅</td></tr>
+            <tr><td><code>signal</code></td><td>用户停止生成时 reject</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：applyToolCalls · <strong>下游</strong>：卡住直到 resolve/abort</p>
+        <div class="why">SSE 断了还挂着 applyTools 会泄漏；signal 必须能解除 await。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ConfirmSession.resolve</div>
+        <div class="sig">resolve(toolCallId: string, action: ConfirmAction): boolean</div>
+        <ol class="steps">
+          <li>查 pending；无则 false（id 错/已处理）。</li>
+          <li>调用 entry.resolve(action) → true。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：POST /api/chat/confirm · <strong>下游</strong>：wait Promise 恢复</p>
+        <div class="why">返回 boolean 让路由区分 404 与成功，前端可提示「会话已结束」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ConfirmSession.listPending / dispose</div>
+        <div class="sig">listPending(): … · dispose(): void</div>
+        <ol class="steps">
+          <li>listPending：调试列出卡住项。</li>
+          <li>dispose：未决一律 resolve("deny")，清 Map，从 sessions 删除；重复 dispose 空操作。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：GET confirm / routes finally · <strong>下游</strong>：唤醒仍在 await 的工具链</p>
+        <div class="why">用 deny 而非 reject：与「用户拒绝」同路径，模型收到明确 error，行为更一致。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">getConfirmSession</div>
+        <div class="sig">export function getConfirmSession(confirmId: string): ConfirmSession | undefined</div>
+        <ol class="steps"><li>按 id 查已登记实例；没有则 undefined。</li></ol>
+        <p class="flow"><strong>上游</strong>：chatConfirm · <strong>下游</strong>：resolve / listPending</p>
+        <div class="why">不是工厂：只取回聊天请求已经 new 出来的那份。</div>
+      </div>
+    </div>
+
+    <!-- toolsRequiringConfirm -->
+    <h2 id="toolsConfirm"><span class="file-path">toolsRequiringConfirm.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">isToolRequiringConfirm</div>
+        <div class="sig">export function isToolRequiringConfirm(name: string): boolean</div>
+        <ol class="steps"><li>查集合 REQUIRES_CONFIRM（现仅 <code>draft_message</code>）。</li></ol>
+        <p class="flow"><strong>上游</strong>：applyToolCalls · <strong>下游</strong>：确认分支</p>
+        <div class="why">只读工具不进名单；有副作用才确认。增删只改这一处。</div>
+      </div>
+      <div class="method">
+        <div class="name">listToolsRequiringConfirm</div>
+        <div class="sig">export function listToolsRequiringConfirm(): string[]</div>
+        <ol class="steps"><li>返回名单数组副本。</li></ol>
+        <p class="flow"><strong>上游</strong>：文档/调试 · <strong>下游</strong>：列举</p>
+        <div class="why">与 Set 内部实现解耦，对外稳定数组形态。</div>
+      </div>
+    </div>
+
+    <!-- toolFailure -->
+    <h2 id="toolFailure"><span class="file-path">toolFailure.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">MAX_CONSECUTIVE_TOOL_FAILURES / isToolErrorResult</div>
+        <div class="sig">export const MAX_CONSECUTIVE_TOOL_FAILURES = 2 · isToolErrorResult(result): boolean</div>
+        <ol class="steps">
+          <li>约定：返回带字符串字段 <code>error</code> 即失败。</li>
+          <li>与「问模型几次」MAX_MODEL_TURNS 分开。</li>
+        </ol>
+        <p class="flow"><strong>下游</strong>：createConsecutiveFailureTracker</p>
+        <div class="why">未知工具、白名单拒绝、抛错都走同形状，熔断逻辑简单。</div>
+      </div>
+      <div class="method">
+        <div class="name">createConsecutiveFailureTracker</div>
+        <div class="sig">export function createConsecutiveFailureTracker(): ConsecutiveFailureTracker</div>
+        <ol class="steps">
+          <li>isStopped：计数 ≥ 2。</li>
+          <li>record：失败 +1，成功清零。</li>
+          <li>stoppedResult：返回停止说明 error。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：runConversation 一次一请求 · <strong>下游</strong>：applyToolCalls</p>
+        <div class="why">中间成功一次应从 1 重算，避免「偶发失败」永久封杀该工具。</div>
+      </div>
+    </div>
+
+    <!-- prefetch -->
+    <h2 id="prefetch"><span class="file-path">prefetchSearchDocs.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">getLastUserText</div>
+        <div class="sig">export function getLastUserText(messages: ProviderMessage[]): string</div>
+        <ol class="steps"><li>自后向前找 role=user 的 content.trim；没有则 ""。</li></ol>
+        <p class="flow"><strong>上游</strong>：prefetch · <strong>下游</strong>：检索 question</p>
+        <div class="why">开关只对「这一轮」生效，问句必须取当前最后一条 user。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">prefetchSearchDocsIfEnabled</div>
+        <div class="sig">export async function prefetchSearchDocsIfEnabled(messages, options, failures): Promise&lt;PrefetchResult&gt;</div>
+        <ol class="steps">
+          <li>未勾选 searchDocs → ran=false。</li>
+          <li>onTrace tool_call(searchDocs) → executeSearchDocs → record failures → tool_result。</li>
+          <li>结果含 error → empty=true（系统故障 vs 业务判空用 isSystemError）。</li>
+          <li>重排降级时 onTrace degradation。</li>
+          <li>有资料：appendToSystem（写进本轮 system，不伪造 tool_calls）。</li>
+          <li>P0：判空由 runConversation 直接固定文案结束，不再注入让模型编造文档名。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>messages</code></td><td>可就地改 system.content</td></tr>
+            <tr><td><code>options</code></td><td>含 searchDocs / onTrace</td></tr>
+            <tr><td><code>failures</code></td><td>计入 searchDocs 失败统计</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：runConversation · <strong>下游</strong>：system 注入或提前结束</p>
+        <div class="why">结果进 system 不进对话历史：下一轮取消勾选后模型不能把旧资料口吻当成本轮已检索。</div>
+      </div>
+    </div>
+
+    <!-- bridge -->
+    <h2 id="bridge">桥接：createChatStream / clipMessages / streamMock</h2>
+    <div class="card">
+      <p>文件位于 <code>server/chat.ts</code>、<code>clipMessages.ts</code>、<code>mock/streamMock.ts</code>；详细参数表见 <a href="./entry.html">entry.html</a>。此处强调与 ReAct 的衔接。</p>
+
+      <div class="method">
+        <div class="name">createChatStream</div>
+        <div class="sig">export async function createChatStream(options: CreateChatStreamOptions)</div>
+        <ol class="steps">
+          <li>buildSystemPrompt(searchDocs) + 安全约束；clipMessages 截断历史。</li>
+          <li>inputGuard 只标记 → onTrace injection_detected。</li>
+          <li>forceMock 或无 Key → degradation + streamMock；否则 runConversation(+confirmSession)。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：POST /api/chat · <strong>下游</strong>：Mock 或 ReAct 图</p>
+        <div class="why">资料问答不走这里。KB_ON/OFF 文案按本轮开关拼接，避免勾选历史污染取消勾选后的回答。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">clipMessages</div>
+        <div class="sig">export function clipMessages(messages, systemPrompt, maxContextMessages): TextMessage[]</div>
+        <ol class="steps"><li>取最近 N 条 + 固定服务端 system 置于首位。</li></ol>
+        <p class="flow"><strong>上游</strong>：createChatStream · <strong>下游</strong>：runConversation.messages</p>
+        <div class="why">system 始终服务端注入，丢弃前端传来的 system。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">streamMock</div>
+        <div class="sig">export async function streamMock({ messages, signal?, onDelta })</div>
+        <ol class="steps"><li>按字切块 + sleep 模拟打字；仅走 onDelta，不调工具/模型。</li></ol>
+        <p class="flow"><strong>上游</strong>：createChatStream 降级 · <strong>下游</strong>：前端 SSE 链路验证</p>
+        <div class="why">先把 fetch+ReadableStream 跑通，再配 Key 切真模型。</div>
+      </div>
+    </div>
+
+    <footer class="note">
+      <a href="./routes.html">← 路由</a> ·
+      <a href="./entry.html">入口 createChatStream →</a> ·
+      <a href="./multi-agent.html">多 Agent →</a>
+    </footer>
+  </main>
+</body>
+</html>

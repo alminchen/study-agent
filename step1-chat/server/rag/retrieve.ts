@@ -1,4 +1,18 @@
 import { embed } from "./embedding.js";
+import { resolveKbRoute } from "./queryEnhance/kbRoute.js";
+import { resolveQueryForRetrieve } from "./queryEnhance/index.js";
+import {
+  buildMultiQueries,
+  disabledMultiQueryMeta,
+  isMultiQueryEnabled,
+  searchMultiQuery,
+} from "./queryEnhance/multiQuery.js";
+import {
+  disabledHydeMeta,
+  isHydeEnabled,
+  resolveHydeQuery,
+} from "./queryEnhance/hyde.js";
+import type { HydeMeta, KbRoute, MultiQueryMeta } from "./queryEnhance/types.js";
 import { rerankHits, rerankerReady } from "./rerank.js";
 import { LocalVectorStore } from "./vectorStore.js";
 import type { RetrievalJudgment, SearchHit } from "./types.js";
@@ -20,6 +34,11 @@ export const DEFAULT_TOP_K = 5;
  */
 export const MIN_TOP_SCORE = 0.6;
 
+export interface RetrieveOptions {
+  /** 单元 5：只在这些 source 上搜；null/undefined=全库；[]=空池 */
+  sources?: string[] | null;
+}
+
 /**
  * 按问题召回最像的若干段原文（原始 TopK，不做空结果判断）。
  * 问句和入库走同一个 embed()；还不调用聊天模型。
@@ -27,14 +46,18 @@ export const MIN_TOP_SCORE = 0.6;
  * 注意：这里的返回值「非空」只表示库里排得出名次，不表示资料够格回答。
  * 有没有资料交给 judgeRetrieval / retrieveForAnswer。
  */
-export async function retrieve(question: string, topK = DEFAULT_TOP_K): Promise<SearchHit[]> {
+export async function retrieve(
+  question: string,
+  topK = DEFAULT_TOP_K,
+  options?: RetrieveOptions,
+): Promise<SearchHit[]> {
   const store = new LocalVectorStore();
   await store.load();
   if (store.size === 0) {
     throw new Error("向量库是空的，请先运行 npm run rag:ingest");
   }
   const [queryVec] = await embed([question]);
-  return store.search(queryVec, topK);
+  return store.search(queryVec, topK, { sources: options?.sources });
 }
 
 /**
@@ -95,16 +118,168 @@ export function judgeRetrieval(
 /** 向量先多捞一些，重排后再切到 DEFAULT_TOP_K 注入。 */
 export const CANDIDATE_K = 20;
 
-/** 检索 + 空结果判断 + 重排。问答 / 拼 prompt 应走这一层。 */
+export interface RetrieveForAnswerOptions {
+  /** 扩写 / HyDE LLM 可中止（与聊天 AbortSignal 对齐） */
+  signal?: AbortSignal;
+  /** 单元 5 验收：强制 kb_route，覆盖规则与 env FORCE */
+  forceKbRoute?: KbRoute | null;
+  /** 扩写 LLM usage → bindUsageCallback(acc, "ragRewrite") */
+  onRewriteUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
+  /** HyDE LLM usage → bindUsageCallback(acc, "ragHyde") */
+  onHydeUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
+}
+
+/**
+ * 检索 + 空结果判断 + 重排。问答 / 拼 prompt 应走这一层。
+ *
+ * ## 单元 4 接线（问句增强）
+ * 1. resolveQueryForRetrieve(原句) → queryUsed + rewriteMeta
+ * 2. retrieve(queryUsed) 做向量召回
+ * 3. judgeRetrieval / rerankHits 用 queryUsed
+ *
+ * ## 单元 5 接线（多库路由）
+ * 在 embed 前 resolveKbRoute；route=none 时跳过 search（message 与分数判空区分）。
+ * 否则 retrieve(..., { sources: sourcesAllowed })。
+ *
+ * ## 单元 6 接线（Multi-Query）
+ * RAG_MULTI_QUERY=1 时：buildMultiQueries → 分路 search → max(score) 按 id 合并。
+ * 闸门 / 重排仍用主路 query（queryUsed）；合并结果当 rawHits。
+ *
+ * ## 单元 7 接线（HyDE）
+ * RAG_HYDE=1 时：生成假文档 → embed(假文档) → search。
+ * 闸门标题比对 / 重排仍用 queryUsed（问句），不用假文档当「问句」。
+ * 与 Multi-Query 同开时：优先 HyDE，跳过多路并打 warn（对照纪律：一次一招）。
+ *
+ * 开关：REWRITE / KB_ROUTE / MULTI_QUERY / HYDE 彼此独立；对照时一次只开一个召回增强。
+ */
 export async function retrieveForAnswer(
   question: string,
   topK = DEFAULT_TOP_K,
   minTopScore = MIN_TOP_SCORE,
+  options?: RetrieveForAnswerOptions,
 ): Promise<RetrievalJudgment> {
-  const rawHits = await retrieve(question, CANDIDATE_K);
-  const judged = judgeRetrieval(rawHits, minTopScore, question);
+  // ---- 步骤 1：原句 →（可选）扩写 ----
+  const { query, meta } = await resolveQueryForRetrieve(question, {
+    signal: options?.signal,
+    onUsage: options?.onRewriteUsage,
+  });
+  if (meta.status === "ok" || meta.status === "fallback") {
+    console.log(
+      `[queryEnhance] status=${meta.status} original=${JSON.stringify(meta.original)} queryUsed=${JSON.stringify(meta.queryUsed)}`,
+    );
+  }
+
+  // ---- 步骤 1.5：多库路由（单元 5）----
+  // 用用户原句做关键词路由（比扩写句更稳）；intent 可来自 rewriteMeta
+  const kbRouteMeta = resolveKbRoute({
+    question: meta.original || question,
+    rewriteMeta: meta,
+    forceRoute: options?.forceKbRoute,
+  });
+  if (kbRouteMeta.status !== "disabled") {
+    console.log(
+      `[kbRoute] status=${kbRouteMeta.status} route=${kbRouteMeta.route} sources=${JSON.stringify(kbRouteMeta.sourcesAllowed)} reason=${kbRouteMeta.reason ?? ""}`,
+    );
+  }
+
+  // none：跳过检索 —— 不是「分数低判空」，日志 / message 必须能区分
+  if (kbRouteMeta.route === "none") {
+    return {
+      empty: true,
+      hits: [],
+      rawHits: [],
+      rankedAll: [],
+      topScore: null,
+      message: "本轮路由为 none，跳过知识库检索",
+      rewriteMeta: meta,
+      kbRouteMeta,
+      multiQueryMeta: disabledMultiQueryMeta(),
+      hydeMeta: disabledHydeMeta(meta.original || question, query),
+    };
+  }
+
+  // ---- 步骤 2～3：向量召回（HyDE / 多路 / 单路）----
+  let rawHits: SearchHit[];
+  let multiQueryMeta: MultiQueryMeta = disabledMultiQueryMeta();
+  let hydeMeta: HydeMeta = disabledHydeMeta(meta.original || question, query);
+
+  const hydeOn = isHydeEnabled();
+  const multiOn = isMultiQueryEnabled();
+
+  if (hydeOn && multiOn) {
+    console.warn(
+      "[hyde] RAG_HYDE 与 RAG_MULTI_QUERY 同时开启：本轮优先 HyDE，跳过多路（对照请一次只开一招）",
+    );
+  }
+
+  if (hydeOn) {
+    // 假文档失败则 embedText=query（扩写句或原句）
+    const hyde = await resolveHydeQuery(meta.original || question, query, {
+      signal: options?.signal,
+      onUsage: options?.onHydeUsage,
+    });
+    hydeMeta = hyde.meta;
+    if (hyde.meta.status === "ok") {
+      console.log(
+        `[hyde] status=ok chars=${hyde.meta.hydeDoc?.length ?? 0} preview=${JSON.stringify((hyde.meta.hydeDoc ?? "").slice(0, 120))}`,
+      );
+    } else if (hyde.meta.status === "fallback") {
+      console.log(`[hyde] status=fallback reason=${hyde.meta.reason ?? ""}`);
+    }
+    rawHits = await retrieve(hyde.embedText, CANDIDATE_K, {
+      sources: kbRouteMeta.sourcesAllowed,
+    });
+    multiQueryMeta = {
+      status: "skipped",
+      queries: [],
+      merge: "max_score",
+      perQueryHitCounts: [],
+      mergedCount: 0,
+      reason: hydeOn && multiOn ? "与 HyDE 同开，本轮跳过多路" : "本轮走 HyDE",
+    };
+  } else if (multiOn) {
+    const queries = buildMultiQueries(meta.original || question, meta);
+    if (queries.length >= 2) {
+      const multi = await searchMultiQuery(queries, {
+        perQueryTopK: CANDIDATE_K,
+        mergeLimit: CANDIDATE_K,
+        sources: kbRouteMeta.sourcesAllowed,
+      });
+      rawHits = multi.hits;
+      multiQueryMeta = multi.meta;
+      console.log(
+        `[multiQuery] status=ok n=${multi.meta.queries.length} merge=${multi.meta.merge} counts=${JSON.stringify(multi.meta.perQueryHitCounts)} merged=${multi.meta.mergedCount}`,
+      );
+      for (let i = 0; i < multi.meta.queries.length; i++) {
+        console.log(
+          `[multiQuery] q${i + 1}=${JSON.stringify(multi.meta.queries[i])} topIds=${JSON.stringify(multi.meta.perQueryTopIds?.[i] ?? [])}`,
+        );
+      }
+    } else {
+      // 拼不出 ≥2 路则退回单路，避免「开了开关却空转」
+      rawHits = await retrieve(query, CANDIDATE_K, {
+        sources: kbRouteMeta.sourcesAllowed,
+      });
+      multiQueryMeta = {
+        status: "skipped",
+        queries,
+        merge: "max_score",
+        perQueryHitCounts: [],
+        mergedCount: rawHits.length,
+        reason: "有效问句不足 2 条，退回单路",
+      };
+      console.log(`[multiQuery] status=skipped reason=${multiQueryMeta.reason}`);
+    }
+  } else {
+    rawHits = await retrieve(query, CANDIDATE_K, {
+      sources: kbRouteMeta.sourcesAllowed,
+    });
+  }
+
+  // 闸门标题比对：仍用问句 query，不用假文档（假文档几乎对不上 title）
+  const judged = judgeRetrieval(rawHits, minTopScore, query);
   if (judged.empty) {
-    return judged;
+    return { ...judged, rewriteMeta: meta, kbRouteMeta, multiQueryMeta, hydeMeta };
   }
   if (!rerankerReady()) {
     console.warn("重排模型未下载，暂用向量 TopK 注入。请运行 npm run predawn:rerank");
@@ -112,13 +287,22 @@ export async function retrieveForAnswer(
       ...judged,
       hits: judged.rawHits.slice(0, topK),
       rankedAll: [],
+      rewriteMeta: meta,
+      kbRouteMeta,
+      multiQueryMeta,
+      hydeMeta,
     };
   }
-  const { injected, rankedAll } = await rerankHits(question, judged.rawHits, topK);
+  // 重排问句仍用主路 query（queryUsed），不用假文档
+  const { injected, rankedAll } = await rerankHits(query, judged.rawHits, topK);
   return {
     ...judged,
     hits: injected,
     rankedAll,
+    rewriteMeta: meta,
+    kbRouteMeta,
+    multiQueryMeta,
+    hydeMeta,
   };
 }
 

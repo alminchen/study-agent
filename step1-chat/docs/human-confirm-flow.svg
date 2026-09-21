@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 3400" width="1480" height="3400" role="img" aria-label="Human Confirm Flow Detailed">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#059669"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#0d9488"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .lane { font: 700 12px sans-serif; fill: #475569; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+    ]]></style>
+  </defs>
+
+  <rect width="1480" height="3400" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">人工确认（Human Confirm）完整调用链路</text>
+  <text x="40" y="66" class="subtitle">两条 HTTP：长连接 POST /api/chat（SSE）挂起 wait；短请求 POST /api/chat/confirm 调用 resolve 解开</text>
+
+  <g transform="translate(40, 86)">
+    <rect x="0" y="0" width="1400" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="16" y="16" width="18" height="18" rx="3" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="42" y="30" class="legend">前端 UI / API</text>
+    <rect x="180" y="16" width="18" height="18" rx="3" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="206" y="30" class="legend">路由 / 会话</text>
+    <rect x="340" y="16" width="18" height="18" rx="3" fill="#d1fae5" stroke="#059669"/>
+    <text x="366" y="30" class="legend">ReAct / 工具执行</text>
+    <rect x="520" y="16" width="18" height="18" rx="3" fill="#fef3c7" stroke="#d97706"/>
+    <text x="546" y="30" class="legend">ConfirmSession 闸门</text>
+    <rect x="720" y="16" width="18" height="18" rx="3" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="746" y="30" class="legend">收尾 dispose</text>
+    <text x="920" y="30" class="note">虚线 = SSE 事件 / 跨连接回调</text>
+  </g>
+
+  <g transform="translate(40, 160)">
+    <rect x="0" y="0" width="330" height="36" rx="6" fill="#bfdbfe"/>
+    <text x="165" y="23" text-anchor="middle" class="lane">BROWSER / FRONTEND</text>
+    <rect x="350" y="0" width="360" height="36" rx="6" fill="#c7d2fe"/>
+    <text x="530" y="23" text-anchor="middle" class="lane">HTTP ROUTES + SESSION MAP</text>
+    <rect x="730" y="0" width="350" height="36" rx="6" fill="#a7f3d0"/>
+    <text x="905" y="23" text-anchor="middle" class="lane">REACT LOOP + TOOLS</text>
+    <rect x="1100" y="0" width="300" height="36" rx="6" fill="#fde68a"/>
+    <text x="1250" y="23" text-anchor="middle" class="lane">CONFIRM GATE</text>
+  </g>
+
+  <rect x="40" y="200" width="330" height="2480" fill="#eff6ff" opacity="0.45"/>
+  <rect x="390" y="200" width="360" height="2480" fill="#eef2ff" opacity="0.45"/>
+  <rect x="770" y="200" width="350" height="2480" fill="#ecfdf5" opacity="0.45"/>
+  <rect x="1140" y="200" width="300" height="2480" fill="#fffbeb" opacity="0.55"/>
+
+  <!-- ========== PHASE 1 ========== -->
+  <g transform="translate(40, 220)">
+    <text x="0" y="0" class="phase">1. 建立确认会话（同一 POST /api/chat 生命周期内）</text>
+
+    <rect x="20" y="24" width="290" height="70" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="165" y="48" text-anchor="middle" class="box">useChat.send / runStream</text>
+    <text x="165" y="66" text-anchor="middle" class="box-sub">streamChat(messages...)</text>
+    <text x="165" y="82" text-anchor="middle" class="file">src/composables/useChat.ts</text>
+
+    <line x1="310" y1="59" x2="370" y2="59" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+    <text x="340" y="50" text-anchor="middle" class="label-em">POST /api/chat</text>
+
+    <rect x="370" y="24" width="320" height="70" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="530" y="48" text-anchor="middle" class="box">registerChatRoutes handler</text>
+    <text x="530" y="66" text-anchor="middle" class="box-sub">setSseHeaders(res)</text>
+    <text x="530" y="82" text-anchor="middle" class="file">server/routes/chat.ts</text>
+
+    <line x1="530" y1="94" x2="530" y2="130" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="370" y="130" width="320" height="78" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="530" y="154" text-anchor="middle" class="box">new ConfirmSession()</text>
+    <text x="530" y="172" text-anchor="middle" class="box-sub">constructor -&gt; sessions.set(confirmId, this)</text>
+    <text x="530" y="190" text-anchor="middle" class="file">server/react/confirmGate.ts</text>
+
+    <rect x="1140" y="130" width="260" height="78" rx="8" fill="#fff7ed" stroke="#d97706" stroke-dasharray="4 3"/>
+    <text x="1270" y="158" text-anchor="middle" class="box">sessions: Map&lt;id, Session&gt;</text>
+    <text x="1270" y="178" text-anchor="middle" class="box-sub">模块级注册表（进程内）</text>
+    <text x="1270" y="194" text-anchor="middle" class="file">confirmGate.ts</text>
+    <line x1="690" y1="169" x2="1140" y2="169" stroke="#d97706" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowAmber)"/>
+    <text x="915" y="160" text-anchor="middle" class="label">sessions.set</text>
+
+    <line x1="530" y1="208" x2="530" y2="250" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="370" y="250" width="320" height="78" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="530" y="274" text-anchor="middle" class="box">createChatStream({...})</text>
+    <text x="530" y="292" text-anchor="middle" class="box-sub">传入 confirmSession + onTrace/onDelta</text>
+    <text x="530" y="310" text-anchor="middle" class="file">server/chat.ts</text>
+
+    <line x1="530" y1="328" x2="905" y2="370" stroke="#059669" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+    <text x="720" y="350" class="label">confirmSession 下传</text>
+    <rect x="790" y="360" width="310" height="78" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="945" y="384" text-anchor="middle" class="box">runConversation(options)</text>
+    <text x="945" y="402" text-anchor="middle" class="box-sub">LangGraph: askModel &lt;-&gt; applyTools</text>
+    <text x="945" y="420" text-anchor="middle" class="file">server/react/runConversation.ts</text>
+  </g>
+
+  <!-- ========== PHASE 2 ========== -->
+  <g transform="translate(40, 700)">
+    <text x="0" y="0" class="phase">2. 模型返回需确认的 tool_calls -&gt; 闸门挂起</text>
+
+    <rect x="790" y="24" width="310" height="62" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="945" y="48" text-anchor="middle" class="box">askModel -&gt; tool_calls?</text>
+    <text x="945" y="68" text-anchor="middle" class="box-sub">有则进入 applyTools 节点</text>
+
+    <line x1="945" y1="86" x2="945" y2="120" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="790" y="120" width="310" height="70" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="945" y="144" text-anchor="middle" class="box">applyTools(state)</text>
+    <text x="945" y="162" text-anchor="middle" class="box-sub">pushAssistantWithTools -&gt;</text>
+    <text x="945" y="178" text-anchor="middle" class="box">applyToolCalls(..., confirmSession, signal)</text>
+
+    <line x1="945" y1="190" x2="945" y2="224" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="790" y="224" width="310" height="86" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="945" y="248" text-anchor="middle" class="box">applyToolCalls(for each call)</text>
+    <text x="945" y="266" text-anchor="middle" class="box-sub">1) onTrace(tool_call)</text>
+    <text x="945" y="282" text-anchor="middle" class="box-sub">2) validateToolCall / failures</text>
+    <text x="945" y="298" text-anchor="middle" class="file">server/react/applyToolCalls.ts</text>
+
+    <line x1="945" y1="310" x2="945" y2="340" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <polygon points="945,340 1075,380 945,420 815,380" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+    <text x="945" y="376" text-anchor="middle" class="box">isToolRequiringConfirm?</text>
+    <text x="945" y="392" text-anchor="middle" class="box-sub">toolsRequiringConfirm.ts</text>
+
+    <line x1="815" y1="380" x2="720" y2="380" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="760" y="370" class="label">否</text>
+    <rect x="520" y="350" width="200" height="60" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="620" y="375" text-anchor="middle" class="box">runToolCall(call)</text>
+    <text x="620" y="393" text-anchor="middle" class="box-sub">只读工具立刻执行</text>
+
+    <line x1="945" y1="420" x2="945" y2="460" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrowAmber)"/>
+    <text x="960" y="448" class="label">是</text>
+    <rect x="790" y="460" width="310" height="78" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="945" y="484" text-anchor="middle" class="box">runWithOptionalConfirm(...)</text>
+    <text x="945" y="502" text-anchor="middle" class="box-sub">无 session -&gt; {error: 未启用确认通道}</text>
+    <text x="945" y="520" text-anchor="middle" class="box-sub">有 session 继续向下</text>
+
+    <line x1="790" y1="490" x2="310" y2="490" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+    <text x="520" y="480" text-anchor="middle" class="label-em">SSE: pending_confirm {confirmId, toolCallId, name, args}</text>
+
+    <rect x="20" y="450" width="290" height="80" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="165" y="474" text-anchor="middle" class="box">streamChat onTrace</text>
+    <text x="165" y="492" text-anchor="middle" class="box-sub">-&gt; toolTrace: pending_confirm</text>
+    <text x="165" y="510" text-anchor="middle" class="box-sub">ToolTracePanel 展示允许/拒绝</text>
+
+    <line x1="945" y1="538" x2="945" y2="580" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrowAmber)"/>
+    <line x1="945" y1="580" x2="1270" y2="580" stroke="#d97706" stroke-width="1.5" marker-end="url(#arrowAmber)"/>
+    <rect x="1140" y="540" width="260" height="100" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="1270" y="568" text-anchor="middle" class="box">ConfirmSession.wait(</text>
+    <text x="1270" y="586" text-anchor="middle" class="box">  toolCallId, name, args, signal)</text>
+    <text x="1270" y="606" text-anchor="middle" class="box-sub">pending.set -&gt; new Promise</text>
+    <text x="1270" y="624" text-anchor="middle" class="warn">await 卡住（SSE 仍开着）</text>
+  </g>
+
+  <!-- ========== PHASE 3 ========== -->
+  <g transform="translate(40, 1380)">
+    <text x="0" y="0" class="phase">3. 用户点允许/拒绝 -&gt; 第二条 HTTP 解开 wait（与 SSE 并行）</text>
+
+    <rect x="20" y="24" width="290" height="86" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="165" y="48" text-anchor="middle" class="box">ToolTracePanel.onAllow / onDeny</text>
+    <text x="165" y="66" text-anchor="middle" class="box-sub">-&gt; resolveToolConfirm(payload)</text>
+    <text x="165" y="84" text-anchor="middle" class="file">ToolTracePanel.vue + useChat.ts</text>
+
+    <line x1="165" y1="110" x2="165" y2="140" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+    <rect x="20" y="140" width="290" height="70" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="165" y="164" text-anchor="middle" class="box">confirmChatTool(params)</text>
+    <text x="165" y="182" text-anchor="middle" class="box-sub">fetch POST /api/chat/confirm</text>
+    <text x="165" y="198" text-anchor="middle" class="file">src/api/chat.ts</text>
+
+    <line x1="310" y1="175" x2="370" y2="175" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+    <text x="340" y="166" text-anchor="middle" class="label-em">JSON</text>
+
+    <rect x="370" y="130" width="320" height="90" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="530" y="154" text-anchor="middle" class="box">registerChatConfirmRoutes</text>
+    <text x="530" y="172" text-anchor="middle" class="box">POST /api/chat/confirm</text>
+    <text x="530" y="190" text-anchor="middle" class="box-sub">{confirmId, toolCallId, action}</text>
+    <text x="530" y="206" text-anchor="middle" class="file">server/routes/chatConfirm.ts</text>
+
+    <line x1="530" y1="220" x2="530" y2="260" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="370" y="260" width="320" height="62" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="530" y="284" text-anchor="middle" class="box">getConfirmSession(confirmId)</text>
+    <text x="530" y="302" text-anchor="middle" class="box-sub">sessions.get -&gt; 同一实例</text>
+
+    <line x1="690" y1="291" x2="1140" y2="291" stroke="#d97706" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowAmber)"/>
+    <text x="915" y="282" text-anchor="middle" class="label">Map 查找</text>
+
+    <line x1="530" y1="322" x2="530" y2="360" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="370" y="360" width="320" height="70" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="530" y="384" text-anchor="middle" class="box">session.resolve(toolCallId, action)</text>
+    <text x="530" y="402" text-anchor="middle" class="box-sub">pending.get -&gt; entry.resolve(action)</text>
+    <text x="530" y="420" text-anchor="middle" class="box-sub">Promise 兑现 -&gt; wait 返回</text>
+
+    <path d="M690,395 C900,395 1000,600 1140,600" fill="none" stroke="#d97706" stroke-width="2" marker-end="url(#arrowAmber)"/>
+    <text x="980" y="480" class="label">解开 await wait()</text>
+
+    <rect x="1140" y="560" width="260" height="80" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="1270" y="590" text-anchor="middle" class="box">wait Promise resolve</text>
+    <text x="1270" y="610" text-anchor="middle" class="box-sub">action = "allow" | "deny"</text>
+    <text x="1270" y="626" text-anchor="middle" class="box-sub">回到 runWithOptionalConfirm</text>
+
+    <rect x="20" y="260" width="290" height="70" rx="8" fill="#fff" stroke="#cbd5e1" stroke-dasharray="4 3"/>
+    <text x="165" y="286" text-anchor="middle" class="note">无 session / 无 pending -&gt; 404</text>
+    <text x="165" y="304" text-anchor="middle" class="note">聊天已 dispose 或 id 不对</text>
+    <text x="165" y="320" text-anchor="middle" class="note">GET /api/chat/confirm/:id -&gt; listPending</text>
+  </g>
+
+  <!-- ========== PHASE 4 ========== -->
+  <g transform="translate(40, 1900)">
+    <text x="0" y="0" class="phase">4. wait 返回后继续同一条 SSE：执行或拒绝 -&gt; 再问模型</text>
+
+    <rect x="790" y="24" width="310" height="62" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="945" y="48" text-anchor="middle" class="box">onTrace(confirm_resolved)</text>
+    <text x="945" y="68" text-anchor="middle" class="box-sub">{toolCallId, name, action}</text>
+
+    <line x1="790" y1="55" x2="310" y2="55" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+    <rect x="20" y="24" width="290" height="62" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="165" y="48" text-anchor="middle" class="box">面板更新 confirm_resolved</text>
+    <text x="165" y="68" text-anchor="middle" class="box-sub">仍在读同一条 SSE（不必再 send）</text>
+
+    <line x1="945" y1="86" x2="945" y2="120" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <polygon points="945,120 1055,155 945,190 835,155" fill="#fff7ed" stroke="#d97706" stroke-width="1.5"/>
+    <text x="945" y="160" text-anchor="middle" class="box">action === allow?</text>
+
+    <line x1="1055" y1="155" x2="1140" y2="155" stroke="#059669" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+    <text x="1090" y="145" class="label">allow</text>
+    <rect x="1140" y="125" width="260" height="60" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="1270" y="150" text-anchor="middle" class="box">runToolCall(call, turn)</text>
+    <text x="1270" y="168" text-anchor="middle" class="box-sub">runToolWithTracing -&gt; 真执行</text>
+
+    <line x1="835" y1="155" x2="720" y2="155" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+    <text x="770" y="145" class="label">deny</text>
+    <rect x="520" y="125" width="200" height="60" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="620" y="150" text-anchor="middle" class="box">{error: 用户拒绝...}</text>
+    <text x="620" y="168" text-anchor="middle" class="box-sub">不调用 run*</text>
+
+    <path d="M620,185 L620,230 L945,230" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <path d="M1270,185 L1270,230 L945,230" fill="none" stroke="#334155" stroke-width="1.5"/>
+    <rect x="790" y="240" width="310" height="78" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="945" y="264" text-anchor="middle" class="box">onTrace(tool_result) + push message</text>
+    <text x="945" y="282" text-anchor="middle" class="box-sub">toToolResultMessage(id, result)</text>
+    <text x="945" y="300" text-anchor="middle" class="box-sub">-&gt; 回到 askModel -&gt; onDelta / [DONE]</text>
+
+    <line x1="790" y1="279" x2="310" y2="279" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+    <rect x="20" y="250" width="290" height="70" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="165" y="274" text-anchor="middle" class="box">onTrace(tool_result) / onDelta</text>
+    <text x="165" y="294" text-anchor="middle" class="box-sub">最终文字写入消息列表</text>
+    <text x="165" y="310" text-anchor="middle" class="box-sub">SSE [DONE] -&gt; isStreaming=false</text>
+  </g>
+
+  <!-- ========== PHASE 5 ========== -->
+  <g transform="translate(40, 2280)">
+    <text x="0" y="0" class="phase">5. 请求收尾：finally dispose（防泄漏）</text>
+
+    <rect x="370" y="24" width="320" height="90" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="530" y="48" text-anchor="middle" class="box">finally { confirmSession.dispose() }</text>
+    <text x="530" y="66" text-anchor="middle" class="box-sub">未决 pending -&gt; resolve("deny")</text>
+    <text x="530" y="84" text-anchor="middle" class="box-sub">sessions.delete(confirmId)</text>
+    <text x="530" y="102" text-anchor="middle" class="file">routes/chat.ts</text>
+
+    <line x1="690" y1="69" x2="1140" y2="69" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+    <rect x="1140" y="30" width="260" height="78" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1270" y="58" text-anchor="middle" class="box">ConfirmSession.dispose()</text>
+    <text x="1270" y="76" text-anchor="middle" class="box-sub">abort / 断开 SSE 也会间接</text>
+    <text x="1270" y="94" text-anchor="middle" class="box-sub">通过 signal 让 wait reject</text>
+
+    <rect x="20" y="140" width="1400" height="100" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="168" class="phase">方法调用链（浓缩）</text>
+    <text x="40" y="194" class="box">streamChat -&gt; POST /api/chat -&gt; new ConfirmSession -&gt; createChatStream -&gt; runConversation.askModel -&gt; applyTools -&gt; applyToolCalls -&gt; runWithOptionalConfirm -&gt; wait</text>
+    <text x="40" y="216" class="box">ToolTracePanel -&gt; resolveToolConfirm -&gt; confirmChatTool -&gt; POST /api/chat/confirm -&gt; getConfirmSession -&gt; resolve -&gt; wait 返回 -&gt; runToolCall? -&gt; tool_result -&gt; askModel -&gt; finally dispose</text>
+  </g>
+
+  <!-- ========== PHASE 6 CROSSCUTTING (append, don't replace) ========== -->
+  <g transform="translate(40, 2600)">
+    <text x="0" y="0" class="phase">6. 横切归属（Token / Guard / Trace）— 挂在父 /api/chat，不是 confirm 路由</text>
+
+    <rect x="20" y="24" width="450" height="200" rx="10" fill="#f0fdfa" stroke="#0d9488"/>
+    <text x="40" y="56" class="box">Token</text>
+    <text x="40" y="84" class="box-sub">UsageAccumulator 在 chat 路由创建</text>
+    <text x="40" y="108" class="box-sub">wait 前后的 askModel 都记 askModel</text>
+    <text x="40" y="132" class="box-sub">工具 run 本身不计 LLM Token</text>
+    <text x="40" y="156" class="box-sub">writeUsageToStream 在 chat 结束时</text>
+    <text x="40" y="184" class="warn">POST /confirm 无 Accumulator</text>
+
+    <rect x="500" y="24" width="450" height="200" rx="10" fill="#fef2f2" stroke="#dc2626"/>
+    <text x="520" y="56" class="box">Guard</text>
+    <text x="520" y="84" class="box-sub">validateToolCall 在 wait 之前</text>
+    <text x="520" y="108" class="box-sub">Guard 拒绝 → 根本不进确认</text>
+    <text x="520" y="132" class="box-sub">deny → 不 run，回填 error</text>
+    <text x="520" y="156" class="box-sub">reply 仍走 detectLeakage</text>
+    <text x="520" y="184" class="file">toolCallGuard · outputGuard</text>
+
+    <rect x="980" y="24" width="440" height="200" rx="10" fill="#f5f3ff" stroke="#7c3aed"/>
+    <text x="1000" y="56" class="box">Trace</text>
+    <text x="1000" y="84" class="box-sub">SSE: pending_confirm / confirm_resolved</text>
+    <text x="1000" y="108" class="box-sub">仍由原 /api/chat SSE 推送</text>
+    <text x="1000" y="132" class="box-sub">LangSmith: chat-request 在 wait 期间仍开着</text>
+    <text x="1000" y="156" class="box-sub">allow 后 tool span = runToolWithTracing</text>
+    <text x="1000" y="184" class="file">confirm HTTP 不单独建 root span</text>
+  </g>
+
+  <g transform="translate(40, 2880)">
+    <rect x="20" y="0" width="1400" height="70" rx="10" fill="#ecfdf5" stroke="#059669"/>
+    <text x="40" y="28" class="phase">横切总览图</text>
+    <text x="40" y="52" class="box">docs/crosscutting-token-guard-trace-flow.svg（矩阵表 + 各端点挂载）</text>
+  </g>
+
+  <text x="740" y="3375" text-anchor="middle" class="subtitle">docs/human-confirm-flow.svg</text>
+</svg>

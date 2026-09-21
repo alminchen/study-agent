@@ -10,5 +10,5 @@
     "noEmit": true,
     "esModuleInterop": true
   },
-  "include": ["server"]
+  "include": ["server", "evals", "scripts/run-evals.ts"]
 }

@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 2200" width="1480" height="2200" role="img" aria-label="RAG with Guard Trace LangSmith">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#0d9488"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowPink" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#db2777"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+      .ok { font: 600 11px sans-serif; fill: #059669; }
+    ]]></style>
+  </defs>
+
+  <rect width="1480" height="2200" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">资料问答（POST /api/rag/chat）· SSE + 三道 Guard + LangSmith</text>
+  <text x="40" y="66" class="subtitle">召回→判空→重排→注入→LLM；Token · input/tool/output Guard · SSE Trace · LangSmith 均已挂</text>
+
+  <g transform="translate(40, 86)">
+    <rect x="0" y="0" width="1400" height="48" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="16" y="15" width="18" height="18" rx="3" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="42" y="29" class="legend">Token rag</text>
+    <rect x="140" y="15" width="18" height="18" rx="3" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="166" y="29" class="legend">Guard ×3</text>
+    <rect x="280" y="15" width="18" height="18" rx="3" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="306" y="29" class="legend">SSE onTrace</text>
+    <rect x="460" y="15" width="18" height="18" rx="3" fill="#fce7f3" stroke="#db2777"/>
+    <text x="486" y="29" class="legend">LangSmith</text>
+    <text x="640" y="29" class="box-sub">CANDIDATE_K=20 · TOP_K=5 · MIN=0.6</text>
+  </g>
+
+  <!-- main pipeline -->
+  <g transform="translate(40, 160)">
+    <text x="0" y="0" class="phase">1. SSE 入口 → Input Guard → Accumulator → LangSmith 根 span</text>
+
+    <rect x="20" y="24" width="160" height="72" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="100" y="50" text-anchor="middle" class="box">askRag</text>
+    <text x="100" y="68" text-anchor="middle" class="box-sub">POST SSE</text>
+    <text x="100" y="86" text-anchor="middle" class="file">api/rag.ts</text>
+
+    <line x1="180" y1="60" x2="210" y2="60" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="210" y="24" width="170" height="72" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="295" y="50" text-anchor="middle" class="box">setSseHeaders</text>
+    <text x="295" y="68" text-anchor="middle" class="box-sub">ragChat.ts</text>
+    <text x="295" y="86" text-anchor="middle" class="file">writeSse 闭包</text>
+
+    <line x1="380" y1="60" x2="410" y2="60" stroke="#dc2626" stroke-width="2" marker-end="url(#arrowRed)"/>
+
+    <rect x="410" y="24" width="200" height="72" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="510" y="48" text-anchor="middle" class="box">detectInjection</text>
+    <text x="510" y="66" text-anchor="middle" class="box-sub">只标记</text>
+    <text x="510" y="84" text-anchor="middle" class="file">→ injection_detected?</text>
+
+    <line x1="610" y1="60" x2="640" y2="60" stroke="#0d9488" stroke-width="2" marker-end="url(#arrowTeal)"/>
+
+    <rect x="640" y="24" width="200" height="72" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="740" y="48" text-anchor="middle" class="box">UsageAccumulator</text>
+    <text x="740" y="66" text-anchor="middle" class="box-sub">bindUsage("rag")</text>
+    <text x="740" y="84" text-anchor="middle" class="file">0|1 次 LLM</text>
+
+    <line x1="840" y1="60" x2="870" y2="60" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
+
+    <rect x="870" y="24" width="220" height="72" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="980" y="48" text-anchor="middle" class="box">traceRagRequest?</text>
+    <text x="980" y="66" text-anchor="middle" class="box-sub">chain: rag-request</text>
+    <text x="980" y="84" text-anchor="middle" class="file">langsmith.ts</text>
+
+    <line x1="1090" y1="60" x2="1120" y2="60" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="1120" y="24" width="260" height="72" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="1250" y="50" text-anchor="middle" class="box">answerFromDocs</text>
+    <text x="1250" y="68" text-anchor="middle" class="box-sub">+ onTrace / onUsage</text>
+    <text x="1250" y="86" text-anchor="middle" class="file">answer.ts</text>
+  </g>
+
+  <!-- tool guard + retrieve -->
+  <g transform="translate(40, 300)">
+    <text x="0" y="0" class="phase">2. Tool Guard（searchDocs）→ 检索全链 → Trace</text>
+
+    <rect x="20" y="24" width="200" height="80" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="120" y="50" text-anchor="middle" class="box">tool_call</text>
+    <text x="120" y="68" text-anchor="middle" class="box-sub">searchDocs</text>
+    <text x="120" y="86" text-anchor="middle" class="file">SSE → Panel</text>
+
+    <line x1="220" y1="64" x2="250" y2="64" stroke="#dc2626" stroke-width="2" marker-end="url(#arrowRed)"/>
+
+    <rect x="250" y="24" width="220" height="80" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="360" y="48" text-anchor="middle" class="box">validateToolCall</text>
+    <text x="360" y="66" text-anchor="middle" class="box-sub">白名单 · JSON · 长度</text>
+    <text x="360" y="84" text-anchor="middle" class="file">toolCallGuard.ts</text>
+
+    <!-- reject branch -->
+    <path d="M360,104 L360,140 L120,140" fill="none" stroke="#dc2626" stroke-width="2" marker-end="url(#arrowRed)"/>
+    <rect x="20" y="150" width="200" height="64" rx="8" fill="#fff7ed" stroke="#d97706"/>
+    <text x="120" y="176" text-anchor="middle" class="warn">拒绝 → tool_result.error</text>
+    <text x="120" y="196" text-anchor="middle" class="box-sub">不 retrieve · 不调 LLM</text>
+
+    <line x1="470" y1="64" x2="500" y2="64" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
+
+    <rect x="500" y="24" width="200" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="600" y="48" text-anchor="middle" class="box">rag-retrieve</text>
+    <text x="600" y="66" text-anchor="middle" class="box-sub">LangSmith tool</text>
+    <text x="600" y="84" text-anchor="middle" class="file">retrieveForAnswer</text>
+
+    <line x1="700" y1="64" x2="730" y2="64" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="730" y="24" width="160" height="80" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="810" y="50" text-anchor="middle" class="box">召回 20</text>
+    <text x="810" y="68" text-anchor="middle" class="box-sub">embed+search</text>
+    <text x="810" y="86" text-anchor="middle" class="file">retrieve.ts</text>
+
+    <line x1="890" y1="64" x2="920" y2="64" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="920" y="24" width="160" height="80" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="1000" y="50" text-anchor="middle" class="box">判空 0.6</text>
+    <text x="1000" y="68" text-anchor="middle" class="box-sub">+ 标题例外</text>
+    <text x="1000" y="86" text-anchor="middle" class="file">judge</text>
+
+    <line x1="1080" y1="64" x2="1110" y2="64" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="1110" y="24" width="160" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="1190" y="50" text-anchor="middle" class="box">重排 Top5</text>
+    <text x="1190" y="68" text-anchor="middle" class="box-sub">或 slice 降级</text>
+    <text x="1190" y="86" text-anchor="middle" class="file">rerank.ts</text>
+
+    <line x1="1270" y1="64" x2="1300" y2="64" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
+
+    <rect x="1300" y="24" width="100" height="80" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="1350" y="60" text-anchor="middle" class="box">tool_</text>
+    <text x="1350" y="78" text-anchor="middle" class="box">result</text>
+  </g>
+
+  <!-- prompt + llm + output -->
+  <g transform="translate(40, 560)">
+    <text x="0" y="0" class="phase">3. Prompt → LLM（Token）→ Output Guard → 写出 SSE</text>
+
+    <rect x="20" y="24" width="200" height="80" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="120" y="50" text-anchor="middle" class="box">buildRagPrompt</text>
+    <text x="120" y="68" text-anchor="middle" class="box-sub">empty → 固定文案</text>
+    <text x="120" y="86" text-anchor="middle" class="file">跳过 LLM</text>
+
+    <line x1="220" y1="64" x2="250" y2="64" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
+
+    <rect x="250" y="24" width="220" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="360" y="48" text-anchor="middle" class="box">rag-llm</text>
+    <text x="360" y="66" text-anchor="middle" class="box-sub">completeRagMessages</text>
+    <text x="360" y="84" text-anchor="middle" class="file">→ onUsage(rag)</text>
+
+    <line x1="470" y1="64" x2="500" y2="64" stroke="#0d9488" stroke-width="2" marker-end="url(#arrowTeal)"/>
+
+    <rect x="500" y="24" width="160" height="80" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="580" y="50" text-anchor="middle" class="box">normalize</text>
+    <text x="580" y="68" text-anchor="middle" class="box-sub">knowledgeAnswer</text>
+
+    <line x1="660" y1="64" x2="690" y2="64" stroke="#dc2626" stroke-width="2" marker-end="url(#arrowRed)"/>
+
+    <rect x="690" y="24" width="200" height="80" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="790" y="48" text-anchor="middle" class="box">detectLeakage</text>
+    <text x="790" y="66" text-anchor="middle" class="box-sub">→ safeText?</text>
+    <text x="790" y="84" text-anchor="middle" class="file">output_leak_blocked?</text>
+
+    <line x1="890" y1="64" x2="920" y2="64" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
+
+    <rect x="920" y="24" width="180" height="80" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="1010" y="50" text-anchor="middle" class="box">rag_meta</text>
+    <text x="1010" y="68" text-anchor="middle" class="box-sub">hits / empty</text>
+    <text x="1010" y="86" text-anchor="middle" class="file">→ RagHitPanel</text>
+
+    <line x1="1100" y1="64" x2="1130" y2="64" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="1130" y="24" width="120" height="80" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="1190" y="58" text-anchor="middle" class="box">delta</text>
+    <text x="1190" y="76" text-anchor="middle" class="box-sub">answer</text>
+
+    <line x1="1250" y1="64" x2="1280" y2="64" stroke="#0d9488" stroke-width="2" marker-end="url(#arrowTeal)"/>
+
+    <rect x="1280" y="24" width="120" height="80" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="1340" y="50" text-anchor="middle" class="box">usage?</text>
+    <text x="1340" y="68" text-anchor="middle" class="box-sub">[DONE]</text>
+  </g>
+
+  <!-- matrix -->
+  <g transform="translate(40, 720)">
+    <text x="0" y="0" class="phase">4. 横切对照（相对 /api/chat）</text>
+    <rect x="20" y="20" width="1400" height="200" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="52" class="ok">Token ✅ bindUsage("rag") + writeUsageToStream</text>
+    <text x="40" y="80" class="ok">inputGuard ✅ detectInjection → SSE injection_detected</text>
+    <text x="40" y="108" class="ok">toolGuard ✅ validateToolCall(searchDocs) → 再 retrieve</text>
+    <text x="40" y="136" class="ok">outputGuard ✅ detectLeakage → SSE output_leak_blocked</text>
+    <text x="40" y="164" class="ok">SSE Trace ✅ ToolTracePanel · LangSmith ✅ rag-request / retrieve / llm</text>
+    <text x="40" y="192" class="box-sub">说明：RAG 无天气等业务 tools；检索本身按 searchDocs 白名单过 ToolGuard</text>
+  </g>
+
+  <g transform="translate(40, 980)">
+    <rect x="20" y="0" width="1400" height="100" rx="10" fill="#ecfdf5" stroke="#059669"/>
+    <text x="40" y="32" class="phase">浓缩</text>
+    <text x="40" y="60" class="box">SSE → detectInjection → Accumulator → traceRagRequest → toolGuard(searchDocs) → retrieve → judge → rerank</text>
+    <text x="40" y="84" class="box">→ prompt → rag-llm → detectLeakage → rag_meta + delta + usage + [DONE]</text>
+  </g>
+
+  <g transform="translate(40, 1120)">
+    <rect x="20" y="0" width="1400" height="64" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="40" y="28" class="phase">改动清单</text>
+    <text x="40" y="52" class="file">docs/rag-input-output-guard-changelog.md · 横切总览：crosscutting-token-guard-trace-flow.svg</text>
+  </g>
+
+  <text x="740" y="2160" text-anchor="middle" class="subtitle">docs/rag-chat-flow.svg</text>
+</svg>

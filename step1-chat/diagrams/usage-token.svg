@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 980" role="img" aria-labelledby="title desc">
+  <title id="title">Token 计费流程 · 方法名</title>
+  <desc id="desc">一次 HTTP 请求一个 UsageAccumulator；每次 LLM 调用 parseUsageFromResponse 后 record；请求结束 toRecord 写入 store 并推前端。</desc>
+  <defs>
+    <marker id="arr-usage" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#23313a"/>
+    </marker>
+  </defs>
+  <style>
+    .f { font-family: ui-sans-serif, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  </style>
+  <text x="540" y="28" class="f" font-size="16" font-weight="700" fill="#23313a" text-anchor="middle">Token 计费流程（带方法名）</text>
+  <text x="540" y="48" class="f" font-size="12" fill="#5c6b70" text-anchor="middle">一次用户提问 = 一个 UsageAccumulator · 多次 LLM 各自 record · 结束合成一条 UsageRecord</text>
+  <rect x="410" y="62" width="260" height="40" rx="6" fill="#fdf1d8" stroke="#dfb866" stroke-width="1.2"/>
+  <text x="540" y="87" class="f" font-size="13" font-weight="600" fill="#23313a" text-anchor="middle">用户发消息</text>
+  <line x1="540" y1="102" x2="540" y2="124" stroke="#23313a" stroke-width="1.4" marker-end="url(#arr-usage)"/>
+  <rect x="20" y="128" width="1040" height="168" rx="7" fill="#f5f8f8" stroke="#b6c6ca" stroke-width="1"/>
+  <text x="36" y="152" class="f" font-size="13" font-weight="700" fill="#23313a">1. server/index.ts · 创建累加器并接线</text>
+  <rect x="40" y="168" width="320" height="108" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="200" y="192" class="f" font-size="12" font-weight="700" fill="#23313a" text-anchor="middle">POST /api/chat</text>
+  <text x="200" y="214" class="f" font-size="11" fill="#5c6b70" text-anchor="middle">new UsageAccumulator()</text>
+  <text x="200" y="232" class="f" font-size="11" fill="#23313a" text-anchor="middle">bindUsageCallback(acc, "askModel")</text>
+  <text x="200" y="250" class="f" font-size="11" fill="#23313a" text-anchor="middle">createChatStream({ onUsage })</text>
+  <text x="200" y="266" class="f" font-size="10" fill="#5c6b70" text-anchor="middle">runConversation → requestCompletion</text>
+  <rect x="380" y="168" width="320" height="108" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="540" y="192" class="f" font-size="12" font-weight="700" fill="#23313a" text-anchor="middle">POST /api/chat/multi</text>
+  <text x="540" y="214" class="f" font-size="11" fill="#5c6b70" text-anchor="middle">new UsageAccumulator()</text>
+  <text x="540" y="232" class="f" font-size="11" fill="#23313a" text-anchor="middle">compileMultiAgentGraph({ accumulator })</text>
+  <text x="540" y="250" class="f" font-size="11" fill="#23313a" text-anchor="middle">onUsage(source) → bindUsageCallback</text>
+  <text x="540" y="266" class="f" font-size="10" fill="#5c6b70" text-anchor="middle">source: supervisor / worker / aggregate</text>
+  <rect x="720" y="168" width="320" height="108" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="880" y="192" class="f" font-size="12" font-weight="700" fill="#23313a" text-anchor="middle">POST /api/rag/chat</text>
+  <text x="880" y="214" class="f" font-size="11" fill="#5c6b70" text-anchor="middle">new UsageAccumulator()</text>
+  <text x="880" y="232" class="f" font-size="11" fill="#23313a" text-anchor="middle">bindUsageCallback(acc, "rag")</text>
+  <text x="880" y="250" class="f" font-size="11" fill="#23313a" text-anchor="middle">answerFromDocs(..., onUsage)</text>
+  <text x="880" y="266" class="f" font-size="10" fill="#5c6b70" text-anchor="middle">判空则不调 LLM · isEmpty 跳过落盘</text>
+  <line x1="200" y1="276" x2="200" y2="316" stroke="#23313a" stroke-width="1.4" marker-end="url(#arr-usage)"/>
+  <line x1="540" y1="276" x2="540" y2="316" stroke="#23313a" stroke-width="1.4" marker-end="url(#arr-usage)"/>
+  <line x1="880" y1="276" x2="880" y2="316" stroke="#23313a" stroke-width="1.4" marker-end="url(#arr-usage)"/>
+  <rect x="20" y="320" width="1040" height="118" rx="7" fill="#f5f8f8" stroke="#b6c6ca"/>
+  <text x="36" y="344" class="f" font-size="13" font-weight="700" fill="#23313a">2. 调 LLM（每次 HTTP 完成一次解析）</text>
+  <rect x="40" y="358" width="320" height="62" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="200" y="384" class="f" font-size="12" fill="#23313a" text-anchor="middle">react/complete.ts</text>
+  <text x="200" y="404" class="f" font-size="12" font-weight="600" fill="#0f766e" text-anchor="middle">requestCompletion()</text>
+  <rect x="380" y="358" width="320" height="62" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="540" y="384" class="f" font-size="12" fill="#23313a" text-anchor="middle">multi-agent/llm.ts</text>
+  <text x="540" y="404" class="f" font-size="12" font-weight="600" fill="#0f766e" text-anchor="middle">callLLM()</text>
+  <rect x="720" y="358" width="320" height="62" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="880" y="384" class="f" font-size="12" fill="#23313a" text-anchor="middle">rag/complete.ts</text>
+  <text x="880" y="404" class="f" font-size="12" font-weight="600" fill="#0f766e" text-anchor="middle">completeRagMessages()</text>
+  <line x1="200" y1="420" x2="200" y2="448" stroke="#23313a" stroke-width="1.2"/>
+  <line x1="880" y1="420" x2="880" y2="448" stroke="#23313a" stroke-width="1.2"/>
+  <line x1="200" y1="448" x2="880" y2="448" stroke="#23313a" stroke-width="1.2"/>
+  <line x1="540" y1="420" x2="540" y2="478" stroke="#23313a" stroke-width="1.4" marker-end="url(#arr-usage)"/>
+  <rect x="20" y="482" width="1040" height="156" rx="7" fill="#f5f8f8" stroke="#b6c6ca"/>
+  <text x="36" y="506" class="f" font-size="13" font-weight="700" fill="#23313a">3. server/usage · 解析 → 回调 → 累加</text>
+  <rect x="280" y="520" width="520" height="44" rx="5" fill="#eef3f3" stroke="#a9bfc2"/>
+  <text x="540" y="547" class="f" font-size="13" font-weight="600" fill="#23313a" text-anchor="middle">parseUsageFromResponse(data) → TokenUsage | null</text>
+  <line x1="540" y1="564" x2="540" y2="582" stroke="#23313a" stroke-width="1.4" marker-end="url(#arr-usage)"/>
+  <rect x="80" y="586" width="280" height="36" rx="5" fill="#fff7dc" stroke="#e0c97a"/>
+  <text x="220" y="609" class="f" font-size="11" fill="#5a4a10" text-anchor="middle">null / 全 0 → 跳过 record</text>
+  <rect x="400" y="586" width="600" height="36" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="700" y="609" class="f" font-size="12" fill="#23313a" text-anchor="middle">onUsage(usage, model) = UsageAccumulator.record(model, source, usage)</text>
+  <line x1="540" y1="622" x2="540" y2="658" stroke="#23313a" stroke-width="1.4" marker-end="url(#arr-usage)"/>
+  <rect x="20" y="662" width="1040" height="168" rx="7" fill="#f5f8f8" stroke="#b6c6ca"/>
+  <text x="36" y="686" class="f" font-size="13" font-weight="700" fill="#23313a">4. 请求结束 · 合成一条 UsageRecord</text>
+  <rect x="40" y="704" width="240" height="108" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="160" y="728" class="f" font-size="12" font-weight="700" fill="#23313a" text-anchor="middle">chat / chat/multi</text>
+  <text x="160" y="750" class="f" font-size="11" fill="#23313a" text-anchor="middle">writeUsageToStream()</text>
+  <text x="160" y="768" class="f" font-size="11" fill="#5c6b70" text-anchor="middle">isEmpty → return</text>
+  <text x="160" y="786" class="f" font-size="11" fill="#23313a" text-anchor="middle">toRecord(endpoint, model)</text>
+  <text x="160" y="802" class="f" font-size="10" fill="#5c6b70" text-anchor="middle">SSE type=usage</text>
+  <rect x="300" y="704" width="240" height="108" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="420" y="728" class="f" font-size="12" font-weight="700" fill="#23313a" text-anchor="middle">rag/chat</text>
+  <text x="420" y="750" class="f" font-size="11" fill="#23313a" text-anchor="middle">toRecord("rag/chat")</text>
+  <text x="420" y="768" class="f" font-size="11" fill="#5c6b70" text-anchor="middle">isEmpty → usage: null</text>
+  <text x="420" y="786" class="f" font-size="11" fill="#23313a" text-anchor="middle">res.json({ ...result, usage })</text>
+  <text x="420" y="802" class="f" font-size="10" fill="#5c6b70" text-anchor="middle">JSON 非 SSE</text>
+  <rect x="560" y="704" width="240" height="108" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="680" y="728" class="f" font-size="12" font-weight="700" fill="#23313a" text-anchor="middle">accumulator 内部</text>
+  <text x="680" y="750" class="f" font-size="11" fill="#23313a" text-anchor="middle">mergedUsage() / mergeUsage()</text>
+  <text x="680" y="768" class="f" font-size="11" fill="#23313a" text-anchor="middle">estimatedCostUsd()</text>
+  <text x="680" y="786" class="f" font-size="11" fill="#23313a" text-anchor="middle">estimateCostUsd(model, usage)</text>
+  <text x="680" y="802" class="f" font-size="10" fill="#5c6b70" text-anchor="middle">toSnapshot() → toRecord()</text>
+  <rect x="820" y="704" width="220" height="108" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="930" y="728" class="f" font-size="12" font-weight="700" fill="#23313a" text-anchor="middle">store.ts</text>
+  <text x="930" y="750" class="f" font-size="11" fill="#23313a" text-anchor="middle">appendUsageRecord(record)</text>
+  <text x="930" y="768" class="f" font-size="11" fill="#5c6b70" text-anchor="middle">persist() → usage-log.json</text>
+  <text x="930" y="786" class="f" font-size="11" fill="#23313a" text-anchor="middle">GET getUsageSummary()</text>
+  <text x="930" y="802" class="f" font-size="10" fill="#5c6b70" text-anchor="middle">DELETE clearUsageRecords()</text>
+  <line x1="160" y1="812" x2="160" y2="838" stroke="#23313a" stroke-width="1.2"/>
+  <line x1="420" y1="812" x2="420" y2="838" stroke="#23313a" stroke-width="1.2"/>
+  <line x1="930" y1="812" x2="930" y2="838" stroke="#23313a" stroke-width="1.2"/>
+  <line x1="160" y1="838" x2="540" y2="838" stroke="#23313a" stroke-width="1.2"/>
+  <line x1="930" y1="838" x2="540" y2="838" stroke="#23313a" stroke-width="1.2"/>
+  <line x1="540" y1="838" x2="540" y2="856" stroke="#23313a" stroke-width="1.4" marker-end="url(#arr-usage)"/>
+  <rect x="20" y="860" width="1040" height="100" rx="7" fill="#f5f8f8" stroke="#b6c6ca"/>
+  <text x="36" y="884" class="f" font-size="13" font-weight="700" fill="#23313a">5. 前端展示</text>
+  <rect x="40" y="900" width="490" height="44" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="285" y="927" class="f" font-size="12" fill="#23313a" text-anchor="middle">streamChat onUsage → useChat.lastUsage · UsagePanel 本轮</text>
+  <rect x="550" y="900" width="490" height="44" rx="5" fill="#ffffff" stroke="#c8d6d8"/>
+  <text x="795" y="927" class="f" font-size="12" fill="#23313a" text-anchor="middle">fetchUsageSummary() → GET /api/usage · UsagePanel 累计</text>
+</svg>

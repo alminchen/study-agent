@@ -1,0 +1,62 @@
+{
+  "examples": [
+    {
+      "id": "multi-weather-only",
+      "messages": [{ "role": "user", "content": "广州今天天气怎么样" }],
+      "expect": {
+        "routeIncludes": ["realtime"],
+        "routeExcludes": ["kb"],
+        "toolsInclude": ["getWeather"],
+        "mustSucceed": true
+      }
+    },
+    {
+      "id": "multi-time-only",
+      "messages": [{ "role": "user", "content": "现在几点了" }],
+      "expect": {
+        "routeIncludes": ["realtime"],
+        "routeExcludes": ["kb"],
+        "toolsInclude": ["getCurrentTime"],
+        "mustSucceed": true
+      }
+    },
+    {
+      "id": "multi-kb-only",
+      "messages": [{ "role": "user", "content": "我笔记里关于 Vue 3 有什么内容" }],
+      "expect": {
+        "routeIncludes": ["kb"],
+        "routeExcludes": ["realtime"],
+        "toolsInclude": ["searchDocs"],
+        "mustSucceed": true
+      }
+    },
+    {
+      "id": "multi-general-only",
+      "messages": [{ "role": "user", "content": "什么是闭包" }],
+      "expect": {
+        "routeIncludes": ["general"],
+        "routeExcludes": ["realtime", "kb"],
+        "toolsExclude": ["getWeather", "getCurrentTime", "searchDocs"],
+        "mustSucceed": true
+      }
+    },
+    {
+      "id": "multi-weather-and-kb",
+      "messages": [{ "role": "user", "content": "查一下广州天气，顺便看看笔记里有没有出行建议" }],
+      "expect": {
+        "routeIncludes": ["realtime", "kb"],
+        "toolsInclude": ["getWeather", "searchDocs"],
+        "mustSucceed": true
+      }
+    },
+    {
+      "id": "multi-time-and-kb",
+      "messages": [{ "role": "user", "content": "现在几点了？另外搜一下笔记里关于会议的内容" }],
+      "expect": {
+        "routeIncludes": ["realtime", "kb"],
+        "toolsInclude": ["getCurrentTime", "searchDocs"],
+        "mustSucceed": true
+      }
+    }
+  ]
+}

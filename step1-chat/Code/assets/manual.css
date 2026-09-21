@@ -1,0 +1,199 @@
+/* step1-chat Code 说明书共用样式 */
+:root {
+  --bg: #f4f6f8;
+  --card: #fff;
+  --text: #1a2332;
+  --muted: #5c6b7a;
+  --line: #d8e0e8;
+  --accent: #0f766e;
+  --accent-soft: #ccfbf1;
+  --why: #fef3c7;
+  --why-border: #f59e0b;
+  --code: #0f172a;
+  --nav: #134e4a;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font: 15px/1.65 "IBM Plex Sans", "Noto Sans SC", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.layout { max-width: 980px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+.topnav {
+  display: flex; flex-wrap: wrap; gap: 0.5rem 1rem;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: var(--nav);
+  color: #ecfdf5;
+  position: sticky; top: 0; z-index: 10;
+}
+.topnav a { color: #a7f3d0; font-size: 0.9rem; }
+.topnav .brand { font-weight: 700; color: #fff; margin-right: auto; }
+h1 { font-size: 1.75rem; margin: 0 0 0.35rem; letter-spacing: -0.02em; }
+h2 {
+  font-size: 1.2rem;
+  margin: 2rem 0 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid var(--accent);
+}
+h3 { font-size: 1.05rem; margin: 1.25rem 0 0.4rem; color: #0f766e; }
+.lede { color: var(--muted); margin: 0 0 1.25rem; max-width: 52rem; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1rem 1.15rem;
+  margin: 0.75rem 0;
+}
+.file-path {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: #f1f5f9;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+}
+.method {
+  border-left: 3px solid var(--accent);
+  padding: 0.65rem 0 0.65rem 0.9rem;
+  margin: 0.85rem 0;
+}
+.method .name {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--code);
+}
+.method .sig { color: var(--muted); font-size: 0.82rem; font-family: ui-monospace, monospace; }
+.why {
+  background: var(--why);
+  border: 1px solid var(--why-border);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  margin-top: 0.45rem;
+  font-size: 0.92rem;
+}
+.why::before { content: "为何这么写 · "; font-weight: 700; color: #92400e; }
+ol.steps {
+  margin: 0.4rem 0 0.35rem;
+  padding-left: 1.35rem;
+  font-size: 0.92rem;
+}
+ol.steps li { margin: 0.25rem 0; }
+table.params {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.45rem 0;
+  font-size: 0.88rem;
+}
+table.params th,
+table.params td {
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+table.params th {
+  background: #f1f5f9;
+  font-weight: 600;
+  white-space: nowrap;
+}
+table.params code { font-size: 0.84rem; }
+.flow {
+  margin: 0.4rem 0 0;
+  padding: 0.45rem 0.65rem;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  color: #134e4a;
+}
+.flow strong { color: #0f766e; }
+ul.compact { margin: 0.35rem 0; padding-left: 1.2rem; }
+ul.compact li { margin: 0.2rem 0; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+.grid a.mod {
+  display: block;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.grid a.mod:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(15, 118, 110, 0.12);
+  text-decoration: none;
+}
+.grid a.mod strong { display: block; color: var(--accent); margin-bottom: 0.25rem; }
+.grid a.mod span { font-size: 0.88rem; color: var(--muted); }
+.toc { columns: 2; gap: 1.5rem; }
+.toc a { display: block; margin: 0.2rem 0; font-size: 0.9rem; }
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: #115e59;
+  vertical-align: middle;
+}
+footer.note {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+/* 入参/出参表、上下游、步骤列表（手册正文用） */
+table.params {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.88rem;
+}
+table.params th,
+table.params td {
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+table.params th {
+  background: #f1f5f9;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+table.params td code {
+  font-size: 0.84rem;
+}
+.flow {
+  background: #f8fafc;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  margin: 0.45rem 0 0.65rem;
+  font-size: 0.9rem;
+  color: #334155;
+}
+.flow strong { color: var(--accent); }
+ol.steps {
+  margin: 0.4rem 0 0.65rem;
+  padding-left: 1.35rem;
+}
+ol.steps li { margin: 0.35rem 0; }
+@media (max-width: 640px) {
+  .toc { columns: 1; }
+}

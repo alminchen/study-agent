@@ -22,6 +22,11 @@ export function rerankerReady(): boolean {
   return existsSync(ONNX_FILE);
 }
 
+/** P2: 供上层在检索后判断是否处于降级模式 */
+export function isRerankDegraded(): boolean {
+  return !existsSync(ONNX_FILE);
+}
+
 async function getReranker(): Promise<{ tokenizer: RerankTokenizer; model: RerankModel }> {
   if (!rerankerReady()) {
     throw new Error("重排模型未下载，请先运行 npm run predawn:rerank");

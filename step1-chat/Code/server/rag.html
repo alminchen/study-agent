@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG · server/rag · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../index.html">总览</a>
+    <a href="./entry.html">入口</a>
+    <a href="./routes.html">路由</a>
+    <a href="./react.html">ReAct</a>
+    <a href="./multi-agent.html">多 Agent</a>
+    <a href="./rag.html">RAG</a>
+    <a href="./guard.html">Guard</a>
+    <a href="./usage.html">Usage</a>
+    <a href="./tracing.html">Tracing</a>
+    <a href="./tools-mcp.html">Tools</a>
+  </nav>
+  <main class="layout">
+    <h1>RAG 管线 <span class="badge">server/rag/</span></h1>
+    <p class="lede">
+      离线入库（切分 → 向量 → 落盘）与在线问答（召回 → 判空 → 重排 → 拼 prompt → 无 tools 补全）的完整实现。
+      HTTP 入口见 <a href="./routes.html#ragChat">routes/ragChat.ts</a>；本页只讲 <code>server/rag/*</code>。
+    </p>
+
+    <div class="card">
+      <strong>在线主路径（有资料时）</strong>
+      <ol class="steps">
+        <li><code>answerFromDocs</code>：toolGuard(<code>searchDocs</code>) → <code>retrieveForAnswer</code></li>
+        <li><code>retrieve</code>：load 库 → <code>embed([question])</code> → <code>LocalVectorStore.search</code>（候选 K=20）</li>
+        <li><code>judgeRetrieval</code>：分数闸门 + 标题例外 → 空则固定文案、不调 LLM</li>
+        <li><code>rerankHits</code>（有模型）或向量 TopK 降级 → <code>buildRagPrompt</code></li>
+        <li><code>completeRagMessages</code> → <code>normalizeKnowledgeAnswer</code> → <code>detectLeakage</code></li>
+      </ol>
+    </div>
+
+    <nav class="toc card">
+      <a href="#types">types.ts</a>
+      <a href="#chunker">chunker.ts</a>
+      <a href="#embedding">embedding.ts</a>
+      <a href="#vectorStore">vectorStore.ts</a>
+      <a href="#retrieve">retrieve.ts</a>
+      <a href="#rerank">rerank.ts</a>
+      <a href="#prompt">prompt.ts</a>
+      <a href="#complete">complete.ts</a>
+      <a href="#answer">answer.ts</a>
+    </nav>
+
+    <!-- ========== types ========== -->
+    <h2 id="types"><span class="file-path">types.ts</span> · 类型契约</h2>
+    <div class="card">
+      <p>无运行时导出函数；下列接口是切分、入库、检索、判空、前端命中面板的共同语言。</p>
+
+      <div class="method">
+        <div class="name">DocumentChunk</div>
+        <div class="sig">export interface DocumentChunk { id; source; title; text; seq }</div>
+        <ol class="steps">
+          <li>切分产物：入库前每条必须带齐来源字段。</li>
+          <li><code>id</code> 形如 <code>notes-chunk-3</code>；<code>seq</code> 从 0 起。</li>
+          <li><code>title</code> 为所属 Markdown 标题；文首无标题时为空串。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>字段</th><th>类型</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>string</td><td>稳定块 id</td></tr>
+            <tr><td><code>source</code></td><td>string</td><td>文件名，如 <code>stage3-rag-notes.md</code></td></tr>
+            <tr><td><code>title</code></td><td>string</td><td>所属标题</td></tr>
+            <tr><td><code>text</code></td><td>string</td><td>块正文（常以标题开头）</td></tr>
+            <tr><td><code>seq</code></td><td>number</td><td>块序号</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：<code>chunkMarkdown</code> · <strong>下游</strong>：ingest 脚本 → 加 <code>embedding</code> 成 <code>StoredChunk</code></p>
+        <div class="why">把「原文身份」与向量绑在一起，引用面板才能显示 source/title，而不是裸向量 id。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">ChunkOptions</div>
+        <div class="sig">export interface ChunkOptions { maxChars?; overlapRatio? }</div>
+        <ol class="steps">
+          <li>可选覆盖切分默认值（默认 maxChars=400，overlapRatio=0.15）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>字段</th><th>类型</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>maxChars</code></td><td>number?</td><td>单块最大字符（JS length，中文约等于字数）</td></tr>
+            <tr><td><code>overlapRatio</code></td><td>number?</td><td>overlap 占 maxChars 比例，建议 0.1～0.2</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：ingest / 调用方 · <strong>下游</strong>：<code>chunkMarkdown</code></p>
+        <div class="why">参数显式化，便于实验「块太大混主题 / 太小丢上下文」而不改常量源码。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">StoredChunk</div>
+        <div class="sig">export interface StoredChunk extends 入库记录 { … DocumentChunk 字段 + embedding: number[] }</div>
+        <ol class="steps">
+          <li>向量 + 原文 + 来源三件套；缺一不可。</li>
+          <li>持久化到 <code>.chroma/my_notes.json</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>字段</th><th>类型</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>embedding</code></td><td>number[]</td><td>维度必须 = <code>EMBED_DIM</code>（1024）</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：ingest（chunk + embed）· <strong>下游</strong>：<code>LocalVectorStore.search</code> → <code>SearchHit</code></p>
+        <div class="why">检索命中必须能回原文；只存向量无法拼证据块或做引用。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">SearchHit</div>
+        <div class="sig">export interface SearchHit { chunk: StoredChunk; score: number; rerankScore?: number }</div>
+        <ol class="steps">
+          <li><code>score</code>：向量余弦，召回排序用。</li>
+          <li><code>rerankScore</code>：交叉编码器 logit，重排后才有。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：<code>search</code> / <code>rerankHits</code> · <strong>下游</strong>：判空、拼 prompt、面板 <code>RagHitView</code></p>
+        <div class="why">两套分数字段并存，面板可对照「向量名次 vs 重排名次」，教学价值高。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">RetrievalJudgment</div>
+        <div class="sig">export interface RetrievalJudgment { empty; hits; rawHits; rankedAll; topScore; message? }</div>
+        <ol class="steps">
+          <li><code>empty=true</code> 不代表 search 没返回行：<code>rawHits</code> 仍是原始 TopK。</li>
+          <li><code>hits</code> 才是允许注入 prompt 的列表；判空时为空。</li>
+          <li>分数低于门槛但 Top1 标题对上问句时，<code>empty</code> 仍可为 false（见 retrieve）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>字段</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td><code>empty</code></td><td>能否当资料用</td></tr>
+            <tr><td><code>hits</code></td><td>注入 prompt 的块（重排后 TopK 或降级切片）</td></tr>
+            <tr><td><code>rawHits</code></td><td>向量召回候选（未重排），判空后仍保留</td></tr>
+            <tr><td><code>rankedAll</code></td><td>按重排分排好的全列表；判空/未重排时可能为空</td></tr>
+            <tr><td><code>topScore</code></td><td>Top1 向量分；无命中为 null</td></tr>
+            <tr><td><code>message</code></td><td>空结果固定文案</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：<code>judgeRetrieval</code> / <code>retrieveForAnswer</code> · <strong>下游</strong>：<code>buildRagPrompt</code>、<code>toPublicHits</code></p>
+        <div class="why">「有名次 ≠ 有资料」必须在类型层拆开，否则低分噪声会进 prompt，模型容易瞎编。</div>
+      </div>
+    </div>
+
+    <!-- ========== chunker ========== -->
+    <h2 id="chunker"><span class="file-path">chunker.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">chunkMarkdown</div>
+        <div class="sig">export function chunkMarkdown(markdown: string, source: string, options?: ChunkOptions): DocumentChunk[]</div>
+        <ol class="steps">
+          <li>解析 <code>maxChars</code> / <code>overlapRatio</code>，算 <code>overlapChars</code>。</li>
+          <li><code>splitByHeadings</code>：按行首 <code>#</code>/<code>##</code>/<code>###</code> 分成节（更深标题当正文）。</li>
+          <li>节内 <code>splitParagraphs</code>（空行边界），用 buffer 攒相邻小段，尽量不超过 maxChars。</li>
+          <li>拼上会超：先 flush 已攒内容；单段仍超则 <code>splitLongText</code>（滑动窗口 + 句界 + overlap）。</li>
+          <li><code>isJunk</code> 丢掉过短/目录/页码块；<code>withTitlePrefix</code> 把标题带到块首。</li>
+          <li>用文件名 stem 生成 <code>{stem}-chunk-{seq}</code> 并返回。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>markdown</code></td><td>string</td><td>全文 Markdown</td></tr>
+            <tr><td><code>source</code></td><td>string</td><td>来源文件名（写入每块 source）</td></tr>
+            <tr><td><code>options</code></td><td>ChunkOptions</td><td>可选覆盖默认 400 / 0.15</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：ingest 脚本读 md · <strong>下游</strong>：embed → <code>replaceSource</code> 入库</p>
+        <div class="why">先保结构（标题）再保意思（段落拼凑）最后保接缝（overlap）：宁可块稍小，也不要一段混多个主题；overlap 避免关键句刚好落在缝上两边都搜不到。</div>
+      </div>
+      <p class="lede" style="margin-top:0.75rem">内部辅助（未 export，但理解切分必读）：</p>
+      <ul class="compact">
+        <li><code>splitByHeadings</code> — 只认 h1～h3；碰新标题先 push 上一节；循环后再 push 一次防丢末节。</li>
+        <li><code>splitLongText</code> — 窗口内找最后的换行/「。」/「；」；断点太靠前则硬切；下一块 start = end − overlap。</li>
+        <li><code>isJunk</code> — 压空白后 &lt;8 字、纯「目录」、纯「第 N 页」丢弃，防污染检索。</li>
+      </ul>
+    </div>
+
+    <!-- ========== embedding ========== -->
+    <h2 id="embedding"><span class="file-path">embedding.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">EMBED_DIM</div>
+        <div class="sig">export const EMBED_DIM = 1024</div>
+        <ol class="steps">
+          <li>对应本地模型 <code>bge-large-zh-v1.5</code> 输出维度。</li>
+          <li><code>embed</code> 会对每行校验；不一致直接抛错。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：模型约定 · <strong>下游</strong>：入库与提问向量必须同维</p>
+        <div class="why">维度不一致时余弦无意义；启动期硬失败比静默搜歪更好排查。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">embed</div>
+        <div class="sig">export async function embed(texts: string[]): Promise&lt;number[][]&gt;</div>
+        <ol class="steps">
+          <li>空数组直接返回 <code>[]</code>。</li>
+          <li>懒加载 <code>pipeline("feature-extraction", MODEL_DIR)</code>：<code>local_files_only</code> + <code>dtype: "q8"</code>。</li>
+          <li>调用 <code>ext(texts, { pooling: "mean", normalize: true })</code>。</li>
+          <li><code>tolist()</code> 得到行向量；逐行检查长度 === EMBED_DIM。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>texts</code></td><td>string[]</td><td>一批待编码文本（入库多块或问句单条）</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：ingest / <code>retrieve</code> · <strong>下游</strong>：<code>StoredChunk.embedding</code> / <code>store.search(queryVec)</code></p>
+        <div class="why">问句与入库必须走同一个 embed；漏掉 mean pooling 或 normalize 会直接搜不准。本地模型目录避免运行时拉网。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">cosine</div>
+        <div class="sig">export function cosine(a: number[], b: number[]): number</div>
+        <ol class="steps">
+          <li>在共同前缀长度上累加点积与各自范数平方。</li>
+          <li>返回 <code>dot / (‖a‖‖b‖)</code>；分母为 0 时用 1 避免 NaN。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>a</code> / <code>b</code></td><td>number[]</td><td>两向量；长度取 min</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：自测 / <code>LocalVectorStore.search</code> · <strong>下游</strong>：按分排序 TopK</p>
+        <div class="why">归一化后余弦等价于点积，但自测「同句应接近 1」时显式余弦更直观。</div>
+      </div>
+    </div>
+
+    <!-- ========== vectorStore ========== -->
+    <h2 id="vectorStore"><span class="file-path">vectorStore.ts</span></h2>
+    <div class="card">
+      <p>落盘路径：项目根 <code>.chroma/my_notes.json</code>（gitignore）。生命周期：load → 改内存 → save 整表覆盖。</p>
+
+      <div class="method">
+        <div class="name">LocalVectorStore</div>
+        <div class="sig">export class LocalVectorStore</div>
+        <ol class="steps">
+          <li>私有 <code>records: StoredChunk[]</code> 驻内存。</li>
+          <li>教学阶段纯 JS 向量库；Chroma 后置。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：ingest / retrieve · <strong>下游</strong>：磁盘 JSON 与 search 命中</p>
+        <div class="why">先学通「入库 → TopK」全链路，再引入向量库运维成本。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">get size</div>
+        <div class="sig">get size(): number</div>
+        <ol class="steps"><li>返回 <code>records.length</code>。</li></ol>
+        <p class="flow"><strong>上游</strong>：调用方 · <strong>下游</strong>：<code>retrieve</code> 空库抛错</p>
+        <div class="why">空库应明确提示先跑 <code>npm run rag:ingest</code>，而不是返回空命中假装成功。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">load</div>
+        <div class="sig">async load(): Promise&lt;void&gt;</div>
+        <ol class="steps">
+          <li>读 <code>STORE_PATH</code> UTF-8 → JSON.parse。</li>
+          <li>非数组或文件缺失/坏 JSON → 当作空库 <code>[]</code>。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：进程启动或每次 retrieve · <strong>下游</strong>：内存 records</p>
+        <div class="why">缺失当空库，避免首次使用因文件不存在直接崩溃。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">save</div>
+        <div class="sig">async save(): Promise&lt;void&gt;</div>
+        <ol class="steps">
+          <li><code>mkdir</code> 父目录 recursive。</li>
+          <li>整表 <code>JSON.stringify(records)</code> 覆盖写回。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：ingest 改完内存 · <strong>下游</strong>：磁盘持久化</p>
+        <div class="why">整表覆盖实现简单；规模小够用，避免半写状态复杂事务。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">replaceSource</div>
+        <div class="sig">replaceSource(source: string, chunks: StoredChunk[]): void</div>
+        <ol class="steps">
+          <li>filter 掉同 source 旧记录。</li>
+          <li>push 新 chunks（只改内存，需再 save）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>source</code></td><td>文档名键</td></tr>
+            <tr><td><code>chunks</code></td><td>该文档新版全部块</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：ingest · <strong>下游</strong>：save</p>
+        <div class="why">同一 source 禁止直接 push 造成新旧两版并存，否则检索会混旧稿。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">clear / countBySource</div>
+        <div class="sig">clear(): void · countBySource(source: string): number</div>
+        <ol class="steps">
+          <li><code>clear</code>：清空内存数组。</li>
+          <li><code>countBySource</code>：统计某文档块数（ingest 校验用）。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：运维/脚本 · <strong>下游</strong>：重建库或日志</p>
+        <div class="why">提供显式清空与按源计数，便于 demo 反复入库。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">search</div>
+        <div class="sig">search(queryVec: number[], topK: number): SearchHit[]</div>
+        <ol class="steps">
+          <li>每条 record 算 <code>cosine(chunk.embedding, queryVec)</code>。</li>
+          <li>按 score 降序 → <code>slice(0, topK)</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>queryVec</code></td><td>问句向量</td></tr>
+            <tr><td><code>topK</code></td><td>返回条数上限</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：<code>retrieve</code> · <strong>下游</strong>：judge / rerank</p>
+        <div class="why">向量检索几乎总会排出相对名次；「搜得到」不等于「能回答」，必须再过闸门。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">storePath</div>
+        <div class="sig">export function storePath(): string</div>
+        <ol class="steps"><li>返回绝对路径 <code>STORE_PATH</code>，供脚本/文档打印。</li></ol>
+        <p class="flow"><strong>上游</strong>：运维 · <strong>下游</strong>：人类定位 JSON 文件</p>
+        <div class="why">路径集中一处，避免多处硬编码漂移。</div>
+      </div>
+    </div>
+
+    <!-- ========== retrieve ========== -->
+    <h2 id="retrieve"><span class="file-path">retrieve.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">DEFAULT_TOP_K / MIN_TOP_SCORE / CANDIDATE_K</div>
+        <div class="sig">export const DEFAULT_TOP_K = 5 · MIN_TOP_SCORE = 0.6 · CANDIDATE_K = 20</div>
+        <ol class="steps">
+          <li>注入默认 5：Top1 易漏，Top20 太吵。</li>
+          <li>0.6 挡无关问题（如天气问资料库 Top1≈0.28）。</li>
+          <li>先召回 20 再重排切回 5。</li>
+        </ol>
+        <p class="flow"><strong>下游</strong>：retrieve / judge / retrieveForAnswer / rerank</p>
+        <div class="why">不要为标题短问句把门槛降到 0.28；标题例外单独处理，否则无关问句噪声全进 prompt。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">retrieve</div>
+        <div class="sig">export async function retrieve(question: string, topK = DEFAULT_TOP_K): Promise&lt;SearchHit[]&gt;</div>
+        <ol class="steps">
+          <li><code>new LocalVectorStore()</code> → <code>load()</code>。</li>
+          <li>size===0 → 抛「请先 npm run rag:ingest」。</li>
+          <li><code>embed([question])</code> 取 queryVec。</li>
+          <li><code>store.search(queryVec, topK)</code> 返回原始命中（不做空判断）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>question</code></td><td>用户问句</td></tr>
+            <tr><td><code>topK</code></td><td>召回条数（retrieveForAnswer 传 CANDIDATE_K）</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：问答编排 · <strong>下游</strong>：judgeRetrieval；尚不调聊天模型</p>
+        <div class="why">返回非空只表示「排得出名次」。有没有资料交给 judge / retrieveForAnswer。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">judgeRetrieval</div>
+        <div class="sig">export function judgeRetrieval(rawHits, minTopScore = MIN_TOP_SCORE, question = ""): RetrievalJudgment</div>
+        <ol class="steps">
+          <li>取 Top1 的 score；算 <code>headingMatchesQuestion(title, question)</code>。</li>
+          <li>无命中 / topScore null /（分 &lt; 门槛且标题不对）→ empty：hits=[]，保留 rawHits，message 固定文案。</li>
+          <li>否则 empty=false，hits=rawHits（此时尚未重排切片）。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>rawHits</code></td><td>向量召回列表</td></tr>
+            <tr><td><code>minTopScore</code></td><td>默认 0.6</td></tr>
+            <tr><td><code>question</code></td><td>用于标题点名例外</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：retrieve · <strong>下游</strong>：retrieveForAnswer / buildRagPrompt</p>
+        <div class="why">实测「不要在这个阶段做的事」命中正确块但分≈0.5571；只看 0.6 会误杀。短标题对长块余弦偏低是正常现象，标题互相包含则放行。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">retrieveForAnswer</div>
+        <div class="sig">export async function retrieveForAnswer(question, topK = DEFAULT_TOP_K, minTopScore = MIN_TOP_SCORE): Promise&lt;RetrievalJudgment&gt;</div>
+        <ol class="steps">
+          <li><code>retrieve(question, CANDIDATE_K)</code> 宽召回。</li>
+          <li><code>judgeRetrieval</code>；若 empty 直接返回。</li>
+          <li>若 <code>!rerankerReady()</code>：warn，hits = rawHits.slice(0, topK)，rankedAll=[]。</li>
+          <li>否则 <code>rerankHits</code> → hits=injected，rankedAll 填满。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>question</code></td><td>问句</td></tr>
+            <tr><td><code>topK</code></td><td>最终注入条数</td></tr>
+            <tr><td><code>minTopScore</code></td><td>闸门阈值</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：answerFromDocs / searchDocs 工具 · <strong>下游</strong>：buildRagPrompt</p>
+        <div class="why">问答/拼 prompt 应走这一层：召回 + 闸门 + 重排打包，避免调用方漏步骤。</div>
+      </div>
+    </div>
+
+    <!-- ========== rerank ========== -->
+    <h2 id="rerank"><span class="file-path">rerank.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">rerankerReady</div>
+        <div class="sig">export function rerankerReady(): boolean</div>
+        <ol class="steps">
+          <li>检查 ONNX 文件 <code>models/.../bge-reranker-base/onnx/model_quantized.onnx</code> 是否存在。</li>
+        </ol>
+        <p class="flow"><strong>上游</strong>：磁盘 · <strong>下游</strong>：retrieveForAnswer 决定是否降级</p>
+        <div class="why">未下载模型时优雅降级，而不是每次问答抛错。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">isRerankDegraded</div>
+        <div class="sig">export function isRerankDegraded(): boolean</div>
+        <ol class="steps"><li>与 ready 相反：true 表示处于降级模式。</li></ol>
+        <p class="flow"><strong>上游</strong>：prefetchSearchDocs · <strong>下游</strong>：SSE <code>degradation</code> 事件</p>
+        <div class="why">P2：上层可明确告知前端「仅用向量排序，质量可能下降」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">rerankHits</div>
+        <div class="sig">export async function rerankHits(question, candidates, keep): Promise&lt;{ injected; rankedAll }&gt;</div>
+        <ol class="steps">
+          <li>候选为空 → 双空数组。</li>
+          <li>懒加载 tokenizer + AutoModelForSequenceClassification（local、q8）。</li>
+          <li>对每条：<code>tok(question, { text_pair: chunk.text, truncation, max_length: 512 })</code> → 模型 → 读 logit。</li>
+          <li>保留原向量 <code>score</code>，写入 <code>rerankScore</code>；按 rerankScore 降序。</li>
+          <li><code>injected = ranked.slice(0, keep)</code>，<code>rankedAll = ranked</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>question</code></td><td>问句（交叉编码器一侧）</td></tr>
+            <tr><td><code>candidates</code></td><td>向量召回候选</td></tr>
+            <tr><td><code>keep</code></td><td>注入条数</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：retrieveForAnswer · <strong>下游</strong>：prompt 注入列表 / 面板排名</p>
+        <div class="why">双塔召回宽、交叉编码器精排窄：先 20 再留 5，精度与上下文长度兼顾。score 保留便于面板对比。</div>
+      </div>
+    </div>
+
+    <!-- ========== prompt ========== -->
+    <h2 id="prompt"><span class="file-path">prompt.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">RAG_SYSTEM_PROMPT</div>
+        <div class="sig">export const RAG_SYSTEM_PROMPT: string</div>
+        <ol class="steps">
+          <li>规则：只根据资料答；不足则说「资料里没有」；用 [1][2] 引用；先答再轻量引用。</li>
+          <li>禁止输出 id=/source=/title= 与底部来源清单。</li>
+          <li>末尾安全约束：防注入改角色/吐 system。</li>
+        </ol>
+        <p class="flow"><strong>下游</strong>：buildRagPrompt 拼进 system（再追加 ## 资料）</p>
+        <div class="why">与聊天主链路 system 分开；RAG 不挂天气工具，避免「冒充资料问答」调 tools。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">formatEvidenceBlocks</div>
+        <div class="sig">export function formatEvidenceBlocks(hits: SearchHit[]): string</div>
+        <ol class="steps">
+          <li>按注入顺序编号 [1][2]…。</li>
+          <li>每块：<code>[n] id=… source=… title="…"\n{text}</code>，块间空行。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody><tr><td><code>hits</code></td><td>已判定可注入的 SearchHit[]</td></tr></tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：judgment.hits · <strong>下游</strong>：system 的「## 资料」段</p>
+        <div class="why">编号与引用约定绑定；元信息给模型对齐来源，再靠回答风格器禁止吐回给用户。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">buildRagPrompt</div>
+        <div class="sig">export function buildRagPrompt(input: BuildRagPromptInput): RagPromptResult</div>
+        <ol class="steps">
+          <li>若 judgment.empty 或 hits 空 → <code>{ empty:true, message, messages:[] }</code>，调用方勿调模型。</li>
+          <li>否则 system = RAG_SYSTEM_PROMPT + 资料证据。</li>
+          <li><code>trimHistory</code>：只留 user/assistant，最多 maxHistoryMessages（默认 6）。</li>
+          <li>返回 <code>[system, ...recent, user(question)]</code>。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>question</code></td><td>当前问句（单独传入，不在 history 末尾重复）</td></tr>
+            <tr><td><code>judgment</code></td><td>检索判空结果</td></tr>
+            <tr><td><code>history</code></td><td>此前 user/assistant，不含 system、不含当前问</td></tr>
+            <tr><td><code>maxHistoryMessages</code></td><td>历史条数上限</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：answerFromDocs · <strong>下游</strong>：completeRagMessages</p>
+        <div class="why">空结果不拼 messages，从根上杜绝「无资料仍烧 token 瞎编」。system 始终服务端固定，前端无法改。</div>
+      </div>
+    </div>
+
+    <!-- ========== complete ========== -->
+    <h2 id="complete"><span class="file-path">complete.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">completeRagMessages</div>
+        <div class="sig">export async function completeRagMessages(messages, signal?, model?, onUsage?): Promise&lt;RagCompletionResult&gt;</div>
+        <ol class="steps">
+          <li>无 API Key 或 MOCK_MODE=1 → 抛错（RAG 必须真实 LLM）。</li>
+          <li>POST <code>{baseUrl}/chat/completions</code>：messages、stream:false、<strong>不带 tools</strong>。</li>
+          <li>非 ok → 抛状态与正文片段。</li>
+          <li><code>parseUsageFromResponse</code>；有 usage 则 onUsage。</li>
+          <li>返回 content / usage / model。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>messages</code></td><td>已拼好的 RagMessage[]</td></tr>
+            <tr><td><code>signal</code></td><td>取消生成</td></tr>
+            <tr><td><code>model</code></td><td>覆盖默认 LLM_MODEL</td></tr>
+            <tr><td><code>onUsage</code></td><td>Token 回调</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：answerFromDocs · <strong>下游</strong>：normalize + outputGuard；usage → accumulator</p>
+        <div class="why">绝不走 createChatStream：那边会换掉 RAG system 并挂天气工具，会毁掉资料约束。</div>
+      </div>
+    </div>
+
+    <!-- ========== answer ========== -->
+    <h2 id="answer"><span class="file-path">answer.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">RagHitView / RagAnswer</div>
+        <div class="sig">export interface RagHitView / RagAnswer</div>
+        <ol class="steps">
+          <li>HitView：rank / rerankRank / promptIndex + 文本与分数；<strong>不含 embedding</strong>。</li>
+          <li>Answer：empty、answer、calledModel、hits、以及 Guard 标记字段。</li>
+        </ol>
+        <p class="flow"><strong>下游</strong>：ragChat SSE <code>rag_meta</code> + delta</p>
+        <div class="why">1024 维向量不能打到浏览器；面板用 promptIndex===null 区分「召回了但未注入」。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">answerFromDocs</div>
+        <div class="sig">export async function answerFromDocs(question, history=[], signal?, model?, onUsage?, onTrace?): Promise&lt;RagAnswer&gt;</div>
+        <ol class="steps">
+          <li>trim question；构造假想 tool 参数 <code>{ question }</code>。</li>
+          <li>onTrace tool_call(searchDocs) → <code>validateToolCall</code>；拒绝则 tool_result.error，返回 toolGuardBlocked，不检索。</li>
+          <li><code>runRagRetrieveWithTracing</code> → retrieveForAnswer；再 tool_result 摘要 empty/topScore/hitCount。</li>
+          <li>buildRagPrompt；toPublicHits；若 prompt.empty → 固定文案，calledModel=false。</li>
+          <li><code>runRagLlmWithTracing</code> → completeRagMessages。</li>
+          <li>normalizeKnowledgeAnswer → detectLeakage；泄露则 onTrace output_leak_blocked，answer=safeText。</li>
+        </ol>
+        <table class="params">
+          <thead><tr><th>参数</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>question</code></td><td>当前问句</td></tr>
+            <tr><td><code>history</code></td><td>此前 user/assistant（不含当前问、不含 system）</td></tr>
+            <tr><td><code>signal</code></td><td>AbortSignal</td></tr>
+            <tr><td><code>model</code></td><td>可选模型名</td></tr>
+            <tr><td><code>onUsage</code></td><td>Token</td></tr>
+            <tr><td><code>onTrace</code></td><td>过程事件 → SSE</td></tr>
+          </tbody>
+        </table>
+        <p class="flow"><strong>上游</strong>：routes/ragChat · <strong>下游</strong>：SSE meta/delta；LangSmith rag-retrieve/rag-llm</p>
+        <div class="why">内部检索按 searchDocs 过白名单 Guard，与单 Agent 工具层语义对齐，Trace 面板可用同一工具名。Input Guard 留在路由层只标记；空结果不消耗模型调用。</div>
+      </div>
+    </div>
+
+    <footer class="note">
+      <a href="./multi-agent.html">← 多 Agent</a> ·
+      <a href="./routes.html#ragChat">路由 ragChat →</a> ·
+      <a href="./guard.html">Guard →</a>
+    </footer>
+  </main>
+</body>
+</html>

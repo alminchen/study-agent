@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>14 Tools &amp; MCP · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../server/tracing.html">← 上一篇</a>
+    <a href="../guide/crosscutting.html">下一篇 →</a>
+  </nav>
+  <main class="layout">
+    <h1>14 · Tools &amp; MCP <span class="badge">server/tools · server/mcp</span></h1>
+    <p class="lede">
+      工具「schema（给模型看）+ methods（本地执行）」分离；注册表粘合。
+      MCP 复用同一套 methods，不重写业务校验。
+    </p>
+
+    <h2>设计约定</h2>
+    <div class="card">
+      <ul class="compact">
+        <li>arguments 进 <code>run</code> 仍是字符串（接口原样），各工具自己 JSON.parse。</li>
+        <li>失败一律 <code>{ error: string }</code>，不往外 throw——便于回填模型 / MCP isError。</li>
+        <li>新增工具：schemas/ → methods/ → toolList →（有后果）toolsRequiringConfirm + toolCallGuard 白名单。</li>
+      </ul>
+      <div class="why">聊天、多 Agent、MCP、Evals 共用同一 run，避免三套天气逻辑漂移。</div>
+    </div>
+
+    <!-- types -->
+    <h2><span class="file-path">tools/types.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">ToolSchema</div>
+        <p>OpenAI 兼容 function 定义：name / description / parameters。只描述能力，不含执行。</p>
+      </div>
+      <div class="method">
+        <div class="name">ToolDefinition</div>
+        <div class="sig">{ name, schema, run(rawArguments) }</div>
+        <p>本地完整形状；由 index 粘合。</p>
+      </div>
+    </div>
+
+    <!-- index -->
+    <h2><span class="file-path">tools/index.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">toolSchemasForChat(includeSearchDocs, includeConfirmTools?)</div>
+        <div class="sig">→ ToolSchema[]</div>
+        <table class="params">
+          <thead><tr><th>参数</th><th>默认</th><th>行为</th></tr></thead>
+          <tbody>
+            <tr><td><code>includeSearchDocs</code></td><td>—</td><td>false 时去掉 searchDocs</td></tr>
+            <tr><td><code>includeConfirmTools</code></td><td>false</td><td>false 时去掉需确认工具（draft_message）</td></tr>
+          </tbody>
+        </table>
+        <div class="why">未建 ConfirmSession 时不应把 draft_message 暴露给模型；知识库开关与确认开关正交。</div>
+      </div>
+      <div class="method">
+        <div class="name">toolSchemas</div>
+        <p>全部 schema（含 draft_message）。一般不直接喂 /api/chat；调试 / 枚举用。</p>
+      </div>
+      <div class="method">
+        <div class="name">findTool(name)</div>
+        <div class="sig">→ ToolDefinition | undefined</div>
+        <p>按名取实现；需确认工具确认通过后仍走同一 find + run。</p>
+        <div class="flow"><strong>WHERE</strong>：applyToolCalls · runToolSafely · runToolWithTracing · Workers</div>
+      </div>
+    </div>
+
+    <!-- weather -->
+    <h2><span class="file-path">schemas/weather.ts</span> · <span class="file-path">methods/weather.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">getWeatherTool</div>
+        <p>description 约束：地球城市气温/天气；city 必填；不适用天体。</p>
+      </div>
+      <div class="method">
+        <div class="name">parseGetWeatherArgs(raw)</div>
+        <div class="sig">判别联合 ok/args | ok:false/error</div>
+      </div>
+      <div class="method">
+        <div class="name">executeGetWeather(args)</div>
+        <ol class="steps">
+          <li><code>isNotEarthCity</code>（火星/月球等）→ error，不编造。</li>
+          <li>北京/上海预设；其它城市用字符 seed 稳定 mock。</li>
+        </ol>
+        <div class="why">不维护地球城市白名单，避免广州/杭州被误拦；天体黑名单即可。</div>
+      </div>
+      <div class="method">
+        <div class="name">runGetWeather(rawArguments)</div>
+        <p>parse → execute；统一入口给 findTool。</p>
+      </div>
+    </div>
+
+    <!-- time -->
+    <h2><span class="file-path">schemas/time.ts</span> · <span class="file-path">methods/time.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">getCurrentTimeTool</div>
+        <p>无参数（properties {}）；描述强制「问几点必须调工具，勿凭记忆」。</p>
+      </div>
+      <div class="method">
+        <div class="name">parseGetCurrentTimeArgs / executeGetCurrentTime / runGetCurrentTime</div>
+        <p>空串或 <code>{}</code> 合法；返回 iso / formatted(zh-CN) / timezone（本机 Intl）。</p>
+        <div class="why">时间必须来自本机时钟，禁止模型瞎编「现在」。</div>
+      </div>
+    </div>
+
+    <!-- searchDocs -->
+    <h2><span class="file-path">schemas/searchDocs.ts</span> · <span class="file-path">methods/searchDocs.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">searchDocsTool</div>
+        <p>question 必填；不用于天气/时间。</p>
+      </div>
+      <div class="method">
+        <div class="name">parseSearchDocsArgs / executeSearchDocs / runSearchDocs</div>
+        <ol class="steps">
+          <li>解析 question。</li>
+          <li><code>retrieveForAnswer</code>：判空则 error（含门槛话术）。</li>
+          <li>成功 → hits 视图（id/source/title/text/score），不含 embedding。</li>
+          <li>catch：向量库空 → 提示先 rag:ingest；其它 → 检索服务异常。</li>
+        </ol>
+        <div class="why">分数门槛/重排仍在 rag/；工具层只做「变成 tool 结果」。三类失败话术区分系统问题 vs 无相关内容。</div>
+      </div>
+    </div>
+
+    <!-- draft -->
+    <h2><span class="file-path">schemas/draftMessage.ts</span> · <span class="file-path">methods/draftMessage.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">draftMessageTool</div>
+        <p>to + body 必填；学习用假发送，不真外发。</p>
+        <div class="why">不用 getWeather 加确认——只读工具加确认会破坏体验与回归；「起草消息」语义最贴近有后果。</div>
+      </div>
+      <div class="method">
+        <div class="name">parseDraftMessageArgs / executeDraftMessage / runDraftMessage</div>
+        <p>成功返回 <code>{ ok, simulated:true, to, body, message }</code>；console 打模拟日志。deny 时上层根本不调用本文件。</p>
+      </div>
+    </div>
+
+    <!-- MCP -->
+    <h2><span class="file-path">mcp/createServer.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">mcpFromRun(run, args)</div>
+        <div class="sig">内部 helper</div>
+        <ol class="steps">
+          <li><code>run(JSON.stringify(args ?? {}))</code>。</li>
+          <li>包装 MCP content[{ type:text, text: JSON }]；对象含 error 则 isError。</li>
+        </ol>
+      </div>
+      <div class="method">
+        <div class="name">createStep1McpServer()</div>
+        <div class="sig">→ McpServer</div>
+        <p>注册 getWeather / getCurrentTime / searchDocs（zod inputSchema）；描述复用 schemas，执行复用 methods。<strong>不含</strong> draft_message（确认协议属聊天 SSE，非 MCP 本期范围）。</p>
+        <div class="why">SDK 用 registerTool 而非弃用的位置参数 tool()；业务校验不在 MCP 层重复。</div>
+      </div>
+    </div>
+
+    <h2><span class="file-path">mcp/stdio.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">main()</div>
+        <ol class="steps">
+          <li>dotenv 加载 .env.local / .env。</li>
+          <li><code>createStep1McpServer()</code> + <code>StdioServerTransport</code> connect。</li>
+          <li>日志只打 stderr，避免弄脏 stdin/stdout 上的 JSON-RPC。</li>
+        </ol>
+        <div class="flow">Cursor / Inspector spawn 本进程；与 Express HTTP 聊天并行存在。</div>
+      </div>
+    </div>
+
+    <footer class="note"><a href="../guide/crosscutting.html">下一篇：横切对照 →</a></footer>
+  </main>
+</body>
+</html>

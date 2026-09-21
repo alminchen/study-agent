@@ -19,6 +19,18 @@ if (!question) {
 const result = await answerFromDocs(question);
 
 console.log(`query: ${question}`);
+if (result.rewriteMeta) {
+  const m = result.rewriteMeta;
+  console.log(`rewrite: status=${m.status} queryUsed=${m.queryUsed}`);
+}
+if (result.multiQueryMeta && result.multiQueryMeta.status !== "disabled") {
+  const mq = result.multiQueryMeta;
+  console.log(`multiQuery: status=${mq.status} n=${mq.queries.length} merged=${mq.mergedCount}`);
+}
+if (result.hydeMeta && result.hydeMeta.status !== "disabled") {
+  const h = result.hydeMeta;
+  console.log(`hyde: status=${h.status} chars=${h.hydeDoc?.length ?? 0}`);
+}
 console.log(`empty: ${result.empty}  calledModel: ${result.calledModel}  topScore: ${result.topScore?.toFixed(4) ?? "null"}`);
 console.log("hits:");
 for (const hit of result.hits) {

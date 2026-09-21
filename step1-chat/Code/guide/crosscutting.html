@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>横切对照 · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../guide/overview.html">总览</a>
+    <a href="../server/guard.html">Guard</a>
+    <a href="../server/usage.html">Usage</a>
+    <a href="../server/tracing.html">Tracing</a>
+  </nav>
+  <main class="layout">
+    <h1>横切对照：Token · Guard · Trace</h1>
+    <p class="lede">横切不是隐式中间件黑盒，而是在路由/节点里<strong>显式调用</strong>。下表写清「挂在哪段代码」，方便对照源码打断点。</p>
+
+    <h2>挂载矩阵（代码落点）</h2>
+    <div class="card">
+      <table class="params">
+        <tr>
+          <th>能力</th>
+          <th>/api/chat</th>
+          <th>/api/chat/multi</th>
+          <th>/api/rag/chat</th>
+        </tr>
+        <tr>
+          <td>Token</td>
+          <td>chat.ts：<code>UsageAccumulator</code> + <code>bindUsageCallback(...,"askModel")</code>；complete 内 parseUsage；结尾 <code>writeUsageToStream</code></td>
+          <td>chatMulti：同一 acc；supervisor/worker/aggregate 各 bind source；<code>writeUsageToStream</code></td>
+          <td>ragChat：bind <code>"rag"</code>；completeRagMessages → onUsage；<code>writeUsageToStream</code>（空则跳过）</td>
+        </tr>
+        <tr>
+          <td>Input Guard</td>
+          <td>createChatStream → <code>detectInjection</code> → onTrace(injection_detected)</td>
+          <td>chatMulti handler → detectInjection → writeSse</td>
+          <td>ragChat → detectInjection → writeSse</td>
+        </tr>
+        <tr>
+          <td>Tool Guard</td>
+          <td>applyToolCalls → <code>validateToolCall</code></td>
+          <td>runToolSafely → validateToolCall</td>
+          <td>answerFromDocs：检索前 validateToolCall("searchDocs")</td>
+        </tr>
+        <tr>
+          <td>Output Guard</td>
+          <td>runConversation reply → <code>detectLeakage</code></td>
+          <td>aggregate → detectLeakage</td>
+          <td>answerFromDocs → detectLeakage → output_leak_blocked?</td>
+        </tr>
+        <tr>
+          <td>SSE Trace</td>
+          <td>onTrace → 前端 ToolTracePanel</td>
+          <td>onTrace/writeSse（含 supervisor_route / worker_done）</td>
+          <td>tool_* / injection / leak + rag_meta</td>
+        </tr>
+        <tr>
+          <td>LangSmith</td>
+          <td>traceChatRequest / traceAskModel / runToolWithTracing</td>
+          <td>当前未挂包层</td>
+          <td>traceRagRequest / rag-retrieve / rag-llm</td>
+        </tr>
+      </table>
+      <div class="why">显式挂载是为了学习：打开对应文件就能看见「这一步有没有 Guard」，而不是猜全局 middleware 顺序。</div>
+    </div>
+
+    <h2>两套 Trace 为何必须分开</h2>
+    <div class="method">
+      <div class="name">SSE onTrace vs LangSmith</div>
+      <ol class="steps">
+        <li><strong>SSE</strong>：产品体验。用户看 tool_call、点确认、看 injection。关 LangSmith 也必须能用。</li>
+        <li><strong>LangSmith</strong>：开发者 span 树、耗时、排错。需要 API Key，默认关；打开也不应把内部 span 细节推给用户面板。</li>
+      </ol>
+      <div class="flow">业务节点 → onTrace/writeSse → ToolTracePanel
+业务节点 → traceable(...) → LangSmith 云端（可选）</div>
+      <div class="why">混成一套会导致：要么关掉云端后面板也死，要么把开发者细节塞给用户。分开才能独立开关。</div>
+    </div>
+
+    <h2>Token：为何是「请求级累加」</h2>
+    <div class="method">
+      <div class="name">UsageAccumulator 心智模型</div>
+      <ol class="steps">
+        <li>用户点一次发送 = 一次 HTTP 请求 = 一个 Accumulator 实例。</li>
+        <li>该请求内每次 LLM HTTP 成功解析 usage → <code>record(model, source, usage)</code>。</li>
+        <li>请求结束 <code>toRecord</code> 落盘 + SSE <code>type:usage</code>；Mock/判空无调用则 isEmpty，不写。</li>
+      </ol>
+      <div class="why">若按「一条气泡一次 Token」记账，ReAct 3 次 askModel 会被严重低估。详见 <a href="../server/usage.html">usage.html</a>。</div>
+    </div>
+
+    <h2>Guard 时序（三道门）</h2>
+    <div class="flow">用户文本 → inputGuard（标记）→ 业务/LLM
+→（有 tools）toolGuard → [可选 confirm] → 执行
+→ 最终文本 → outputGuard（可替换）→ 出站</div>
+    <div class="card">
+      <p>细节步骤见 <a href="../server/guard.html">guard.html</a>。人工确认<strong>在 toolGuard 通过之后</strong>：先证明参数合法，再等人放行。</p>
+    </div>
+
+    <h2>相关图</h2>
+    <div class="card">
+      <ul class="compact">
+        <li><a href="../../docs/crosscutting-token-guard-trace-flow.svg">横切流程图 SVG</a></li>
+        <li><a href="../../docs/flows-index.html">flows-index.html</a></li>
+        <li><a href="../../docs/project-topology.html">project-topology.html</a></li>
+      </ul>
+    </div>
+
+    <footer class="note"><a href="../index.html">← 回说明书索引</a></footer>
+  </main>
+</body>
+</html>

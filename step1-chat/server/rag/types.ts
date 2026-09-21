@@ -1,5 +1,7 @@
 /** RAG 切分结果：入库前每条 chunk 必须带齐来源字段 */
 
+import type { KbRouteMeta, MultiQueryMeta, HydeMeta, RewriteMeta } from "./queryEnhance/types.js";
+
 export interface DocumentChunk {
   /** 稳定 id，例如 notes-chunk-3 */
   id: string;
@@ -55,4 +57,15 @@ export interface RetrievalJudgment {
   rankedAll: SearchHit[];
   topScore: number | null;
   message?: string;
+  /**
+   * 检索前问句增强元数据（单元 4）。
+   * UI 仍显示用户原句；embed / 闸门标题比对 / 重排用的是 meta.queryUsed。
+   */
+  rewriteMeta?: RewriteMeta;
+  /** 多库路由元数据（单元 5）；硬过滤用 sourcesAllowed */
+  kbRouteMeta?: KbRouteMeta;
+  /** 多路召回元数据（单元 6） */
+  multiQueryMeta?: MultiQueryMeta;
+  /** HyDE 假文档检索元数据（单元 7） */
+  hydeMeta?: HydeMeta;
 }

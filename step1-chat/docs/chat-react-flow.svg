@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 3100" width="1480" height="3100" role="img" aria-label="Chat React with Token Guard Trace">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#059669"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#0d9488"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .lane { font: 700 12px sans-serif; fill: #475569; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+    ]]></style>
+  </defs>
+
+  <rect width="1480" height="3100" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">单 Agent（POST /api/chat）· 业务 + Token / Guard / Trace</text>
+  <text x="40" y="66" class="subtitle">主链 ReAct + 横切：UsageAccumulator · 三道 Guard · SSE Trace · LangSmith</text>
+
+  <g transform="translate(40, 86)">
+    <rect x="0" y="0" width="1400" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="16" y="16" width="18" height="18" rx="3" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="42" y="30" class="legend">前端</text>
+    <rect x="120" y="16" width="18" height="18" rx="3" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="146" y="30" class="legend">路由</text>
+    <rect x="240" y="16" width="18" height="18" rx="3" fill="#d1fae5" stroke="#059669"/>
+    <text x="266" y="30" class="legend">ReAct</text>
+    <rect x="380" y="16" width="18" height="18" rx="3" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="406" y="30" class="legend">Token</text>
+    <rect x="500" y="16" width="18" height="18" rx="3" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="526" y="30" class="legend">Guard</text>
+    <rect x="620" y="16" width="18" height="18" rx="3" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="646" y="30" class="legend">Trace</text>
+  </g>
+
+  <g transform="translate(40, 160)">
+    <rect x="0" y="0" width="280" height="32" rx="6" fill="#bfdbfe"/><text x="140" y="21" text-anchor="middle" class="lane">FRONTEND</text>
+    <rect x="300" y="0" width="320" height="32" rx="6" fill="#c7d2fe"/><text x="460" y="21" text-anchor="middle" class="lane">ROUTE + USAGE</text>
+    <rect x="640" y="0" width="400" height="32" rx="6" fill="#a7f3d0"/><text x="840" y="21" text-anchor="middle" class="lane">REACT + GUARD + TOOL</text>
+    <rect x="1060" y="0" width="380" height="32" rx="6" fill="#ede9fe"/><text x="1250" y="21" text-anchor="middle" class="lane">LLM + LANGSMITH</text>
+  </g>
+
+  <rect x="40" y="200" width="280" height="2840" fill="#eff6ff" opacity="0.4"/>
+  <rect x="340" y="200" width="320" height="2840" fill="#eef2ff" opacity="0.4"/>
+  <rect x="680" y="200" width="400" height="2840" fill="#ecfdf5" opacity="0.4"/>
+  <rect x="1100" y="200" width="340" height="2840" fill="#f5f3ff" opacity="0.45"/>
+
+  <g transform="translate(40, 220)">
+    <text x="0" y="0" class="phase">1. 入口：建 Accumulator + ConfirmSession + SSE</text>
+    <rect x="10" y="24" width="260" height="70" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="140" y="48" text-anchor="middle" class="box">streamChat</text>
+    <text x="140" y="66" text-anchor="middle" class="box-sub">POST /api/chat</text>
+    <text x="140" y="84" text-anchor="middle" class="file">api/chat.ts</text>
+
+    <rect x="310" y="24" width="300" height="130" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="460" y="48" text-anchor="middle" class="box">registerChatRoutes</text>
+    <text x="460" y="66" text-anchor="middle" class="box-sub">new UsageAccumulator()</text>
+    <text x="460" y="84" text-anchor="middle" class="box-sub">bindUsageCallback(acc,"askModel")</text>
+    <text x="460" y="102" text-anchor="middle" class="box-sub">new ConfirmSession()</text>
+    <text x="460" y="120" text-anchor="middle" class="box-sub">setSseHeaders(res)</text>
+    <text x="460" y="140" text-anchor="middle" class="file">routes/chat.ts</text>
+  </g>
+
+  <g transform="translate(40, 420)">
+    <text x="0" y="0" class="phase">2. 输入安全 + 进 createChatStream</text>
+    <rect x="310" y="24" width="300" height="100" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="460" y="48" text-anchor="middle" class="box">detectInjection(lastUser)</text>
+    <text x="460" y="66" text-anchor="middle" class="box-sub">只标记不拦截</text>
+    <text x="460" y="84" text-anchor="middle" class="box-sub">onTrace(injection_detected)</text>
+    <text x="460" y="106" text-anchor="middle" class="file">chat.ts · inputGuard.ts</text>
+
+    <line x1="610" y1="74" x2="690" y2="74" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowPurple)"/>
+    <rect x="690" y="40" width="280" height="70" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="830" y="68" text-anchor="middle" class="box">SSE → ToolTracePanel</text>
+    <text x="830" y="88" text-anchor="middle" class="box-sub">injection_detected 行</text>
+
+    <rect x="10" y="24" width="260" height="100" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="140" y="52" text-anchor="middle" class="box">过程面板可选展示</text>
+    <text x="140" y="74" text-anchor="middle" class="box-sub">不阻断发送</text>
+    <text x="140" y="96" text-anchor="middle" class="box-sub">请求继续</text>
+  </g>
+
+  <g transform="translate(40, 600)">
+    <text x="0" y="0" class="phase">3. ReAct：LangSmith 根 span + askModel 计费</text>
+    <rect x="690" y="24" width="380" height="100" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="880" y="48" text-anchor="middle" class="box">runConversation</text>
+    <text x="880" y="66" text-anchor="middle" class="box-sub">traceChatRequest?（开关开时）</text>
+    <text x="880" y="84" text-anchor="middle" class="box-sub">prefetch → graph.invoke</text>
+    <text x="880" y="106" text-anchor="middle" class="file">runConversation.ts</text>
+
+    <line x1="1070" y1="74" x2="1110" y2="74" stroke="#db2777" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <rect x="1110" y="24" width="310" height="100" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="1265" y="52" text-anchor="middle" class="box">LangSmith: chat-request</text>
+    <text x="1265" y="70" text-anchor="middle" class="box-sub">run_type: chain</text>
+    <text x="1265" y="88" text-anchor="middle" class="box-sub">LANGCHAIN_TRACING_V2</text>
+    <text x="1265" y="106" text-anchor="middle" class="file">tracing/langsmith.ts</text>
+
+    <rect x="690" y="150" width="380" height="120" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="880" y="174" text-anchor="middle" class="box">askModel → requestCompletion</text>
+    <text x="880" y="192" text-anchor="middle" class="box-sub">traceAskModel? 包一层 llm span</text>
+    <text x="880" y="210" text-anchor="middle" class="box-sub">parseUsageFromResponse</text>
+    <text x="880" y="228" text-anchor="middle" class="box-sub">→ onUsage → acc.record(askModel)</text>
+    <text x="880" y="250" text-anchor="middle" class="file">complete.ts · parseUsage.ts</text>
+
+    <line x1="690" y1="210" x2="610" y2="210" stroke="#0d9488" stroke-width="1.5" marker-end="url(#arrowTeal)"/>
+    <rect x="310" y="180" width="300" height="80" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="460" y="210" text-anchor="middle" class="box">UsageAccumulator.record</text>
+    <text x="460" y="232" text-anchor="middle" class="box-sub">每轮 askModel 累加一次</text>
+  </g>
+
+  <g transform="translate(40, 960)">
+    <text x="0" y="0" class="phase">4. 工具：Guard →（确认）→ Tracing run → SSE Trace</text>
+    <rect x="690" y="24" width="380" height="70" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="880" y="48" text-anchor="middle" class="box">applyToolCalls(for each)</text>
+    <text x="880" y="68" text-anchor="middle" class="box-sub">onTrace(tool_call) 先发</text>
+
+    <rect x="690" y="110" width="380" height="90" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="880" y="138" text-anchor="middle" class="box">validateToolCall(name, args)</text>
+    <text x="880" y="156" text-anchor="middle" class="box-sub">拒绝 → {error}，不 run / 不 wait</text>
+    <text x="880" y="178" text-anchor="middle" class="file">toolCallGuard.ts</text>
+
+    <rect x="690" y="220" width="380" height="90" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="880" y="248" text-anchor="middle" class="box">需确认? runWithOptionalConfirm</text>
+    <text x="880" y="266" text-anchor="middle" class="box-sub">pending_confirm → wait → resolve</text>
+    <text x="880" y="288" text-anchor="middle" class="file">见 human-confirm-flow.svg</text>
+
+    <rect x="690" y="330" width="380" height="90" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="880" y="358" text-anchor="middle" class="box">runToolWithTracing → tool.run</text>
+    <text x="880" y="376" text-anchor="middle" class="box-sub">LangSmith tool span（若开启）</text>
+    <text x="880" y="398" text-anchor="middle" class="file">langsmith.ts · tools/*</text>
+
+    <line x1="690" y1="59" x2="270" y2="59" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowPurple)"/>
+    <rect x="10" y="30" width="260" height="200" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="140" y="58" text-anchor="middle" class="box">SSE Trace 事件</text>
+    <text x="140" y="82" text-anchor="middle" class="box-sub">tool_call</text>
+    <text x="140" y="104" text-anchor="middle" class="box-sub">pending_confirm</text>
+    <text x="140" y="126" text-anchor="middle" class="box-sub">confirm_resolved</text>
+    <text x="140" y="148" text-anchor="middle" class="box-sub">tool_result</text>
+    <text x="140" y="178" text-anchor="middle" class="file">ToolTracePanel</text>
+    <text x="140" y="204" text-anchor="middle" class="note">≠ LangSmith UI</text>
+  </g>
+
+  <g transform="translate(40, 1480)">
+    <text x="0" y="0" class="phase">5. 输出安全 + Token 落盘 + DONE</text>
+    <rect x="690" y="24" width="380" height="100" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="880" y="48" text-anchor="middle" class="box">reply → detectLeakage</text>
+    <text x="880" y="66" text-anchor="middle" class="box-sub">泄露 → onTrace(output_leak_blocked)</text>
+    <text x="880" y="84" text-anchor="middle" class="box-sub">onDelta(guard.safeText)</text>
+    <text x="880" y="106" text-anchor="middle" class="file">outputGuard.ts</text>
+
+    <rect x="310" y="24" width="300" height="120" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="460" y="48" text-anchor="middle" class="box">writeUsageToStream</text>
+    <text x="460" y="66" text-anchor="middle" class="box-sub">acc.toRecord("chat")</text>
+    <text x="460" y="84" text-anchor="middle" class="box-sub">appendUsageRecord</text>
+    <text x="460" y="102" text-anchor="middle" class="box-sub">SSE type:"usage"</text>
+    <text x="460" y="122" text-anchor="middle" class="file">sse.ts · store.ts</text>
+
+    <rect x="10" y="24" width="260" height="120" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="140" y="52" text-anchor="middle" class="box">UsagePanel</text>
+    <text x="140" y="74" text-anchor="middle" class="box-sub">tokens + 估算费用</text>
+    <text x="140" y="96" text-anchor="middle" class="box-sub">[DONE] → dispose</text>
+    <text x="140" y="118" text-anchor="middle" class="file">ConfirmSession.dispose</text>
+  </g>
+
+  <g transform="translate(40, 1720)">
+    <rect x="10" y="0" width="1420" height="160" rx="10" fill="#fff" stroke="#cbd5e1"/>
+    <text x="30" y="32" class="phase">浓缩调用链（含横切）</text>
+    <text x="30" y="60" class="box">UsageAccumulator + ConfirmSession → createChatStream → detectInjection(onTrace)</text>
+    <text x="30" y="84" class="box">→ traceChatRequest? → askModel(traceAskModel? + parseUsage) ↔ applyToolCalls(validateToolCall + wait? + runToolWithTracing + onTrace)</text>
+    <text x="30" y="108" class="box">→ reply(detectLeakage + onDelta) → writeUsageToStream → [DONE] → dispose</text>
+    <text x="30" y="140" class="note">横切总览：crosscutting-token-guard-trace-flow.svg</text>
+  </g>
+
+  <g transform="translate(40, 1940)">
+    <text x="0" y="0" class="phase">附：业务主链简图（与横切并行）</text>
+    <rect x="10" y="20" width="1420" height="120" rx="10" fill="#ecfdf5" stroke="#059669"/>
+    <text x="30" y="52" class="box">clipMessages → [prefetch?] → askModel ↔ applyTools → reply</text>
+    <text x="30" y="80" class="box-sub">Mock/无 Key → streamMock + onTrace(degradation)，无 Usage / 无 LangSmith 真 span</text>
+    <text x="30" y="108" class="box-sub">人工确认旁路详见 human-confirm-flow.svg（confirm 路由本身不计 Token）</text>
+  </g>
+
+  <text x="740" y="3075" text-anchor="middle" class="subtitle">docs/chat-react-flow.svg</text>
+</svg>

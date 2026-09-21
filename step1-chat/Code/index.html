@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>step1-chat · 项目说明书</title>
+    <link rel="stylesheet" href="./assets/manual.css" />
+  </head>
+  <body>
+    <nav class="topnav">
+      <span class="brand">step1-chat · Code 说明书</span>
+      <a href="./index.html">总览</a>
+    </nav>
+    <main class="layout">
+      <h1>项目说明书</h1>
+      <p class="lede">
+        按 <code>guide/</code> · <code>frontend/</code> ·
+        <code>server/</code> 分类存放的<strong>方法级</strong>说明书：
+        每个导出函数尽量写清「做什么（步骤）· 入参出参 · 上下游 · 为何这么写」。
+        推荐先打开 <a href="./frontend/composables.html">useChat</a>、<a
+          href="./server/rag.html"
+          >RAG</a
+        >、<a href="./server/usage.html">Usage</a> 看深度样例。 泳道图仍见
+        <code>docs/flows-index.html</code>。
+      </p>
+
+      <h2>怎么读</h2>
+      <div class="card">
+        <ul class="compact">
+          <li>
+            先看总览三条链路，再看
+            <a href="./scripts/">scripts 测试验收</a>（RAG 逐步脚本 + eval
+            回归）
+          </li>
+          <li>
+            横切能力：Token 计费 · Guard 三道门 · SSE Trace ·
+            LangSmith（详见横切模块页）
+          </li>
+          <li>
+            黄底块 = 设计意图；灰底路径 = 源码位置；方法页含步骤 / 入参出参 /
+            上下游
+          </li>
+        </ul>
+      </div>
+
+      <h2>导读</h2>
+      <div class="grid">
+        <a class="mod" href="./guide/overview.html"
+          ><strong>架构总览</strong><span>guide/overview.html</span></a
+        >
+        <a class="mod" href="./guide/crosscutting.html"
+          ><strong>横切对照</strong><span>guide/crosscutting.html</span></a
+        >
+        <a class="mod" href="./scripts/index.html"
+          ><strong>scripts / evals 测试验收</strong
+          ><span>RAG 流水线 · eval:chat/multi · mcp-ping-pong</span></a
+        >
+      </div>
+
+      <h2>frontend/</h2>
+      <div class="grid">
+        <a class="mod" href="./frontend/app.html"
+          ><strong>前端壳</strong><span>main / App / types / citations</span></a
+        >
+        <a class="mod" href="./frontend/composables.html"
+          ><strong>useChat</strong><span>状态中枢 · runSseSession</span></a
+        >
+        <a class="mod" href="./frontend/api.html"
+          ><strong>前端 API</strong><span>streamChat · askRag · usage</span></a
+        >
+        <a class="mod" href="./frontend/components.html"
+          ><strong>前端组件</strong><span>气泡 · Trace · Usage · Hits</span></a
+        >
+      </div>
+
+      <h2>server/</h2>
+      <div class="grid">
+        <a class="mod" href="./server/entry.html"
+          ><strong>服务端入口</strong
+          ><span>index · runtimeConfig · createChatStream</span></a
+        >
+        <a class="mod" href="./server/routes.html"
+          ><strong>HTTP 路由</strong
+          ><span>chat / multi / rag / confirm / SSE</span></a
+        >
+        <a class="mod" href="./server/react.html"
+          ><strong>单 Agent ReAct</strong
+          ><span>runConversation · tools · confirm</span></a
+        >
+        <a class="mod" href="./server/multi-agent.html"
+          ><strong>多 Agent</strong
+          ><span>Supervisor · Workers · Aggregate</span></a
+        >
+        <a class="mod" href="./server/rag.html"
+          ><strong>RAG</strong><span>retrieve · prompt · answer · SSE</span></a
+        >
+        <a class="mod" href="./server/guard.html"
+          ><strong>Guard</strong><span>input · tool · output</span></a
+        >
+        <a class="mod" href="./server/usage.html"
+          ><strong>Token / Usage</strong
+          ><span>Accumulator · pricing · store</span></a
+        >
+        <a class="mod" href="./server/tracing.html"
+          ><strong>Tracing</strong><span>LangSmith spans</span></a
+        >
+        <a class="mod" href="./server/tools-mcp.html"
+          ><strong>Tools &amp; MCP</strong
+          ><span>天气/时间/检索/草稿 · MCP</span></a
+        >
+      </div>
+
+      <footer class="note">
+        生成于学习仓库 step1-chat ·
+        浏览器直接打开本页即可。源码以仓库为准；若注释与文档冲突，以源码注释为准。
+      </footer>
+    </main>
+  </body>
+</html>

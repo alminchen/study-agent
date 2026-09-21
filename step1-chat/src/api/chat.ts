@@ -1,11 +1,20 @@
-import type { ChatRole, ToolTraceStep } from "../types";
+import type { ChatRole, ToolTraceStep, UsageSnapshot } from "../types";
 
 export interface StreamChatParams {
   messages: Array<{ role: ChatRole; content: string }>;
   model: string;
   signal: AbortSignal;
+  /** 打开后服务端先强制检索，并把 searchDocs 交给模型（单 Agent 语义）。 */
+  searchDocs?: boolean;
+  /**
+   * 是否走多 Agent。
+   * true → POST /api/chat/multi；false → POST /api/chat。
+   * 与 searchDocs 无关，由调用方显式传入。
+   */
+  multiAgent?: boolean;
   onDelta: (delta: string) => void;
   onTrace?: (step: ToolTraceStep) => void;
+  onUsage?: (usage: UsageSnapshot) => void;
   onError: (error: string) => void;
 }
 
@@ -14,20 +23,51 @@ export interface HealthInfo {
   model: string;
 }
 
+export interface ConfirmChatParams {
+  confirmId: string;
+  toolCallId: string;
+  action: "allow" | "deny";
+}
+
+/**
+ * 人工确认放行/拒绝。
+ * 只通知服务端 resolve(wait)；不负责执行工具或拉新回复。
+ * 单 Agent（/api/chat）与多 Agent（/api/chat/multi）共用本接口。
+ */
+export async function confirmChatTool(params: ConfirmChatParams): Promise<void> {
+  const response = await fetch("/api/chat/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `确认失败：${response.status}`);
+  }
+}
+
+/**
+ * 普通对话流式聊天。
+ * endpoint 由 multiAgent 决定；searchDocs 只进请求体，不参与选路。
+ */
 export async function streamChat({
   messages,
   model,
   signal,
+  searchDocs,
+  multiAgent = true,
   onDelta,
   onTrace,
+  onUsage,
   onError,
 }: StreamChatParams): Promise<boolean> {
+  const endpoint = multiAgent ? "/api/chat/multi" : "/api/chat";
   let response: Response;
   try {
-    response = await fetch("/api/chat", {
+    response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, model }),
+      body: JSON.stringify({ messages, model, searchDocs: Boolean(searchDocs) }),
       signal,
     });
   } catch (error) {
@@ -68,20 +108,86 @@ export async function streamChat({
             const event = JSON.parse(payload) as {
               delta?: string;
               error?: string;
-              type?: "tool_call" | "tool_result";
+              type?: string;
               name?: string;
               arguments?: unknown;
               result?: unknown;
+              confirmId?: string;
+              toolCallId?: string;
+              action?: "allow" | "deny";
+              level?: string;
+              rules?: string[];
+              matchedFingerprints?: string[];
+              totalTokens?: number;
+              promptTokens?: number;
+              completionTokens?: number;
+              llmCalls?: number;
+              estimatedCostUsd?: number;
+              model?: string;
+              endpoint?: UsageSnapshot["endpoint"];
             };
             if (event.error) {
               onError(event.error);
               return true;
+            }
+            if (event.type === "usage" && typeof event.totalTokens === "number") {
+              onUsage?.({
+                endpoint: event.endpoint,
+                model: event.model ?? model,
+                promptTokens: event.promptTokens ?? 0,
+                completionTokens: event.completionTokens ?? 0,
+                totalTokens: event.totalTokens,
+                llmCalls: event.llmCalls ?? 1,
+                estimatedCostUsd: event.estimatedCostUsd ?? 0,
+              });
             }
             if (event.type === "tool_call" && event.name) {
               onTrace?.({ kind: "tool_call", name: event.name, arguments: event.arguments });
             }
             if (event.type === "tool_result" && event.name) {
               onTrace?.({ kind: "tool_result", name: event.name, result: event.result });
+            }
+            if (event.type === "injection_detected") {
+              onTrace?.({
+                kind: "injection_detected",
+                level: event.level,
+                rules: Array.isArray(event.rules) ? event.rules : [],
+              });
+            }
+            if (event.type === "output_leak_blocked") {
+              onTrace?.({
+                kind: "output_leak_blocked",
+                matchedFingerprints: Array.isArray(event.matchedFingerprints)
+                  ? event.matchedFingerprints
+                  : [],
+              });
+            }
+            if (
+              event.type === "pending_confirm" &&
+              event.name &&
+              event.confirmId &&
+              event.toolCallId
+            ) {
+              onTrace?.({
+                kind: "pending_confirm",
+                confirmId: event.confirmId,
+                toolCallId: event.toolCallId,
+                name: event.name,
+                arguments: event.arguments,
+                status: "pending",
+              });
+            }
+            if (
+              event.type === "confirm_resolved" &&
+              event.toolCallId &&
+              (event.action === "allow" || event.action === "deny")
+            ) {
+              onTrace?.({
+                kind: "confirm_resolved",
+                toolCallId: event.toolCallId,
+                name: event.name ?? "",
+                action: event.action,
+              });
             }
             if (event.delta) onDelta(event.delta);
           } catch {

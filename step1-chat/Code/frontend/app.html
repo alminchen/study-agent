@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>02 前端壳 · step1-chat</title>
+  <link rel="stylesheet" href="../assets/manual.css" />
+</head>
+<body>
+  <nav class="topnav">
+    <a class="brand" href="../index.html">step1-chat · Code</a>
+    <a href="../guide/overview.html">← 上一篇</a>
+    <a href="../frontend/composables.html">下一篇 →</a>
+  </nav>
+  <main class="layout">
+    <h1>02 · 前端壳 <span class="badge">main · App · types · citations</span></h1>
+    <p class="lede">
+      入口挂载、根组件行为、共享类型，以及资料问答引用解析。
+      状态与 SSE 细节在 <a href="./composables.html">useChat</a>；本页讲「壳」如何把状态接到 UI。
+    </p>
+
+    <h2><span class="file-path">src/main.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">createApp(App).mount("#root")</div>
+        <p>引入全局 <code>index.css</code>；无路由——单页聊天壳。</p>
+        <div class="why">教学 demo 保持极简：所有模式切换都在 App 顶栏/页脚，不引入路由复杂度。</div>
+      </div>
+    </div>
+
+    <h2><span class="file-path">src/App.vue</span> 行为</h2>
+    <div class="card">
+      <p>从 <code>useChat()</code> 解构：messages、model、ragMode、searchKb、multiAgent、isStreaming、error、toolTrace、lastUsage、usageSummary、serverMode，以及 send/retry/stop/clear/changeModel/set*/resolveToolConfirm。</p>
+
+      <h3>本地 UI 状态</h3>
+      <table class="params">
+        <thead><tr><th>符号</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><code>input</code></td><td>输入框；submit 后清空</td></tr>
+          <tr><td><code>chatRef</code></td><td>主列表滚动容器；messages 变化 smooth scroll 到底</td></tr>
+          <tr><td><code>citeFocus</code></td><td>{ messageId, n }；点引用时锁定哪条答案的哪一个 [n]</td></tr>
+        </tbody>
+      </table>
+
+      <h3>计算属性</h3>
+      <table class="params">
+        <thead><tr><th>名</th><th>逻辑</th></tr></thead>
+        <tbody>
+          <tr><td><code>modeLabel</code></td><td>serverMode → API / Mock / 连接中</td></tr>
+          <tr><td><code>starters</code></td><td>ragMode ? RAG_STARTERS : CHAT_STARTERS</td></tr>
+          <tr><td><code>placeholder</code></td><td>资料问答 / 将先检索 / 普通输入</td></tr>
+          <tr><td><code>chatEndpointTitle</code></td><td>multiAgent → /api/chat/multi，否则 /api/chat</td></tr>
+          <tr><td><code>emptyTitle</code></td><td>空态标题文案</td></tr>
+          <tr><td><code>latestRag</code></td><td>从后往前找最近一条带 rag 的助手消息</td></tr>
+          <tr><td><code>panelRag</code></td><td>有 citeFocus 则用该消息的 rag，否则 latestRag</td></tr>
+          <tr><td><code>highlightIndex</code></td><td>citeFocus.n，驱动 RagHitPanel 高亮</td></tr>
+        </tbody>
+      </table>
+
+      <h3>关键处理函数</h3>
+      <div class="method">
+        <div class="name">submit(content?)</div>
+        <ol class="steps">
+          <li>取 content 或 input，trim；空或 isStreaming 则 return。</li>
+          <li>清空 input → <code>await send(text)</code>（useChat）。</li>
+        </ol>
+      </div>
+      <div class="method">
+        <div class="name">handleKeydown</div>
+        <p>Enter（非 Shift、非 isComposing）→ preventDefault + submit。</p>
+      </div>
+      <div class="method">
+        <div class="name">handleCite(messageId, n)</div>
+        <p>写入 citeFocus；RagHitPanel 滚到对应注入段。</p>
+      </div>
+      <div class="method">
+        <div class="name">toggleRagMode / toggleSearchKb / toggleMultiAgent</div>
+        <p>分别调 setRagMode / setSearchKb / setMultiAgent。流式中顶栏/选项 disabled。</p>
+        <div class="why">
+          「资料问答」切端点到 /api/rag/chat；「多 Agent」切 /api/chat/multi；
+          「搜索知识库」只改请求体 searchDocs，<em>不</em>改路由——三者正交。
+        </div>
+      </div>
+
+      <h3>模板结构</h3>
+      <div class="flow">
+        topbar（品牌 · mode badge · 资料问答切换 · 模型 select · retry · clear）
+        → main.chat（空态 starters 或 ChatMessageItem 列表）
+        → RagHitPanel（仅 ragMode）
+        → ToolTracePanel（非 ragMode；@confirm → resolveToolConfirm）
+        → UsagePanel
+        → error-banner
+        → composer（textarea · 停止/发送 · 多 Agent / 搜索知识库复选）
+      </div>
+      <div class="why">RAG 时隐藏工具过程面板（资料问答另有 hit 面板）；普通对话才需要确认按钮与 tool Trace。</div>
+    </div>
+
+    <h2><span class="file-path">src/types.ts</span> 形状</h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">ChatRole / ChatMessage</div>
+        <table class="params">
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>id / role / content / createdAt</code></td><td>气泡基础</td></tr>
+            <tr><td><code>rag?</code></td><td>仅资料问答助手气泡：闸门元数据 + hits</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="method">
+        <div class="name">RagHitView</div>
+        <p>rank（向量序）· rerankRank · promptIndex（注入编号，可 null）· id/source/title/text · score · rerankScore。</p>
+        <div class="why">页面展示检索闸门结果，不是给模型看的；promptIndex 决定 [n] 是否 valid。</div>
+      </div>
+      <div class="method">
+        <div class="name">RagMeta</div>
+        <p>empty · calledModel · topScore · question · hits[]。</p>
+      </div>
+      <div class="method">
+        <div class="name">ToolTraceStep</div>
+        <div class="sig">判别联合</div>
+        <ul class="compact">
+          <li><code>tool_call</code> / <code>tool_result</code></li>
+          <li><code>pending_confirm</code>（status: pending|resolving|allow|deny）</li>
+          <li><code>confirm_resolved</code></li>
+          <li><code>injection_detected</code> / <code>output_leak_blocked</code></li>
+        </ul>
+        <div class="why">与服务端 SSE type 对齐；pending 多了前端 status，方便按钮态。</div>
+      </div>
+      <div class="method">
+        <div class="name">UsageSnapshot / UsageSummary</div>
+        <p>本轮：endpoint、model、prompt/completion/total、llmCalls、estimatedCostUsd。累计：按 endpoint/model 聚合。</p>
+      </div>
+      <div class="method">
+        <div class="name">MODEL_OPTIONS</div>
+        <p>顶栏下拉：deepseek-v4-flash / gpt-5.4-mini / gpt-5.6-sol（id 发给后端 model 字段）。</p>
+      </div>
+    </div>
+
+    <h2><span class="file-path">src/rag/citations.ts</span></h2>
+    <div class="card">
+      <div class="method">
+        <div class="name">ContentPart</div>
+        <div class="sig">{ kind:"text", text } | { kind:"cite", n, valid }</div>
+      </div>
+      <div class="method">
+        <div class="name">splitCitedText(content, validIndexes)</div>
+        <ol class="steps">
+          <li>正则 <code>/\[(\d+)\]/g</code> 扫描。</li>
+          <li>夹缝推 text；匹配推 cite，valid = Set.has(n)。</li>
+          <li>模型瞎写的 [9] 若未注入 → valid:false，按钮 disabled。</li>
+        </ol>
+        <div class="why">引用必须对齐「本次 prompt 注入编号」，防止幻觉引用当依据。</div>
+      </div>
+      <div class="method">
+        <div class="name">validPromptIndexes(hits)</div>
+        <p>收集 hits 里非 null 的 promptIndex 成 Set。</p>
+      </div>
+      <div class="method">
+        <div class="name">findHitByPromptIndex(hits, n)</div>
+        <p>点 [n] 时找对应命中，供 title / 面板高亮。</p>
+      </div>
+    </div>
+
+    <footer class="note"><a href="./composables.html">下一篇：useChat →</a></footer>
+  </main>
+</body>
+</html>

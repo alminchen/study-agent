@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>step1-chat 代码说明书</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #5f6b84;
+      --line: #d9dfeb;
+      --accent: #2957d6;
+      --accent-soft: #e8efff;
+      --code: #f3f5f9;
+      --good: #0f7b4e;
+      --warn: #a15c00;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.7;
+    }
+    body { padding: 32px 18px 64px; }
+    .wrap { max-width: 1120px; margin: 0 auto; }
+    header {
+      background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 28px;
+      box-shadow: 0 10px 30px rgba(26, 45, 90, 0.06);
+    }
+    h1, h2, h3 { line-height: 1.25; margin: 0 0 12px; }
+    h1 { font-size: 30px; }
+    h2 { font-size: 22px; margin-top: 34px; }
+    h3 { font-size: 18px; margin-top: 22px; }
+    p { margin: 0 0 12px; }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--accent-soft); color: var(--accent);
+      border: 1px solid #cfe0ff; border-radius: 999px; padding: 6px 10px;
+      font-size: 13px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }
+    .card {
+      grid-column: span 12;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 8px 24px rgba(26, 45, 90, 0.04);
+    }
+    .card.half { grid-column: span 6; }
+    .card.third { grid-column: span 4; }
+    .card.quarter { grid-column: span 3; }
+    @media (max-width: 920px) {
+      .card.half, .card.third, .card.quarter { grid-column: span 12; }
+    }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+    pre {
+      margin: 12px 0 0;
+      padding: 14px 16px;
+      background: var(--code);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%; border-collapse: collapse; margin-top: 12px; background: #fff;
+      border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    }
+    th, td {
+      text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th { background: #f7f9fd; font-size: 14px; }
+    tr:last-child td { border-bottom: none; }
+    ul, ol { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 4px 0; }
+    .note {
+      border-left: 4px solid var(--accent);
+      background: #f4f8ff;
+      padding: 12px 14px;
+      border-radius: 10px;
+      margin-top: 12px;
+    }
+    .warn {
+      border-left-color: var(--warn);
+      background: #fff8ef;
+    }
+    .good {
+      border-left-color: var(--good);
+      background: #f0fbf6;
+    }
+    .path {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      margin-top: 14px;
+    }
+    .step:first-of-type {
+      border-top: 0; margin-top: 0; padding-top: 0;
+    }
+    .badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 42px; height: 42px; border-radius: 12px;
+      background: var(--accent-soft); color: var(--accent);
+      font-weight: 700;
+    }
+    .small { color: var(--muted); font-size: 14px; }
+    .toc a { color: var(--accent); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .flow {
+      background: linear-gradient(180deg, #fbfcff, #fff);
+    }
+    .kpi {
+      font-size: 28px; font-weight: 800; color: var(--accent); margin-bottom: 4px;
+    }
+    .footer {
+      margin-top: 28px; padding: 16px 4px; color: var(--muted); font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>step1-chat 代码说明书</h1>
+      <p>这是一份面向学习和复盘的完整说明书，按“前端入口 -> 网络层 -> 服务端编排 -> 工具 / RAG / 多 Agent -> 防护与统计”逐层解释当前项目的执行逻辑。</p>
+      <div class="meta">
+        <span class="pill">Vue 3 + Vite + TypeScript</span>
+        <span class="pill">Express 后端</span>
+        <span class="pill">SSE 流式聊天</span>
+        <span class="pill">ReAct / RAG / Multi-Agent</span>
+        <span class="pill">MCP / Tracing / Evals</span>
+      </div>
+      <div class="note good">
+        <strong>说明</strong>：本文档只解释当前实现的代码逻辑，不修改代码，不引入新功能。
+      </div>
+    </header>
+
+    <section class="grid">
+      <article class="card half">
+        <h2>1. 项目目标</h2>
+        <p>当前项目的核心目标，不是单纯做一个聊天框，而是做一个前端开发者能理解、能调试、能复用的 AI 应用样板。</p>
+        <ul>
+          <li>普通聊天：支持流式输出、多轮对话、模型切换、会话管理</li>
+          <li>工具调用：天气、时间、知识库检索等工具可见、可调、可回填</li>
+          <li>RAG：文档检索、重排、引用、空结果兜底</li>
+          <li>Agent：ReAct、多步工具循环、Supervisor-Worker 编排</li>
+          <li>工程化：Tracing、Evals、Token 统计、降级、防注入</li>
+        </ul>
+      </article>
+
+      <article class="card half">
+        <h2>2. 总体结构</h2>
+        <p>项目可以分成四层：</p>
+        <ol>
+          <li>前端页面层：负责输入、展示消息、展示工具轨迹与知识库命中</li>
+          <li>前端状态层：负责消息、模型、模式切换、持久化和中断控制</li>
+          <li>网络层：负责向后端发起 SSE 或 JSON 请求，并解析事件流</li>
+          <li>服务端层：负责聊天、工具执行、RAG、Multi-Agent、统计与安全防护</li>
+        </ol>
+        <div class="note">
+          你可以把它理解成：<strong>UI 只负责表现，真正的决策与编排都在服务端</strong>。
+        </div>
+      </article>
+    </section>
+
+    <section class="card toc">
+      <h2>目录</h2>
+      <div class="grid">
+        <div class="card quarter"><a href="#structure">文件职责</a></div>
+        <div class="card quarter"><a href="#frontend">前端执行流程</a></div>
+        <div class="card quarter"><a href="#stream">SSE 与 streamChat</a></div>
+        <div class="card quarter"><a href="#server">服务端聊天主流程</a></div>
+        <div class="card quarter"><a href="#react">ReAct 逻辑</a></div>
+        <div class="card quarter"><a href="#rag">RAG 逻辑</a></div>
+        <div class="card quarter"><a href="#multi">多 Agent 逻辑</a></div>
+        <div class="card quarter"><a href="#usage">Token 与观测</a></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>流程图入口</h2>
+      <p>如果你想先看图再读说明，可以直接从这里跳转。这里的链接和 <code>step1-chat/docs/flows-index.html</code> 保持一致。</p>
+      <ul>
+        <li><a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html">流程图总索引：flows-index.html</a></li>
+        <li><a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html#crosscutting">横切总览：Token / Guard / Trace</a></li>
+        <li><a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html#chat-react">单 Agent ReAct + 横切</a></li>
+        <li><a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html#chat-multi">多 Agent + 横切</a></li>
+        <li><a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html#rag-chat">资料问答 RAG + 横切缺口</a></li>
+        <li><a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html#human-confirm">人工确认 + 横切归属</a></li>
+      </ul>
+    </section>
+
+    <section class="card" id="structure">
+      <h2>3. 文件职责说明</h2>
+      <p>下面这些文件是整套逻辑的骨架。理解它们的职责，就能读懂整个项目。</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>文件</th>
+              <th>职责</th>
+              <th>你要重点看什么</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>src/composables/useChat.ts</code></td>
+              <td>前端聊天状态中心，管理消息、模式、模型、历史、停止与重试。</td>
+              <td>send / runStream / runRag / retry / setRagMode</td>
+            </tr>
+            <tr>
+              <td><code>src/api/chat.ts</code></td>
+              <td>前端网络层，负责调用 SSE 接口并解析流式事件。</td>
+              <td>streamChat、SSE 事件解析、usage / tool trace</td>
+            </tr>
+            <tr>
+              <td><code>server/index.ts</code></td>
+              <td>后端启动入口，只负责读环境、挂路由、启动监听。</td>
+              <td>dotenv、registerRoutes、启动日志</td>
+            </tr>
+            <tr>
+              <td><code>server/routes/index.ts</code></td>
+              <td>路由汇总层，把各个 HTTP 端点统一挂到 Express 上。</td>
+              <td>chat、chatMulti、ragChat、usage、health</td>
+            </tr>
+            <tr>
+              <td><code>server/routes/chat.ts</code></td>
+              <td>单 Agent SSE 入口，承接 ReAct 主链路。</td>
+              <td>createChatStream、UsageAccumulator、writeUsageToStream</td>
+            </tr>
+            <tr>
+              <td><code>server/routes/chatMulti.ts</code></td>
+              <td>多 Agent SSE 入口，调 LangGraph Supervisor-Worker 图。</td>
+              <td>compileMultiAgentGraph、supervisor_route、worker_done</td>
+            </tr>
+            <tr>
+              <td><code>server/routes/ragChat.ts</code></td>
+              <td>RAG 问答入口，先检索，再决定是否调用模型。</td>
+              <td>answerFromDocs、buildRagPrompt、usage=null 分支</td>
+            </tr>
+            <tr>
+              <td><code>server/routes/usage.ts</code></td>
+              <td>Token 汇总与清空接口，方便学习和调试。</td>
+              <td>GET /api/usage、DELETE /api/usage</td>
+            </tr>
+            <tr>
+              <td><code>server/routes/health.ts</code></td>
+              <td>健康检查接口，返回当前模式、模型与 API Key 状态。</td>
+              <td>GET /api/health</td>
+            </tr>
+            <tr>
+              <td><code>server/chat.ts</code></td>
+              <td>单 Agent 主编排，负责 system prompt、上下文裁剪、Mock 分支、ReAct 入口。</td>
+              <td>buildSystemPrompt、clipMessages、createChatStream</td>
+            </tr>
+            <tr>
+              <td><code>server/react/runConversation.ts</code></td>
+              <td>ReAct 的核心编排，使用 LangGraph 把“问模型 - 执行工具 - 再问模型”串起来。</td>
+              <td>askModel、applyTools、reply、MAX_MODEL_TURNS</td>
+            </tr>
+            <tr>
+              <td><code>server/rag/answer.ts</code></td>
+              <td>RAG 的问答入口，先检索，再决定是否调用模型。</td>
+              <td>retrieveForAnswer、buildRagPrompt、normalizeKnowledgeAnswer</td>
+            </tr>
+            <tr>
+              <td><code>server/multi-agent/*</code></td>
+              <td>Supervisor-Worker 多 Agent 编排，按任务分发给不同 Worker。</td>
+              <td>supervisor.ts、workers/*、graph.ts</td>
+            </tr>
+            <tr>
+              <td><code>server/usage/*</code></td>
+              <td>Token 统计、合并、落盘、成本估算。</td>
+              <td>accumulator.ts、store.ts、parseUsage.ts</td>
+            </tr>
+            <tr>
+              <td><code>server/tools/*</code></td>
+              <td>工具定义、schema、执行器与注册表。</td>
+              <td>weather / time / searchDocs 的 schema 与 run 方法</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card flow" id="frontend">
+      <h2>4. 前端执行流程：从输入到消息落地</h2>
+      <p>前端最重要的文件是 <code>src/composables/useChat.ts</code>。它负责把 UI 操作变成真实的聊天流程。</p>
+
+      <div class="step">
+        <div class="badge">1</div>
+        <div>
+          <h3>初始化状态</h3>
+          <p>页面一加载，就会从 localStorage 恢复：</p>
+          <ul>
+            <li>当前是普通聊天还是 RAG 模式</li>
+            <li>当前选择的模型</li>
+            <li>历史消息</li>
+            <li>是否打开“搜索知识库”</li>
+          </ul>
+          <p class="small">这样刷新页面后不会丢会话，也不会把不同模式的历史混到一起。</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="badge">2</div>
+        <div>
+          <h3>发送消息 send()</h3>
+          <p>用户提交内容后，先做三件事：</p>
+          <ol>
+            <li>去掉首尾空白</li>
+            <li>拼成一条 user message</li>
+            <li>把它加到消息列表并持久化</li>
+          </ol>
+          <p>然后根据模式分流：</p>
+          <ul>
+            <li>普通聊天：走 <code>runStream()</code></li>
+            <li>RAG 问答：走 <code>runRag()</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="badge">2.1</div>
+        <div>
+          <h3>前端数据组装：history 是怎么来的</h3>
+          <p><code>send()</code> 不会直接把单条用户消息丢给后端，而是先把它拼到当前会话历史里，形成完整的 <code>history</code>：</p>
+          <ul>
+            <li>先取当前输入，trim 后生成一条 <code>user</code> 消息</li>
+            <li>把这条消息追加到 <code>messages</code></li>
+            <li>把追加后的整段列表作为本轮请求上下文</li>
+            <li>普通聊天和 RAG 各有一份历史，互不污染</li>
+          </ul>
+          <p class="small">这一步很重要，因为模型不是只看“这次输入”，而是看“这一轮加上之前所有上下文”。</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="badge">3</div>
+        <div>
+          <h3>普通聊天 runStream()</h3>
+          <p>这个方法负责 SSE 流式输出。它会先创建一个空的 assistant 占位消息，然后边读边更新内容。</p>
+          <ul>
+            <li>创建 AbortController，支持中断</li>
+            <li>把空 assistant 先插入消息列表，保证 UI 立即有反馈</li>
+            <li>调用 <code>streamChat()</code> 发起请求，把 <code>history</code>、<code>model</code>、<code>searchDocs</code> 发给后端</li>
+            <li>收到 delta 就拼接到最新 assistant 上</li>
+            <li>收到 tool trace 就写入调试面板</li>
+            <li>收到 usage 就更新 Token 面板</li>
+          </ul>
+          <div class="note warn">
+            这里最容易出问题的是失败兜底。如果请求失败但 assistant 占位没被替换，就会留下空气泡。当前已经补了兜底文案。
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="badge">4</div>
+        <div>
+          <h3>资料问答 runRag()</h3>
+          <p>资料问答不走 SSE，而是一次性拿 JSON 结果。</p>
+          <ol>
+            <li>找到最后一条 user 作为 question</li>
+            <li>把它前面的历史作为 prior</li>
+            <li>调用 <code>askRag()</code></li>
+            <li>拿到 answer / hits / usage 后再落地到 assistant 消息</li>
+          </ol>
+          <p>这种方式适合 RAG，因为 RAG 的输出更像一个完整答案包，而不是持续增量输出。</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="badge">4.1</div>
+        <div>
+          <h3>RAG 数据组装：question 和 prior 怎么拆</h3>
+          <p><code>runRag()</code> 会把最后一条 user 单独拿出来当 <code>question</code>，再把它前面的消息切成 <code>prior</code>：</p>
+          <ul>
+            <li><code>question</code> 只放当前要问的问题</li>
+            <li><code>prior</code> 只放当前问题之前的 user / assistant</li>
+            <li>最后一条 user 不会重复进 history</li>
+            <li>前端收到 JSON 后，再把 <code>answer</code>、<code>hits</code>、<code>usage</code> 组回 assistant 消息</li>
+          </ul>
+          <p class="small">这能避免同一个问题在 prompt 里出现两次，也能让检索问答和普通聊天分得很干净。</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="badge">5</div>
+        <div>
+          <h3>重试 retry() 与停止 stop()</h3>
+          <p><code>retry()</code> 会取掉最后一条 assistant，再重新走一次当前模式的请求。</p>
+          <p><code>stop()</code> 则是直接 abort 当前请求。</p>
+          <p>这两个动作都依赖 AbortController，所以停止流式输出是可控的，不会只停 UI 不停网络。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="transitions">
+      <h2>5. 流程扭转：一个请求是怎么“转向”的</h2>
+      <p>你特别提到“流程扭转”，这里专门把项目里最关键的分支和状态切换讲清楚。所谓扭转，就是<strong>同一轮用户输入，在不同条件下会走到不同链路</strong>。</p>
+
+      <h3>5.1 从 UI 到后端的第一层扭转</h3>
+      <ol>
+        <li>用户输入内容后，先进入 <code>useChat.send()</code></li>
+        <li>如果当前是普通聊天，进入 <code>runStream()</code></li>
+        <li>如果当前是 RAG 模式，进入 <code>runRag()</code></li>
+        <li>两条路都不会直接在前端生成答案，而是交给后端</li>
+      </ol>
+
+      <h3>5.2 普通聊天里的第二层扭转</h3>
+      <ol>
+        <li>前端根据当前模式把消息发到 <code>/api/chat</code> 或 <code>/api/chat/multi</code></li>
+        <li>单 Agent 路径进入 <code>createChatStream()</code>，多 Agent 路径进入 <code>compileMultiAgentGraph()</code></li>
+        <li>如果没有 API Key 或显式 Mock，直接转到假流式输出</li>
+        <li>如果有真实模型，继续转入 ReAct 编排</li>
+      </ol>
+
+      <h3>5.3 ReAct 里的第三层扭转</h3>
+      <p>ReAct 是整个项目里最典型的“条件转向”逻辑。</p>
+      <ol>
+        <li>先问一次模型</li>
+        <li>如果模型没有 <code>tool_calls</code>，说明答案已经完整，直接结束</li>
+        <li>如果模型有 <code>tool_calls</code>，先执行工具</li>
+        <li>工具结果回填到 messages 后，再回到 <code>askModel</code></li>
+        <li>如果轮次超过上限，强制结束，防止无限循环</li>
+      </ol>
+
+      <h3>5.4 RAG 里的扭转</h3>
+      <ol>
+        <li>进入 <code>runRag()</code> 后，先把当前问题和历史拆开</li>
+        <li>后端先做检索</li>
+        <li>如果命中为空，直接返回固定文案，不再调用模型</li>
+        <li>如果有命中，才继续拼 prompt、调用模型并返回答案</li>
+      </ol>
+
+      <h3>5.5 多 Agent 里的扭转</h3>
+      <ol>
+        <li>用户问题先到 Supervisor</li>
+        <li>Supervisor 判断任务应该交给哪些 Worker</li>
+        <li>graph 把任务分发给对应 Worker</li>
+        <li>Worker 可能继续自己的 mini ReAct</li>
+        <li>Worker 完成后把结果汇总回主流程</li>
+      </ol>
+
+      <h3>5.6 流程扭转的核心原则</h3>
+      <ul>
+        <li>先分模式，再分链路</li>
+        <li>先判断有没有资料、有没有工具、有没有 API</li>
+        <li>能提前结束就不要继续问模型</li>
+        <li>每次转向都要有明确的状态依据，而不是靠“感觉”跳转</li>
+      </ul>
+
+      <div class="note good">
+        这部分是整套系统最值得理解的地方。你不是在看一个“聊天接口”，而是在看一套<strong>根据状态和条件不断转向的任务流</strong>。
+      </div>
+    </section>
+
+    <section class="card" id="stream">
+      <h2>6. 网络层：streamChat() 怎么工作</h2>
+      <p><code>src/api/chat.ts</code> 负责把前端消息发到后端，并把 SSE 逐条解析回来。</p>
+
+      <h3>6.1 请求阶段</h3>
+      <ul>
+        <li>POST 到 <code>/api/chat/multi</code>（当前实现如此）</li>
+        <li>请求体包含 <code>messages</code>、<code>model</code>、<code>searchDocs</code></li>
+        <li><code>messages</code> 是前端已经拼好的整段对话历史，不是单条输入</li>
+        <li><code>searchDocs</code> 只是一个布尔开关，告诉后端这一轮是否要走资料搜索</li>
+        <li>请求失败时直接把错误回调给前端</li>
+      </ul>
+
+      <h3>6.2 响应阶段</h3>
+      <ul>
+        <li>如果返回不是 2xx，直接报错</li>
+        <li>如果没有 body，说明浏览器不支持流式响应</li>
+        <li>拿到 body 后通过 <code>getReader()</code> 逐块读取</li>
+      </ul>
+
+      <h3>6.3 SSE 解析阶段</h3>
+      <p>服务端返回的是一段段 <code>data: ...\n\n</code> 格式的数据，前端会按事件切分。</p>
+      <ul>
+        <li><code>delta</code>：拼接到 assistant 正文</li>
+        <li><code>type = usage</code>：更新 Token 统计</li>
+        <li><code>type = tool_call</code>：记录模型准备调用了哪个工具</li>
+        <li><code>type = tool_result</code>：记录工具返回了什么</li>
+        <li><code>error</code>：终止并展示报错</li>
+      </ul>
+
+      <h3>6.4 数据重组阶段</h3>
+      <p>这个 helper 的真正作用不是“发请求”，而是把后端的流式响应重新拼成前端可用的数据结构：</p>
+      <ul>
+        <li><code>delta</code> 逐块追加到同一条 assistant 文本上</li>
+        <li><code>usage</code> 更新右侧统计面板</li>
+        <li><code>tool_call</code> / <code>tool_result</code> 写入调试轨迹</li>
+        <li><code>[DONE]</code> 表示本轮消息已经完整结束</li>
+      </ul>
+
+      <div class="note good">
+        <strong>这层的关键价值</strong>：把“后端发回来的流”翻译成前端能直接消费的事件，让 UI 可以边生成边展示。
+      </div>
+    </section>
+
+    <section class="card" id="server">
+      <h2>7. 服务端结构：从入口到业务模块</h2>
+      <p>现在的后端已经不是一个大文件硬扛全部逻辑，而是拆成了“启动层 - 路由层 - 业务层 - 统计层”四段。这样做的好处是每一层都只干一件事，调试时也能很快定位问题。</p>
+
+      <h3>7.1 启动层：server/index.ts</h3>
+      <p>这个文件只负责接线，不负责业务：</p>
+      <ul>
+        <li>读取 <code>.env.local</code> 和 <code>.env</code></li>
+        <li>创建 Express 实例并挂载 JSON 中间件</li>
+        <li>调用 <code>registerRoutes(app)</code></li>
+        <li>启动监听并打印当前模式、模型和 API Key 状态</li>
+      </ul>
+      <p>它的定位很明确：<strong>把服务拉起来，但不参与聊天流程</strong>。</p>
+
+      <h3>7.2 路由汇总层：server/routes/index.ts</h3>
+      <p>这里相当于总开关，把所有端点集中注册到 Express：</p>
+      <ul>
+        <li><code>/api/usage</code> 由 <code>routes/usage.ts</code> 处理</li>
+        <li><code>/api/health</code> 由 <code>routes/health.ts</code> 处理</li>
+        <li><code>/api/rag/chat</code> 由 <code>routes/ragChat.ts</code> 处理</li>
+        <li><code>/api/chat</code> 由 <code>routes/chat.ts</code> 处理</li>
+        <li><code>/api/chat/multi</code> 由 <code>routes/chatMulti.ts</code> 处理</li>
+      </ul>
+
+      <h3>7.3 四个核心 HTTP 入口</h3>
+      <p><code>/api/chat</code> 是单 Agent SSE，主要走 ReAct；<code>/api/chat/multi</code> 是多 Agent SSE，走 Supervisor-Worker 图；<code>/api/rag/chat</code> 是 JSON RAG 流程；<code>/api/usage</code> 和 <code>/api/health</code> 则是观测和调试接口。</p>
+      <p>这几个入口分开以后，功能边界会非常清楚：<strong>聊天、检索、多 Agent、统计、健康检查各走各的路</strong>，不会互相缠在一起。</p>
+
+      <h3>7.4 单 Agent 路径：routes/chat.ts + server/chat.ts + react/runConversation.ts</h3>
+      <p>单 Agent 的实际顺序是：</p>
+      <ol>
+        <li><code>routes/chat.ts</code> 收到请求，先校验 messages，再挂 SSE 头</li>
+        <li>创建 <code>UsageAccumulator</code>，把每次 LLM 调用的用量都记到同一个请求里</li>
+        <li>调用 <code>createChatStream()</code></li>
+        <li><code>server/chat.ts</code> 先做 system prompt 组装、上下文裁剪、输入注入检测</li>
+        <li>如果没有 API Key 或强制 Mock，就转到假流式输出</li>
+        <li>如果是真模型，就进入 <code>runConversation()</code> 的 ReAct 图</li>
+        <li>最后把 <code>delta</code> 和 <code>usage</code> 一起通过 SSE 回给前端</li>
+      </ol>
+
+      <h3>7.4.1 单 Agent 的数据组装细节</h3>
+      <p>这里最关键的不是“调用了谁”，而是“调用之前怎么组装输入”。</p>
+      <ul>
+        <li>前端传来的 <code>messages</code> 是整段对话，但服务端不会原样直塞给模型</li>
+        <li><code>createChatStream()</code> 会先把 <code>systemPrompt</code> 固定加进去</li>
+        <li>再调用 <code>clipMessages()</code> 把上下文裁到有限长度</li>
+        <li>最后得到的 <code>clippedMessages</code> 才是真正进入 ReAct 的输入</li>
+      </ul>
+      <p>所以你可以把这层理解成：<strong>前端负责拼会话，服务端负责收口成模型能吃的上下文</strong>。</p>
+
+      <h3>7.5 RAG 路径：routes/ragChat.ts + rag/answer.ts</h3>
+      <p>RAG 不是流式聊天，而是“先检索，再回答”的 JSON 接口：</p>
+      <ol>
+        <li>前端传入 <code>question</code> 和 <code>history</code></li>
+        <li>服务端只保留 user / assistant 历史，system 由后端固定注入</li>
+        <li><code>retrieveForAnswer()</code> 先做召回、判空、重排</li>
+        <li>如果没命中，直接返回“资料里没有相关内容”，不浪费模型调用</li>
+        <li>如果有命中，<code>buildRagPrompt()</code> 组装 prompt，再调一次模型</li>
+        <li>最终把 <code>answer</code>、<code>hits</code>、<code>usage</code> 一次性返回</li>
+      </ol>
+
+      <h3>7.5.1 RAG 的 prompt 组装细节</h3>
+      <ul>
+        <li><code>retrieveForAnswer()</code> 先拿到原始召回结果</li>
+        <li>如果判定为空，直接结束，不进入模型</li>
+        <li>如果有资料，<code>buildRagPrompt()</code> 会把资料块编成 <code>[1] [2] ...</code></li>
+        <li>再把固定的 RAG system、历史消息、当前 question 按顺序拼成最终 messages</li>
+      </ul>
+      <p>这一步就是典型的数据组装：<strong>检索结果不是直接给模型看，而是先转成 prompt 结构</strong>。</p>
+
+      <h3>7.6 多 Agent 路径：routes/chatMulti.ts + multi-agent/graph.ts</h3>
+      <p>多 Agent 的请求顺序更像任务编排：</p>
+      <ol>
+        <li>路由层先找最后一条 user 消息</li>
+        <li>编译 Supervisor-Worker 图</li>
+        <li>Supervisor 先决定应该派哪些 Worker</li>
+        <li>Worker 并行执行自己的工具与 mini ReAct</li>
+        <li>Aggregate 把多个 Worker 的结果汇总成最终回复</li>
+        <li>最后统一写出 <code>delta</code> 和 <code>usage</code></li>
+      </ol>
+
+      <h3>7.6.1 多 Agent 的数据组装细节</h3>
+      <ul>
+        <li>Graph 入口只接收最后一条用户消息，不把整段 history 都丢进去</li>
+        <li>Supervisor 的输出会写回 state 里的 <code>routeDecision</code></li>
+        <li>Worker 的结果写入 <code>workerResults</code></li>
+        <li>Aggregate 再把这些中间结果组装成最终 <code>finalOutput</code></li>
+      </ul>
+      <p>所以多 Agent 的核心不是“多问几次模型”，而是<strong>把中间态一层层收集起来，再汇成最终答案</strong>。</p>
+
+      <h3>7.7 Token 与观测：usage/accumulator.ts + routes/sse.ts</h3>
+      <p>Token 不是等整个页面结束再算，而是按请求级累加。每次 LLM 调用都会通过 <code>bindUsageCallback()</code> 进入 <code>UsageAccumulator</code>，请求结束时再写入 store 并回传前端。</p>
+      <p>这意味着你可以很清楚地看到：</p>
+      <ul>
+        <li>一次请求里到底调用了几次模型</li>
+        <li>单 Agent、RAG、多 Agent 各自的成本差异</li>
+        <li>Mock、空检索、真实 LLM 这几种路径有没有被正确区分</li>
+      </ul>
+
+      <h3>7.8 横切总览：Token / Guard / Trace 分别挂在哪</h3>
+      <p>这份说明书现在按流程图的方式来看，会更准确：<strong>横切能力不是单独挂一个总章，而是分散挂到各自模块入口上</strong>。</p>
+      <ul>
+        <li><code>/api/chat</code>：<code>UsageAccumulator</code> 记 askModel；<code>detectInjection()</code> 先看输入；<code>validateToolCall()</code> 拦工具；<code>detectLeakage()</code> 护输出；<code>traceChatRequest()</code> / <code>traceAskModel()</code> 走 LangSmith</li>
+        <li><code>/api/chat/multi</code>：Supervisor / Worker / Aggregate 各自记 usage；Worker 内部用 <code>runToolSafely()</code>；Aggregate 最后再做 <code>detectLeakage()</code>；过程事件走 SSE onTrace，LangSmith 当前不挂包层</li>
+        <li><code>/api/rag/chat</code>：只记检索命中后的单次 LLM usage；没有工具调用，所以没有 toolGuard；当前也没有 SSE Trace / LangSmith；判空和重排属于检索模块自己的保护逻辑</li>
+        <li><code>/api/chat/confirm</code>：不新增 token 口径，仍归属父 /api/chat；确认前走输入合法性和流程闸门，确认事件通过 SSE 过程面板展示</li>
+      </ul>
+      <p>所以看文档时，不要再把 Token、Guard、Trace 只理解成“最后一节”。它们更像是每条业务链路都各自挂上的基础设施。</p>
+
+      <div class="note good">
+        现在这层写法是比较工程化的：<strong>入口只接线，流程放业务模块，统计独立处理</strong>。文档里如果还写成一个大入口，就会明显过时。
+      </div>
+    </section>
+
+    <section class="card" id="react">
+      <h2>8. ReAct 逻辑：runConversation()</h2>
+      <p>对应流程图：<a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html#chat-react">单 Agent ReAct + 横切</a></p>
+      <p>ReAct 的本质很简单：<strong>先问模型，模型决定要不要调工具；如果调了工具，就把工具结果回填，再问下一轮；直到模型给出最终文字</strong>。但在代码里，它不只是一个 while 循环，而是一条带有预检、回填、收敛上限和输出防护的状态图。</p>
+
+      <h3>8.1 为什么用 LangGraph</h3>
+      <p>以前可以用 for 循环写，现在用 LangGraph 是为了更清楚地表达状态流转：</p>
+      <ul>
+        <li><code>askModel</code>：问一次模型</li>
+        <li><code>applyTools</code>：执行本轮工具调用</li>
+        <li><code>reply</code>：把最终回答交给前端</li>
+      </ul>
+      <p>真正跑起来之前，还有一层 <code>prefetchSearchDocsIfEnabled()</code> 的前置判断：如果这轮打开了知识库搜索，它会先检索，检索为空就直接结束，不再进入 ReAct 图。</p>
+
+      <h3>8.2 状态里保存什么</h3>
+      <ul>
+        <li><code>messages</code>：当前消息上下文</li>
+        <li><code>turn</code>：当前第几轮模型调用</li>
+        <li><code>toolCalls</code>：模型本轮发出的工具调用</li>
+        <li><code>assistantContent</code>：模型原始正文</li>
+        <li><code>assistantReasoningContent</code>：思考模式要回填的 reasoning</li>
+        <li><code>finalText</code>：是否已经可以结束</li>
+      </ul>
+      <p>这些状态不是摆设。<code>messages</code> 用来保存“模型看见过什么”，<code>turn</code> 用来控制最多问几轮，<code>toolCalls</code> 用来承接模型刚刚要求执行的工具，<code>finalText</code> 用来决定下一步是继续跑工具还是直接回复。</p>
+
+      <h3>8.3 askModel 节点</h3>
+      <p>它只做一次模型请求，然后根据返回决定下一步：</p>
+      <ul>
+        <li>没有 message：直接返回空文本</li>
+        <li>没有 tool_calls：模型已经完成回答，走 reply</li>
+        <li>有 tool_calls：进入 applyTools</li>
+      </ul>
+      <p>这里还有一个收敛阈值：<code>MAX_MODEL_TURNS = 5</code>。如果模型一直调用工具但始终不给最终回答，系统会直接停止，返回“这轮没做完”的固定文案。</p>
+
+      <h3>8.4 工具执行 applyTools</h3>
+      <p>这里会把 assistant + tool_calls 先写回 messages，再逐个执行工具，最后把 tool 结果作为 role=tool 的消息追加进去。</p>
+      <p>这样下一轮问模型时，模型能看到“自己刚才请求了什么、工具返回了什么”。</p>
+      <p>如果工具调用被 guard 拒绝，或者工具本身执行失败，回填到 messages 的仍然是一个可见结果。这样模型下一轮不会“以为工具成功了”，而是能基于失败信息调整回答。</p>
+
+      <h3>8.5 reply 节点</h3>
+      <p>最终文字回到这里，会先做一次知识库回答风格归一，再做泄露检测，最后才推给前端。也就是说，reply 不是简单吐字，而是最后一道输出整理和防护。</p>
+      <ul>
+        <li>searchDocs 打开时，会先走 <code>normalizeKnowledgeAnswer()</code>，把来源清单和冗余格式收掉</li>
+        <li>再走 <code>detectLeakage()</code>，防止 system prompt 被带出来</li>
+        <li>最后才通过 <code>onDelta()</code> 把文字送到前端</li>
+      </ul>
+
+      <h3>8.6 ReAct 里的横切点</h3>
+      <ul>
+        <li>Token：每次 <code>askModel</code> 都会把 <code>usage</code> 记到同一个请求级累加器里，所以一轮 ReAct 可能记多次</li>
+        <li>Guard：输入先走 <code>detectInjection()</code>，工具前走 <code>validateToolCall()</code>，输出再走 <code>detectLeakage()</code></li>
+        <li>Trace：输入风险、工具过程、输出泄露都会通过 <code>onTrace()</code> 进 SSE；如果开了 LangSmith，再额外生成 <code>chat-request</code> / <code>askModel</code> / <code>tool</code> span</li>
+      </ul>
+
+      <div class="note warn">
+        <strong>收敛限制</strong>：<code>MAX_MODEL_TURNS = 5</code>。如果模型一直想调工具但不结束，就在这里强行停止，避免死循环。
+      </div>
+    </section>
+
+    <section class="card" id="rag">
+      <h2>9. RAG 逻辑：先检索，再回答</h2>
+      <p>对应流程图：<a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html#rag-chat">资料问答 RAG + 横切缺口</a></p>
+      <p>RAG 不走聊天工具链，而是单独的问答路径。它的核心原则是：<strong>先找资料，再让模型基于资料回答</strong>。这条链路里真正重要的不是“问模型回答”，而是“先把可用资料整理好，再让模型只围着资料答”。</p>
+
+      <h3>9.1 answerFromDocs()</h3>
+      <p>这是 RAG 的总入口，做的事情是：</p>
+      <ol>
+        <li>清理 question</li>
+        <li>调用 <code>retrieveForAnswer()</code> 先做召回、判空、重排</li>
+        <li>把命中的资料块和最近几轮 history 拼进 prompt</li>
+        <li>如果没有命中，直接返回固定文案，不再调模型</li>
+        <li>如果有命中，再调用一次模型生成最终答案</li>
+      </ol>
+      <p>这里有两个关键点经常被忽略：第一，当前问句已经单独作为 <code>question</code> 传入，所以 history 里必须去掉最后一条 user，避免重复；第二，空结果不是“让模型自由发挥”，而是直接短路成固定回复。</p>
+
+      <h3>9.2 retrieveForAnswer() 到底做了哪三步</h3>
+      <p>真正的 RAG 检索不是一步到位，而是三段式：</p>
+      <ol>
+        <li>先用 <code>CANDIDATE_K = 20</code> 做向量召回，先多捞一些候选段落</li>
+        <li>再用 <code>judgeRetrieval()</code> 判断这批候选能不能算“有资料”</li>
+        <li>最后如果重排模型可用，就用 <code>rerankHits()</code> 把前 <code>Top5</code> 重新排序后再注入</li>
+      </ol>
+      <p>这一步的意义是：<strong>先保证别漏，再保证别吵，最后再把最相关的内容放进 prompt</strong>。</p>
+
+      <h3>9.3 判空为什么不是只看分数</h3>
+      <p><code>judgeRetrieval()</code> 不是简单地拿 Top1 分数一刀切，而是有一个“分数 + 标题命中”的双条件：</p>
+      <ul>
+        <li>Top1 分数达到 <code>MIN_TOP_SCORE = 0.6</code>，就认为这次可以继续</li>
+        <li>如果分数没到 0.6，但标题和问题明显对得上，也允许放行</li>
+        <li>如果两者都不满足，就直接判空，返回 <code>资料里没有相关内容</code></li>
+      </ul>
+      <p>这样做是为了避免“标题明明对上了，但分数略低却被误杀”的情况，尤其是问文档小节标题时很常见。</p>
+
+      <h3>9.4 命中结果如何展示</h3>
+      <p>返回给前端的 hits 不只是原始文本，还带这些信息：</p>
+      <ul>
+        <li><code>rank</code>：向量召回排名</li>
+        <li><code>rerankRank</code>：重排后的排名</li>
+        <li><code>promptIndex</code>：真正注入 prompt 的顺序</li>
+        <li><code>score</code> 和 <code>rerankScore</code>：分数对照</li>
+      </ul>
+      <p>这些字段的作用不是“展示好看”，而是让你能看到：哪些结果是召回来的，哪些结果是重排后真正喂给模型的，哪些结果最终没有进 prompt。</p>
+
+      <h3>9.5 buildRagPrompt() 怎么把资料塞进模型</h3>
+      <p><code>buildRagPrompt()</code> 做的不是简单拼字符串，而是把固定规则、资料块和历史消息按顺序组装成消息数组：</p>
+      <ol>
+        <li>先把 <code>RAG_SYSTEM_PROMPT</code> 放进 system</li>
+        <li>再把检索命中的资料编成 <code>[1] [2]...</code> 的 evidence blocks</li>
+        <li>然后把最近几轮 history 接上，但只保留 user / assistant</li>
+        <li>最后把当前 question 作为新的 user 放到末尾</li>
+      </ol>
+      <p>如果 <code>judgment.empty</code> 或 <code>hits.length === 0</code>，它会直接返回 <code>empty: true</code>，调用方不再进模型。这就是为什么 RAG 的“先检索”是真短路，不是形式上的检索。</p>
+
+      <h3>9.6 为什么要分离 history 和 question</h3>
+      <p>当前问句已经单独作为 <code>question</code> 传入，所以 history 里必须去掉最后一条 user，避免 prompt 重复。</p>
+
+      <h3>9.7 检索到回答之间到底发生了什么</h3>
+      <ol>
+        <li><code>retrieveForAnswer()</code> 先把问题送去检索，得到 rawHits、判空结果、重排结果</li>
+        <li><code>buildRagPrompt()</code> 把固定 RAG system、资料块和最近几轮 history 拼成消息数组</li>
+        <li>如果资料为空，<code>buildRagPrompt()</code> 直接返回 <code>empty: true</code>，调用方不再调模型</li>
+        <li>如果资料足够，<code>completeRagMessages()</code> 才会真正问模型</li>
+        <li>模型返回后，再经过 <code>normalizeKnowledgeAnswer()</code> 做一次输出整理</li>
+      </ol>
+      <p>所以 RAG 的逻辑并不是“向量检索 + 一句回答”，而是<strong>召回、判空、重排、注入、生成、归一</strong>六步连起来。</p>
+
+      <h3>9.8 RAG 里的横切点</h3>
+      <ul>
+        <li>Token：只有检索通过并真正调用 <code>completeRagMessages()</code> 时，才会记这次 LLM usage；判空直接短路，不会产生成本</li>
+        <li>Guard：RAG 不走 <code>detectInjection()</code> / <code>validateToolCall()</code> / <code>detectLeakage()</code> 这套聊天工具链，而是依赖检索判空、固定 system prompt 和资料注入边界</li>
+        <li>Trace：当前没有 SSE Trace / LangSmith span 包层，前端主要通过 <code>hits</code> 面板和 <code>usage</code> 看这条链路是否正常</li>
+      </ul>
+
+      <div class="note good">
+        RAG 的关键不是“能不能答”，而是“能不能说清楚自己依据了什么资料”。
+      </div>
+    </section>
+
+    <section class="card" id="multi">
+      <h2>10. 多 Agent 逻辑：Supervisor-Worker</h2>
+      <p>对应流程图：<a href="/Users/ahmin/Downloads/ower/LLM/step1-chat/docs/flows-index.html#chat-multi">多 Agent + 横切</a></p>
+      <p>多 Agent 的目标不是让模型更“聪明”，而是让不同任务交给不同 Worker，职责更清楚。它的真实流程是：<strong>Supervisor 先判断要派谁，Worker 再各自干活，最后由 Aggregate 汇总成一段话</strong>。</p>
+
+      <h3>10.1 Supervisor 做什么</h3>
+      <p>Supervisor 只做路由，不做回答。它会根据用户问题判断需要分发给哪个 Worker：</p>
+      <ul>
+        <li><code>realtime</code>：天气、时间等实时数据</li>
+        <li><code>kb</code>：知识库、笔记、资料搜索</li>
+        <li><code>general</code>：闲聊兜底</li>
+      </ul>
+      <p>Supervisor 的输出不是自由文本，而是通过 <code>route</code> 工具形成结构化 JSON。只要 LLM 没调工具、工具参数解析失败、或者 worker 名称不合法，都会直接兜底到 <code>general</code>。</p>
+
+      <h3>10.2 Worker 做什么</h3>
+      <p>Worker 是真正干活的节点。以 <code>RealtimeWorker</code> 为例，它只看天气和时间，不看知识库。</p>
+      <ul>
+        <li>给 Worker 单独的 system prompt</li>
+        <li>给 Worker 单独的工具白名单</li>
+        <li>Worker 自己做 mini ReAct 循环</li>
+      </ul>
+      <p>每个 Worker 都是一个独立小世界：它只看自己的 task，只能用自己的工具，自己内部也有最大轮次限制。比如 <code>RealtimeWorker</code> 只暴露 <code>getWeather</code> 和 <code>getCurrentTime</code>，<code>KBWorker</code> 只暴露 <code>searchDocs</code>，互相看不到对方工具。</p>
+
+      <h3>10.3 为什么要隔离工具</h3>
+      <p>工具隔离的价值在于：模型不会乱调不属于自己的工具，边界更稳，调试更容易。</p>
+      <p>更具体一点说，Worker 真正执行工具前还会再过 <code>runToolSafely()</code>，里面先做 <code>validateToolCall()</code>，只有工具名、参数和 JSON 都合法，才允许执行。这样就算模型幻觉出一个不存在的工具名，也不会真的跑出去。</p>
+
+      <h3>10.4 Aggregate 怎么收口</h3>
+      <p>Worker 跑完后，结果不会直接原样扔给前端，而是先交给 <code>aggregate()</code> 统一整理：</p>
+      <ul>
+        <li>只有一个成功 Worker 时，直接透传它的输出，少一次 LLM 调用</li>
+        <li>多个 Worker 时，把各自结果整理成一个多来源上下文，再让模型汇总</li>
+        <li>如果汇总模型失败，就退回简单拼接，尽量不丢信息</li>
+        <li>最终输出还会再过一次 <code>detectLeakage()</code>，防止泄露 prompt</li>
+      </ul>
+
+      <h3>10.5 多 Agent 里的横切点</h3>
+      <ul>
+        <li>Token：Supervisor、Worker、Aggregate 都会各自通过同一个请求级 accumulator 记 usage，最后合并成一条请求成本</li>
+        <li>Guard：Supervisor 只允许 route 白名单；Worker 只允许自己的工具白名单；工具执行前还会过 <code>runToolSafely()</code>；Aggregate 再做一次输出泄露检测</li>
+        <li>Trace：过程事件走 SSE 的 <code>supervisor_route</code>、<code>worker_done</code>、<code>delta</code>；LangSmith 当前不挂在这条图上</li>
+      </ul>
+
+      <div class="note">
+        你现在的多 Agent 结构，已经不是“把所有东西堆一个 prompt”了，而是把职责拆成了可理解的单元。
+      </div>
+    </section>
+
+      <section class="card" id="usage">
+        <h2>11. Token、Tracing、Evals 与安全防护</h2>
+
+      <h3>11.1 Token 统计</h3>
+      <p>Token 统计不是“最后统一算一下”这么简单，而是从单次 LLM 响应一路累到请求结束，再写进前端和本地存储。</p>
+
+      <h4>11.1.1 第一步：单次 LLM 响应里拿到 usage</h4>
+      <p>模型调用结束后，后端会从响应 JSON 里解析出 <code>usage</code>：</p>
+      <ul>
+        <li><code>server/usage/parseUsage.ts</code> 负责把 <code>prompt_tokens</code>、<code>completion_tokens</code>、<code>total_tokens</code> 转成项目内部的 <code>TokenUsage</code></li>
+        <li>如果响应里没有 usage，或者三个值全是 0，就当这次没有有效计数</li>
+        <li>这一步会在单 Agent、Multi-Agent、RAG 的非流式模型调用里发生</li>
+      </ul>
+
+      <h4>11.1.2 第二步：每次调用都先记到请求级累加器</h4>
+      <p>一次用户请求不一定只调一次模型，所以不能把 token 直接当成“这轮对话的总量”。后端会先把每次 usage 记到 <code>UsageAccumulator</code>：</p>
+      <ul>
+        <li><code>bindUsageCallback()</code> 把 <code>record(model, source, usage)</code> 封装成回调</li>
+        <li>单 Agent 里，ReAct 每问一次模型就记一次</li>
+        <li>多 Agent 里，Supervisor、Worker、Aggregate 可能都各自记一次或多次</li>
+        <li>RAG 里如果命中了资料并调了模型，也会记一次；没命中则不会记</li>
+      </ul>
+
+      <h4>11.1.3 第三步：请求结束时合并成一条记录</h4>
+      <p>当本轮请求结束后，服务端不会把每次调用单独写给前端，而是把整个请求合并成一个摘要：</p>
+      <ul>
+        <li><code>mergedUsage()</code> 把所有调用的 prompt / completion / total 相加</li>
+        <li><code>primaryModel()</code> 选出出现次数最多的 model 作为本轮主模型</li>
+        <li><code>estimatedCostUsd()</code> 按模型单价估算本轮请求成本</li>
+        <li><code>toSnapshot()</code> 生成前端展示用的摘要</li>
+        <li><code>toRecord()</code> 生成写入 store 的完整记录</li>
+      </ul>
+
+      <h4>11.1.4 第四步：写入 SSE 或 JSON，再落盘</h4>
+      <p>不同链路的回传方式不一样，但都走同一套统计逻辑：</p>
+      <ul>
+        <li><code>/api/chat</code> 和 <code>/api/chat/multi</code> 会通过 SSE 的 <code>type: "usage"</code> 事件把摘要回给前端</li>
+        <li><code>writeUsageToStream()</code> 会把记录写进 <code>data/usage-log.json</code>，然后再推一条 SSE</li>
+        <li><code>/api/rag/chat</code> 会把 <code>usage</code> 直接放进 JSON 响应里，同时也写入 store</li>
+      </ul>
+
+      <h4>11.1.5 第五步：前端拿到 usage 后更新面板</h4>
+      <p>前端的 <code>streamChat()</code> 和 <code>askRag()</code> 会把服务端回来的 usage 再转成页面状态：</p>
+      <ul>
+        <li><code>src/api/chat.ts</code> 收到 <code>type = usage</code> 后，转成 <code>UsageSnapshot</code> 并回调给 <code>useChat.ts</code></li>
+        <li><code>src/api/usage.ts</code> 的 <code>fetchUsageSummary()</code> 会在页面加载和每次用量变化后刷新累计面板</li>
+        <li><code>useChat.ts</code> 把最新一次请求的 usage 放到 <code>lastUsage</code></li>
+        <li>累计统计则来自 <code>/api/usage</code> 的全局汇总</li>
+      </ul>
+
+      <h4>11.1.6 这套流程为什么要这么绕</h4>
+      <p>因为你这里统计的不是“某一次模型调用”，而是“一次用户请求里所有模型调用”的总和。这样才能看清：</p>
+      <ul>
+        <li>一次 ReAct 到底问了几轮模型</li>
+        <li>多 Agent 的成本是不是明显高于单 Agent</li>
+        <li>RAG 空结果时有没有真的省掉模型费用</li>
+        <li>不同 model 的成本差异有没有被正确记录</li>
+      </ul>
+
+      <h3>11.2 Tracing</h3>
+      <p>Tracing 不是“顺手记个日志”这么简单，而是把一次对话的内部动作包成一棵可视化的 span 树。它关心的是：请求是怎么进来的、模型问了几轮、工具怎么执行的、哪一步出了问题。</p>
+
+      <h4>11.2.1 第一步：先决定这次请求要不要上报</h4>
+      <ul>
+        <li><code>server/tracing/langsmith.ts</code> 先读 <code>LANGCHAIN_TRACING_V2</code>、<code>LANGSMITH_TRACING_V2</code> 等环境变量</li>
+        <li>只要其中任一路径为 <code>true</code>，就进入 tracing 模式</li>
+        <li>没开 tracing 时，代码仍然正常跑，只是不把 span 发到 LangSmith</li>
+      </ul>
+
+      <h4>11.2.2 第二步：整段 ReAct 请求先包成根 span</h4>
+      <p><code>runConversation()</code> 在最外层会调用 <code>traceChatRequest()</code>：</p>
+      <ul>
+        <li>根 span 名称是 <code>chat-request</code></li>
+        <li>它对应一次完整的 <code>/api/chat</code> 请求</li>
+        <li><code>processInputs</code> 只记最后一条用户问题的摘要，不把整段 messages 全塞进去</li>
+        <li>这样 LangSmith 列表里能一眼看出这是哪一次问话</li>
+      </ul>
+
+      <h4>11.2.3 第三步：每次 askModel 都再包一层 span</h4>
+      <p>ReAct 里每次问模型，都会进 <code>traceAskModel()</code>：</p>
+      <ul>
+        <li>它包住的是 <code>requestCompletion()</code> 这一层真实 LLM 请求</li>
+        <li>span 的 <code>turn</code>、<code>model</code>、<code>message_count</code>、<code>search_docs</code> 都会记进去</li>
+        <li>模型有没有发出 <code>tool_calls</code>，也会在输出摘要里显示</li>
+        <li>这样你能看见到底是第几轮把工具调出来的</li>
+      </ul>
+
+      <h4>11.2.4 第四步：每个工具调用单独成 span</h4>
+      <p>工具不是在模型里“黑箱执行”的，而是由 <code>traceToolRun()</code> 单独包起来：</p>
+      <ul>
+        <li><code>applyToolCalls.ts</code> 调 <code>runToolWithTracing()</code></li>
+        <li>如果 tracing 开着，就进 <code>traceToolRun()</code></li>
+        <li>span 里会记录工具名、参数、是否报错、结果预览</li>
+        <li>这一步能直接看出：模型到底调用了天气、时间，还是调用错了工具</li>
+      </ul>
+
+      <h4>11.2.5 第五步：LangSmith 里看到的是整棵链路树</h4>
+      <p>最终在 LangSmith 面板里，你会看到的是：</p>
+      <ul>
+        <li>根节点：一次聊天请求</li>
+        <li>子节点：第 1 轮、第 2 轮、第 3 轮 askModel</li>
+        <li>孙节点：每次工具执行 span</li>
+      </ul>
+      <p>也就是说，Tracing 真正做的事情是把“模型怎么想、工具怎么跑”拆成可回放的流程，而不是只留一句“调用了某工具”。</p>
+
+      <h3>11.3 Evals</h3>
+      <p>Evals 不是简单的“跑一遍看看”，而是把固定样本喂给当前实现，再按规则判定这次改动有没有把老行为弄坏。</p>
+
+      <h4>11.3.1 第一步：先准备数据集</h4>
+      <ul>
+        <li>单 Agent 的样本放在 <code>evals/dataset.json</code></li>
+        <li>多 Agent 的样本放在 <code>evals/dataset-multi.json</code></li>
+        <li>每条样本都包含固定的 <code>messages</code>、开关参数和期望结果</li>
+      </ul>
+
+      <h4>11.3.2 第二步：评测脚本直接调用真实实现</h4>
+      <ul>
+        <li><code>scripts/run-evals.ts</code> 直接调用 <code>createChatStream()</code></li>
+        <li><code>scripts/run-evals-multi.ts</code> 直接调用 <code>compileMultiAgentGraph()</code></li>
+        <li>这意味着 eval 不是测 UI，也不是测 HTTP，而是直接测后端编排逻辑</li>
+        <li>运行前要求 <code>LLM_API_KEY</code> 可用，且 <code>MOCK_MODE</code> 不能开</li>
+      </ul>
+
+      <h4>11.3.3 第三步：把运行结果收集成可判分数据</h4>
+      <p>每条样本跑完后，脚本会把结果整理成一条 run 记录：</p>
+      <ul>
+        <li>单 Agent 记录 <code>output</code>、<code>tools</code>、<code>error</code></li>
+        <li>多 Agent 记录 <code>output</code>、<code>routedWorkers</code>、<code>tools</code>、<code>error</code></li>
+        <li>这些结果都来自真实执行过程，不是人工填的答案</li>
+      </ul>
+
+      <h4>11.3.4 第四步：用规则判分，不让模型自己判自己</h4>
+      <ul>
+        <li>单 Agent 用 <code>evals/evaluators.ts</code> 判 <code>toolsInclude</code>、<code>toolsExclude</code>、<code>mustNotMatch</code></li>
+        <li>多 Agent 还会额外判 <code>routeIncludes</code>、<code>routeExcludes</code></li>
+        <li>判分结果只看 pass / fail，不让另一个模型来当裁判</li>
+      </ul>
+
+      <h4>11.3.5 第五步：输出 pass / fail 和失败原因</h4>
+      <p>脚本最后会打印每条样本的结果：</p>
+      <ul>
+        <li>通过就显示 <code>PASS</code></li>
+        <li>失败就列出原因，比如工具缺失、路由不对、输出命中禁则</li>
+        <li>还会附上工具路径和输出预览，方便你回头定位是哪一步坏了</li>
+      </ul>
+      <p>所以 Evals 的真正作用是：<strong>把“这次改动有没有回退”变成可重复检查的流程</strong>，而不是靠手动聊天碰运气。</p>
+
+      <h3>11.4 防护层</h3>
+      <p>防护层不是独立的一块“安全模块”，而是分布在请求生命周期的几个关键关口：输入进来先看一遍，工具执行前再看一遍，模型输出前再看一遍，知识库搜索也有自己的兜底。这样做的目标是：<strong>把危险拦在不同阶段，而不是等最后才统一补救</strong>。</p>
+
+      <h4>11.4.1 第一道：输入层检测</h4>
+      <p>用户消息刚进 <code>server/chat.ts</code> 时，系统会先看最后一条 user 有没有明显的注入意图：</p>
+      <ul>
+        <li><code>detectInjection()</code> 只做风险标记，不直接改写用户输入</li>
+        <li>命中 high / medium 后，会通过 <code>injection_detected</code> 事件告诉前端</li>
+        <li>这样 UI 能知道这一轮为什么被标高风险，但对话还可以继续正常跑</li>
+        <li>它的作用更像“先打标签”，不是“直接拦截全部可疑输入”</li>
+      </ul>
+
+      <h4>11.4.2 第二道：知识库搜索前的判空与降级</h4>
+      <p>如果用户勾了“搜索知识库”，<code>prefetchSearchDocsIfEnabled()</code> 会在第一轮 askModel 之前先去检索：</p>
+      <ul>
+        <li>先拿最后一条 user 当 question</li>
+        <li>把检索结果写入本轮 system，而不是伪造一条 assistant 回复</li>
+        <li>如果检索出错或资料为空，直接返回 <code>empty: true</code>，让 <code>runConversation()</code> 用固定文案结束</li>
+        <li>这一步的目的，是避免模型在“没资料”的时候继续硬编文档名、章节号和引用</li>
+      </ul>
+
+      <h4>11.4.3 第三道：工具调用前的白名单校验</h4>
+      <p>模型决定要调工具之后，还不能直接执行，必须先过 <code>validateToolCall()</code>：</p>
+      <ul>
+        <li>先检查工具名是否在白名单里，防止模型幻觉出不存在的函数</li>
+        <li>再检查参数长度，防止超长 payload 注入</li>
+        <li>最后验证参数是不是合法 JSON</li>
+        <li>如果任何一项失败，就直接回填 <code>{ error }</code>，不真正执行工具</li>
+      </ul>
+
+      <h4>11.4.4 第四道：工具执行时的连续失败兜底</h4>
+      <p>即便工具名和参数都合法，也不代表它一定要一直跑下去。<code>applyToolCalls()</code> 里还有一层连续失败控制：</p>
+      <ul>
+        <li>同一个工具如果连续失败，<code>ConsecutiveFailureTracker</code> 会记住</li>
+        <li>达到阈值后，后续相同工具不再真的执行，而是直接回填停止说明</li>
+        <li>这样能避免模型死磕一个一直失败的工具，拖着整轮对话不结束</li>
+      </ul>
+
+      <h4>11.4.5 第五道：输出层泄露检测</h4>
+      <p>当模型准备把最终答案交给前端时，还会再过一遍 <code>detectLeakage()</code>：</p>
+      <ul>
+        <li>它会在输出里找 system prompt 的关键指纹</li>
+        <li>如果命中多个关键短语，就判定为泄露</li>
+        <li>这时不会把原文直接给前端，而是替换成安全文案</li>
+        <li>同时还会发出 <code>output_leak_blocked</code> 事件，方便前端和 tracing 一起观察</li>
+      </ul>
+
+      <h4>11.4.6 这几道防护合在一起的顺序</h4>
+      <ol>
+        <li>用户输入先经过注入检测</li>
+        <li>如果开了知识库，再先做检索判空</li>
+        <li>模型决定调工具后，再做工具白名单和参数校验</li>
+        <li>工具执行如果一直失败，就启用连续失败兜底</li>
+        <li>模型最终输出前，再做一次泄露检测</li>
+      </ol>
+      <p>所以这节的核心不是“有几个安全点”，而是<strong>每一层各自挡什么、挡在流程的哪个位置</strong>。这样你看代码时，就不会把它们混成一个抽象的安全概念。</p>
+
+      <h4>11.4.7 多 Agent 的防护链路</h4>
+      <p>多 Agent 不是“把多个模型并在一起”这么简单，它同样有自己的防护链路，而且和单 Agent 的防护思路一致：<strong>先路由，再执行，再汇总，每一层都有限制</strong>。</p>
+      <ol>
+        <li>用户问题先进入 <code>Supervisor</code>，由它判断应该交给哪些 Worker。</li>
+        <li><code>supervisorRoute()</code> 会强制模型通过 <code>route</code> 工具输出结构化结果；如果 LLM 调用失败、没有调用工具、JSON 解析失败、或者 worker 名称不在白名单里，都会兜底到 <code>general</code>。</li>
+        <li>真正执行任务时，每个 Worker 只能使用自己的工具白名单：<code>realtime</code> 只能查天气和时间，<code>kb</code> 只能搜知识库，<code>general</code> 不带工具，互相不能越权。</li>
+        <li>Worker 真正调用工具前，还会再过一层 <code>runToolSafely()</code>。这里会先跑 <code>validateToolCall()</code>，检查工具名、参数长度和 JSON 合法性，拒绝后只回填 <code>{ error }</code>，不会真的执行。</li>
+        <li>每个 Worker 内部都有自己的 mini-ReAct 循环，但都带最大轮次限制。以 <code>realtimeWorker</code> 和 <code>kbWorker</code> 为例，最多只跑 3 轮，避免模型一直卡在“继续想一想”的循环里。</li>
+        <li>所有 Worker 执行完以后，<code>aggregate()</code> 会先整理各个结果，再决定是直接透传还是调用模型汇总。这里不是简单拼接，而是把多源信息重新组织成一段连贯回答。</li>
+        <li>最终输出在返回前还会再过一遍 <code>detectLeakage()</code>。如果汇总结果里碰到 system prompt 或 Worker prompt 的泄露痕迹，就会被替换成安全文案，不直接暴露给前端。</li>
+        <li>如果汇总模型本身失败，<code>aggregate()</code> 也不会直接断掉，而是退回到简单拼接，保证信息尽量不断。</li>
+      </ol>
+      <p>所以多 Agent 的防护不是额外挂一个“安全开关”，而是把<strong>路由、工具、执行轮次、汇总输出</strong>这四个位置都卡住。这样即使某一层出问题，整条链路也不会失控。</p>
+    </section>
+
+    <section class="card">
+      <h2>12. 一次完整请求的执行顺序</h2>
+      <p>下面是最常见的普通聊天流程，从用户点发送到最终消息显示：</p>
+      <pre>用户输入
+  → useChat.send()
+    → 追加 user message
+    → 普通聊天：runStream()
+      → streamChat()
+        → POST /api/chat 或 /api/chat/multi
+          → server/index.ts
+            → registerRoutes(app)
+              → routes/chat.ts 或 routes/chatMulti.ts
+                → createChatStream() / compileMultiAgentGraph()
+                  → 裁剪上下文、检测注入、决定 Mock/API
+                  → 单 Agent：runConversation()
+                    → askModel → applyTools → askModel → reply
+                  → 多 Agent：supervisor → workers → aggregate
+                  → SSE 逐段回传 delta / tool trace / usage
+        → 前端把 delta 拼到 assistant 占位消息
+      → 完成后保留最终消息
+
+RAG 请求则是另一条路：
+  → useChat.send()
+    → runRag()
+    → POST /api/rag/chat
+      → routes/ragChat.ts
+        → answerFromDocs()
+          → retrieveForAnswer()
+          → 空结果：直接返回固定文案
+          → 有结果：buildRagPrompt() + completeRagMessages()
+        → JSON 返回 answer / hits / usage</pre>
+    </section>
+
+    <section class="card">
+      <h2>13. 一些设计上的判断</h2>
+      <ul>
+        <li>普通聊天、RAG、多 Agent 分成不同入口，是合理的，能减少互相污染</li>
+        <li>前端只做展示和状态管理，后端做编排和安全约束，是合理的职责划分</li>
+        <li>知识库检索和工具调用不要混成一条链路，否则调试会很痛苦</li>
+        <li>上下文裁剪、system prompt 固定、空结果兜底，这三层对稳定性很关键</li>
+      </ul>
+      <div class="note good">
+        总体来看，这套实现已经不是“能跑”而已，而是已经具备一套相当完整的 AI 应用工程样板。
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>14. 按文件逐个讲解</h2>
+      <p>这一章不再讲整体概念，而是按文件拆开，告诉你每个文件到底负责什么、输入是什么、输出是什么、和谁对接。</p>
+
+      <h3>14.1 <code>src/composables/useChat.ts</code></h3>
+      <p>这是前端的状态中枢。页面上所有和聊天有关的动作，最后都会落到这个文件里。</p>
+      <ul>
+        <li>维护 <code>messages</code>、<code>model</code>、<code>ragMode</code>、<code>searchKb</code>、<code>error</code>、<code>toolTrace</code>、<code>lastUsage</code></li>
+        <li><code>send()</code> 负责把用户输入变成一轮完整会话</li>
+        <li><code>runStream()</code> 负责普通聊天的流式请求</li>
+        <li><code>runRag()</code> 负责资料问答的 JSON 请求</li>
+        <li><code>retry()</code>、<code>stop()</code>、<code>clear()</code>、<code>setRagMode()</code> 负责会话控制</li>
+      </ul>
+      <p>它的输入是 UI 状态和用户输入，输出是已经组织好的消息列表和请求动作。你可以把它理解成“前端聊天控制台”。</p>
+
+      <h3>14.2 <code>src/api/chat.ts</code></h3>
+      <p>这是前端网络层，专门负责和后端的 SSE 接口对接。</p>
+      <ul>
+        <li><code>streamChat()</code> 负责 POST 请求和 SSE 解析</li>
+        <li>把服务端返回的 <code>delta</code> 拼回 assistant 文本</li>
+        <li>把 <code>usage</code> 转成前端统计面板能显示的数据</li>
+        <li>把 <code>tool_call</code> / <code>tool_result</code> 转成调试轨迹</li>
+        <li><code>fetchHealth()</code> 负责探测后端当前模式</li>
+      </ul>
+      <p>它的核心价值不是“发请求”，而是<strong>把流式事件转换成前端状态变化</strong>。</p>
+
+      <h3>14.3 <code>server/index.ts</code></h3>
+      <p>这是后端启动入口，职责很轻。</p>
+      <ul>
+        <li>加载环境变量</li>
+        <li>创建 Express 实例</li>
+        <li>挂 JSON 中间件</li>
+        <li>注册所有路由</li>
+        <li>启动监听并打印运行模式</li>
+      </ul>
+      <p>它不做业务编排，只负责把服务拉起来。读这个文件时，重点看“接线”，不要期待这里有具体聊天逻辑。</p>
+
+      <h3>14.4 <code>server/routes/index.ts</code></h3>
+      <p>这是路由汇总层，作用很单纯：统一把各个 endpoint 挂到 Express 上。</p>
+      <ul>
+        <li>挂载 <code>/api/usage</code></li>
+        <li>挂载 <code>/api/health</code></li>
+        <li>挂载 <code>/api/rag/chat</code></li>
+        <li>挂载 <code>/api/chat</code></li>
+        <li>挂载 <code>/api/chat/multi</code></li>
+      </ul>
+
+      <h3>14.5 <code>server/routes/chat.ts</code></h3>
+      <p>这是单 Agent 聊天入口，负责把普通聊天请求送进 ReAct 主链路。</p>
+      <ul>
+        <li>校验请求体里的 <code>messages</code></li>
+        <li>设置 SSE 响应头</li>
+        <li>创建请求级 <code>UsageAccumulator</code></li>
+        <li>调用 <code>createChatStream()</code></li>
+        <li>把 <code>delta</code>、<code>trace</code>、<code>usage</code> 写回前端</li>
+      </ul>
+
+      <h3>14.6 <code>server/chat.ts</code></h3>
+      <p>这个文件是单 Agent 的前置整理层，负责把模型真正要吃的数据收口。</p>
+      <ul>
+        <li>拼装固定的 system prompt</li>
+        <li>根据 <code>searchDocs</code> 决定是否加知识库提示</li>
+        <li>做输入注入检测</li>
+        <li>调用 <code>clipMessages()</code> 裁剪上下文</li>
+        <li>在 Mock / API 两条路径之间分流</li>
+      </ul>
+
+      <h3>14.7 <code>server/react/runConversation.ts</code></h3>
+      <p>这是 ReAct 的主编排文件，真正实现“问模型 -> 调工具 -> 再问模型”的循环。</p>
+      <ul>
+        <li><code>askModel</code> 问一次模型</li>
+        <li><code>applyTools</code> 执行模型请求的工具</li>
+        <li><code>reply</code> 把最终文字交给前端</li>
+        <li>用 <code>MAX_MODEL_TURNS</code> 控制循环上限</li>
+      </ul>
+
+      <h3>14.8 <code>server/rag/answer.ts</code></h3>
+      <p>这是 RAG 的问答入口，负责把检索和回答串成一条清晰链路。</p>
+      <ul>
+        <li>调用 <code>retrieveForAnswer()</code></li>
+        <li>把召回结果转成可展示的 <code>hits</code></li>
+        <li>判空时直接返回固定文案</li>
+        <li>命中时调用 <code>completeRagMessages()</code></li>
+        <li>最后输出 <code>answer</code>、<code>hits</code>、<code>usage</code></li>
+      </ul>
+
+      <h3>14.9 <code>server/rag/prompt.ts</code> 与 <code>server/rag/retrieve.ts</code></h3>
+      <p>这两个文件一个管 prompt，一个管检索。</p>
+      <ul>
+        <li><code>retrieve.ts</code> 负责向量召回、判空、重排</li>
+        <li><code>prompt.ts</code> 负责把资料块和历史消息组进 RAG prompt</li>
+        <li>两者合起来，才构成“先找资料，再让模型回答”</li>
+      </ul>
+
+      <h3>14.10 <code>server/multi-agent/graph.ts</code></h3>
+      <p>这是多 Agent 的主图文件，负责把 Supervisor、Worker 和 Aggregate 串起来。</p>
+      <ul>
+        <li>Supervisor 先做路由决策，把用户问题分发给合适的 Worker</li>
+        <li>Worker 在自己的能力边界内并行执行，结果写回图状态</li>
+        <li>Aggregate 接收所有 Worker 的结果，整合为最终回复</li>
+        <li>整个过程通过图状态对象传递中间态，便于统一记录 token 和调试日志</li>
+      </ul>
+      <p>这一层本身不负责具体安全判断，但它把 <code>supervisorRoute()</code>、各个 Worker 和 <code>aggregate()</code> 串成了一条固定顺序的链路，防护逻辑就分散在这三个节点里分别完成。</p>
+
+      <h3>14.11 <code>server/usage/accumulator.ts</code></h3>
+      <p>这个文件负责请求级 Token 累加。</p>
+      <ul>
+        <li>接收每次 LLM 调用的 usage</li>
+        <li>合并 prompt / completion / total</li>
+        <li>估算成本</li>
+        <li>生成前端可展示的 usage 摘要</li>
+      </ul>
+
+      <h3>14.12 <code>server/routes/sse.ts</code> 与 <code>server/routes/usage.ts</code></h3>
+      <p>前者负责 SSE 输出格式，后者负责 Token 记录的读写接口。</p>
+      <ul>
+        <li><code>setSseHeaders()</code> 让浏览器按流处理响应</li>
+        <li><code>writeUsageToStream()</code> 把 Token 统计写回 SSE</li>
+        <li><code>/api/usage</code> 让你能查看累计记录，必要时也能清空</li>
+      </ul>
+
+      <h3>14.13 <code>server/tools/*</code></h3>
+      <p>工具目录负责把天气、时间、知识库检索等能力包装成模型可以调用的工具。</p>
+      <ul>
+        <li>定义工具 schema</li>
+        <li>执行工具逻辑</li>
+        <li>把工具注册进模型调用链</li>
+      </ul>
+
+      <h3>14.14 <code>server/guard/*</code> 与 <code>server/tracing/*</code></h3>
+      <p>这两类文件分别负责安全和观测。</p>
+      <ul>
+        <li><code>guard</code> 处理输入注入、输出泄露</li>
+        <li><code>tracing</code> 处理请求链路追踪</li>
+      </ul>
+
+      <div class="note good">
+        这一章写完之后，文档就从“讲流程”进一步变成了“按文件读代码”的手册。后面如果你愿意，还可以再继续把每个文件里的关键方法单独拆开。
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>15. 你可以怎么继续读这份代码</h2>
+      <ol>
+        <li>先看 <code>useChat.ts</code>，理解前端状态是怎么拼起来的</li>
+        <li>再看 <code>src/api/chat.ts</code>，理解 SSE 事件是怎么重组的</li>
+        <li>然后看 <code>server/index.ts</code> 和 <code>server/routes/*</code>，理解路由怎么接起来</li>
+        <li>接着看 <code>server/chat.ts</code>、<code>runConversation.ts</code>、<code>rag/answer.ts</code></li>
+        <li>最后再看 <code>multi-agent</code>、<code>usage</code>、<code>tools</code>、<code>guard</code>、<code>tracing</code></li>
+      </ol>
+    </section>
+
+    <div class="footer">
+      文档位置：<code>/Users/ahmin/Downloads/ower/LLM/code-manual.html</code><br />
+    </div>
+  </div>
+</body>
+</html>
