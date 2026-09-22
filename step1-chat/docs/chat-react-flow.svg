@@ -107,24 +107,24 @@
   </g>
 
   <g transform="translate(40, 600)">
-    <text x="0" y="0" class="phase">3. ReAct：LangSmith 根 span + askModel 计费</text>
+    <text x="0" y="0" class="phase">3. ReAct：语义 C prefetch + LangSmith（chat-request / chat-prefetch / chat-llm）</text>
     <rect x="690" y="24" width="380" height="100" rx="8" fill="#d1fae5" stroke="#059669"/>
     <text x="880" y="48" text-anchor="middle" class="box">runConversation</text>
     <text x="880" y="66" text-anchor="middle" class="box-sub">traceChatRequest?（开关开时）</text>
-    <text x="880" y="84" text-anchor="middle" class="box-sub">prefetch → graph.invoke</text>
+    <text x="880" y="84" text-anchor="middle" class="box-sub">prefetch(语义C) → graph.invoke</text>
     <text x="880" y="106" text-anchor="middle" class="file">runConversation.ts</text>
 
     <line x1="1070" y1="74" x2="1110" y2="74" stroke="#db2777" stroke-width="1.5" marker-end="url(#arrow)"/>
     <rect x="1110" y="24" width="310" height="100" rx="8" fill="#fce7f3" stroke="#db2777"/>
     <text x="1265" y="52" text-anchor="middle" class="box">LangSmith: chat-request</text>
-    <text x="1265" y="70" text-anchor="middle" class="box-sub">run_type: chain</text>
+    <text x="1265" y="70" text-anchor="middle" class="box-sub">± chat-prefetch（勾选时）</text>
     <text x="1265" y="88" text-anchor="middle" class="box-sub">LANGCHAIN_TRACING_V2</text>
     <text x="1265" y="106" text-anchor="middle" class="file">tracing/langsmith.ts</text>
 
     <rect x="690" y="150" width="380" height="120" rx="8" fill="#d1fae5" stroke="#059669"/>
     <text x="880" y="174" text-anchor="middle" class="box">askModel → requestCompletion</text>
-    <text x="880" y="192" text-anchor="middle" class="box-sub">traceAskModel? 包一层 llm span</text>
-    <text x="880" y="210" text-anchor="middle" class="box-sub">parseUsageFromResponse</text>
+    <text x="880" y="192" text-anchor="middle" class="box-sub">span 名 chat-llm（≠ 节点 askModel）</text>
+    <text x="880" y="210" text-anchor="middle" class="box-sub">tools 永不挂 searchDocs；thinking 默认关</text>
     <text x="880" y="228" text-anchor="middle" class="box-sub">→ onUsage → acc.record(askModel)</text>
     <text x="880" y="250" text-anchor="middle" class="file">complete.ts · parseUsage.ts</text>
 
@@ -192,15 +192,15 @@
     <rect x="10" y="0" width="1420" height="160" rx="10" fill="#fff" stroke="#cbd5e1"/>
     <text x="30" y="32" class="phase">浓缩调用链（含横切）</text>
     <text x="30" y="60" class="box">UsageAccumulator + ConfirmSession → createChatStream → detectInjection(onTrace)</text>
-    <text x="30" y="84" class="box">→ traceChatRequest? → askModel(traceAskModel? + parseUsage) ↔ applyToolCalls(validateToolCall + wait? + runToolWithTracing + onTrace)</text>
+    <text x="30" y="84" class="box">→ chat-request? → [chat-prefetch?] → askModel(chat-llm + parseUsage) ↔ applyToolCalls(…)</text>
     <text x="30" y="108" class="box">→ reply(detectLeakage + onDelta) → writeUsageToStream → [DONE] → dispose</text>
-    <text x="30" y="140" class="note">横切总览：crosscutting-token-guard-trace-flow.svg</text>
+    <text x="30" y="140" class="note">语义 C：勾选搜索只走 prefetch，ReAct 不挂 searchDocs · 横切：crosscutting-token-guard-trace-flow.svg</text>
   </g>
 
   <g transform="translate(40, 1940)">
     <text x="0" y="0" class="phase">附：业务主链简图（与横切并行）</text>
     <rect x="10" y="20" width="1420" height="120" rx="10" fill="#ecfdf5" stroke="#059669"/>
-    <text x="30" y="52" class="box">clipMessages → [prefetch?] → askModel ↔ applyTools → reply</text>
+    <text x="30" y="52" class="box">clipMessages → [prefetch 语义C?] → askModel ↔ applyTools(无 searchDocs) → reply</text>
     <text x="30" y="80" class="box-sub">Mock/无 Key → streamMock + onTrace(degradation)，无 Usage / 无 LangSmith 真 span</text>
     <text x="30" y="108" class="box-sub">人工确认旁路详见 human-confirm-flow.svg（confirm 路由本身不计 Token）</text>
   </g>

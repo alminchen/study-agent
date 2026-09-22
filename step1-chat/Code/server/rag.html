@@ -209,7 +209,7 @@
           </tbody>
         </table>
         <p class="flow"><strong>上游</strong>：ingest / <code>retrieve</code> · <strong>下游</strong>：<code>StoredChunk.embedding</code> / <code>store.search(queryVec)</code></p>
-        <div class="why">问句与入库必须走同一个 embed；漏掉 mean pooling 或 normalize 会直接搜不准。本地模型目录避免运行时拉网。</div>
+        <div class="why">问句与入库必须走同一个 embed；漏掉 mean pooling 或 normalize 会直接搜不准。本地模型目录避免运行时拉网。<code>warmEmbed</code> + <code>RAG_WARMUP</code> 消灭首次冷启动。</div>
       </div>
 
       <div class="method">
@@ -437,7 +437,9 @@
           <li>候选为空 → 双空数组。</li>
           <li>懒加载 tokenizer + AutoModelForSequenceClassification（local、q8）。</li>
           <li>对每条：<code>tok(question, { text_pair: chunk.text, truncation, max_length: 512 })</code> → 模型 → 读 logit。</li>
+          <li><strong>串行改分批</strong>：按 <code>RERANK_BATCH_SIZE</code>（默认 8）批量 tokenizer + model；单批失败回退串行。</li>
           <li>保留原向量 <code>score</code>，写入 <code>rerankScore</code>；按 rerankScore 降序。</li>
+          <li><code>warmRerank</code>：启动预热用；由 <code>warmup.ts</code> / <code>RAG_WARMUP</code> 触发。</li>
           <li><code>injected = ranked.slice(0, keep)</code>，<code>rankedAll = ranked</code>。</li>
         </ol>
         <table class="params">

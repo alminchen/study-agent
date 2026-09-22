@@ -99,7 +99,7 @@
         <div class="sig">export interface ReactLoopOptions { messages; model?; signal?; baseUrl?; onDelta; onTrace?; searchDocs?; onUsage?; confirmSession? }</div>
         <ol class="steps">
           <li>ReAct 循环最小选项，不绑死 chat.ts 的全部 CreateChatStreamOptions。</li>
-          <li>searchDocs=true：prefetch + tools 含 searchDocs。</li>
+          <li>searchDocs=true：prefetch 强制检索写 system（语义 C）；requestCompletion 固定不挂 searchDocs。</li>
           <li>confirmSession 传入才启用确认通道。</li>
         </ol>
         <p class="flow"><strong>上游</strong>：createChatStream · <strong>下游</strong>：runConversation / requestCompletion / applyToolCalls</p>
@@ -116,7 +116,7 @@
         <ol class="steps">
           <li>必须按请求现组：节点闭包本请求的 options/apiKey/failures，禁止模块级单例。</li>
           <li>声明状态 Annotation：messages、turn、toolCalls、assistantContent、assistantReasoningContent、finalText。</li>
-          <li>节点 askModel：requestCompletion（可包 LangSmith traceAskModel）；无 tool_calls → finalText=文字；有工具且未到上限 → finalText=null + 保存 toolCalls；达 MAX_MODEL_TURNS=5 → 停止文案。</li>
+          <li>节点 askModel：requestCompletion（可包 LangSmith <code>chat-llm</code> span；工具轮 thinking 默认 disabled）；无 tool_calls → finalText=文字；有工具且未到上限 → finalText=null + 保存 toolCalls；达 MAX_MODEL_TURNS=5 → 停止文案。</li>
           <li>节点 applyTools：pushAssistantWithTools（含 reasoning_content）→ applyToolCalls → turn+1。</li>
           <li>节点 reply：searchDocs 时 normalizeKnowledgeAnswer → detectLeakage → onDelta(safeText)。</li>
           <li>边：START→askModel；条件边 ask→applyTools|reply；applyTools→askModel；reply→END。</li>
@@ -190,7 +190,8 @@
         <div class="name">requestCompletion</div>
         <div class="sig">export async function requestCompletion(messages, options, apiKey): Promise&lt;CompletionResult&gt;</div>
         <ol class="steps">
-          <li>按 searchDocs / confirmSession 决定 tools：<code>toolSchemasForChat(includeSearchDocs, includeConfirmTools)</code>。</li>
+          <li>按 confirmSession 决定是否挂 draft_message：<code>toolSchemasForChat(<strong>false</strong>, includeConfirmTools)</code>（语义 C：chat 路径永不挂 searchDocs）。</li>
+          <li>工具轮默认 <code>thinking: { type: "disabled" }</code>（<code>LLM_TOOL_TURN_THINKING=keep</code> 可关）。</li>
           <li>POST chat/completions：stream:false，tool_choice:"auto"（不指定函数名——思考模式不支持）。</li>
           <li>按 HTTP 状态映射中文错误（400/401/403/429/5xx）。</li>
           <li>parseUsage → onUsage；返回 choices[0] 与 usage。</li>
@@ -383,7 +384,8 @@
           <li>结果含 error → empty=true（系统故障 vs 业务判空用 isSystemError）。</li>
           <li>重排降级时 onTrace degradation。</li>
           <li>有资料：appendToSystem（写进本轮 system，不伪造 tool_calls）。</li>
-          <li>P0：判空由 runConversation 直接固定文案结束，不再注入让模型编造文档名。</li>
+          <li>P0 语义 C：判空由 runConversation 直接固定文案结束；有资料只写 system，<strong>不</strong>把 searchDocs 再交给 ReAct。</li>
+          <li>LangSmith：经 <code>runPrefetchWithTracing</code> 打 <code>chat-prefetch</code>；聊天路径可用 <code>CHAT_CANDIDATE_K</code>。</li>
         </ol>
         <table class="params">
           <thead><tr><th>参数</th><th>说明</th></tr></thead>
@@ -394,7 +396,7 @@
           </tbody>
         </table>
         <p class="flow"><strong>上游</strong>：runConversation · <strong>下游</strong>：system 注入或提前结束</p>
-        <div class="why">结果进 system 不进对话历史：下一轮取消勾选后模型不能把旧资料口吻当成本轮已检索。</div>
+        <div class="why">语义 C：prefetch 保证勾选必检索；模型侧只剩天气/时间等工具，避免「已检索还再想要不要调 searchDocs」。</div>
       </div>
     </div>
 

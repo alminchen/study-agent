@@ -281,8 +281,8 @@
     <line x1="720" y1="200" x2="760" y2="200" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
 
     <rect x="760" y="160" width="200" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
-    <text x="860" y="186" text-anchor="middle" class="box">traceAskModel</text>
-    <text x="860" y="204" text-anchor="middle" class="box-sub">llm span × turn</text>
+    <text x="860" y="186" text-anchor="middle" class="box">chat-llm / multi-llm</text>
+    <text x="860" y="204" text-anchor="middle" class="box-sub">± chat-prefetch</text>
 
     <line x1="960" y1="200" x2="1000" y2="200" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
 
@@ -292,8 +292,8 @@
     <text x="1100" y="222" text-anchor="middle" class="file">runToolWithTracing</text>
 
     <rect x="1220" y="160" width="160" height="80" rx="8" fill="#ecfdf5" stroke="#059669"/>
-    <text x="1300" y="196" text-anchor="middle" class="ok">rag ✅</text>
-    <text x="1300" y="214" text-anchor="middle" class="box-sub">multi 仍缺</text>
+    <text x="1300" y="196" text-anchor="middle" class="ok">三端点 ✅</text>
+    <text x="1300" y="214" text-anchor="middle" class="box-sub">chat/multi/rag</text>
   </g>
 
   <!-- ========== D. Endpoint matrix as 3 swimlane flows ========== -->
@@ -365,9 +365,9 @@
     <rect x="20" y="412" width="160" height="56" rx="6" fill="#fce7f3" stroke="#db2777"/>
     <text x="100" y="445" text-anchor="middle" class="box">LangSmith</text>
     <rect x="200" y="412" width="380" height="56" rx="6" fill="#fff" stroke="#db2777"/>
-    <text x="390" y="445" text-anchor="middle" class="ok">✅ span 树</text>
+    <text x="390" y="445" text-anchor="middle" class="ok">✅ chat-request/prefetch/llm</text>
     <rect x="600" y="412" width="380" height="56" rx="6" fill="#fff" stroke="#cbd5e1"/>
-    <text x="790" y="445" text-anchor="middle" class="na">❌ 未挂</text>
+    <text x="790" y="445" text-anchor="middle" class="ok">✅ multi-request</text>
     <rect x="1000" y="412" width="380" height="56" rx="6" fill="#fff" stroke="#db2777"/>
     <text x="1190" y="445" text-anchor="middle" class="ok">✅ rag-request 树</text>
   </g>
@@ -395,8 +395,8 @@
     <line x1="530" y1="56" x2="560" y2="56" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 
     <rect x="560" y="24" width="150" height="64" rx="8" fill="#e2e8f0" stroke="#64748b"/>
-    <text x="635" y="50" text-anchor="middle" class="box">askModel × N</text>
-    <text x="635" y="68" text-anchor="middle" class="box-sub">+ Token + LS</text>
+    <text x="635" y="50" text-anchor="middle" class="box">prefetch?+llm×N</text>
+    <text x="635" y="68" text-anchor="middle" class="box-sub">语义C · Token</text>
 
     <line x1="710" y1="56" x2="740" y2="56" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>
 

@@ -59,9 +59,9 @@
         </tr>
         <tr>
           <td>LangSmith</td>
-          <td>traceChatRequest / traceAskModel / runToolWithTracing</td>
-          <td>当前未挂包层</td>
-          <td>traceRagRequest / rag-retrieve / rag-llm</td>
+          <td>chat-request → chat-prefetch? → chat-llm / tool（thinking 默认 disabled）</td>
+          <td>multi-request → supervisor/workers/aggregate + multi-llm / tool；searchDocs 勾选 → forceKbSearch</td>
+          <td>rag-request → rag-retrieve / rag-llm</td>
         </tr>
       </table>
       <div class="why">显式挂载是为了学习：打开对应文件就能看见「这一步有没有 Guard」，而不是猜全局 middleware 顺序。</div>

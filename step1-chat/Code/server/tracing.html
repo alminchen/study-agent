@@ -41,12 +41,14 @@
     <div class="card">
       <div class="flow">
         chat-request (chain) ← runConversation 整次 invoke<br />
-        ├─ askModel (llm) turn=1 可能出 getWeather<br />
+        ├─ chat-prefetch? (tool) 勾选搜索知识库时（语义 C）<br />
+        ├─ chat-llm (llm) turn=1 可能出 getWeather（span 名刻意 ≠ 节点 askModel）<br />
         ├─ tool (tool) tool_name=getWeather<br />
-        ├─ askModel turn=2 …<br />
-        └─ askModel turn=N 无 tool_calls → reply
+        ├─ chat-llm turn=2 …<br />
+        └─ chat-llm turn=N 无 tool_calls → reply
       </div>
       <div class="flow">
+        multi：multi-request → multi-supervisor / multi-workers / multi-aggregate + multi-llm / tool<br />
         RAG：rag-request (chain) → rag-retrieve (tool) → rag-llm (llm)
       </div>
       <div class="why">故意截断：messages 全文、API Key、工具结果 &gt;500 字、用户问句 &gt;120 字——防泄密与噪声。</div>
@@ -60,7 +62,7 @@
         <div class="name">isLangSmithTracingEnabled()</div>
         <div class="sig">→ boolean</div>
         <p>检查 <code>LANGCHAIN_TRACING_V2</code> / <code>LANGSMITH_TRACING_V2</code> / <code>LANGCHAIN_TRACING</code> / <code>LANGSMITH_TRACING</code> 任一为 <code>"true"</code>。</p>
-        <div class="flow"><strong>WHERE</strong>：<code>runConversation.ts</code> 决定 askModel 走 traceAskModel 还是直调；<code>runToolWithTracing</code> / RAG 包装器同理；<code>ragChat.ts</code> 决定是否包 <code>traceRagRequest</code>。</div>
+        <div class="flow"><strong>WHERE</strong>：<code>runConversation.ts</code> 决定 askModel 走 <code>traceAskModel</code>（span <code>chat-llm</code>）还是直调；prefetch 走 <code>runPrefetchWithTracing</code>；<code>runToolWithTracing</code> / RAG / multi 包装器同理。</div>
         <div class="why">与 @langchain/core 开关语义对齐，避免只认一个变量名。</div>
       </div>
 
@@ -83,19 +85,26 @@
 
       <div class="method">
         <div class="name">traceAskModel</div>
-        <div class="sig">traceable · "askModel" · llm</div>
+        <div class="sig">traceable · name "<strong>chat-llm</strong>" · llm（函数名仍叫 traceAskModel）</div>
         <table class="params">
           <thead><tr><th>入参</th><th>说明</th></tr></thead>
           <tbody>
             <tr><td><code>turn</code></td><td>当前轮次</td></tr>
             <tr><td><code>messages</code></td><td>仅记 message_count，不上报全文</td></tr>
-            <tr><td><code>options</code></td><td>记 model、search_docs</td></tr>
+            <tr><td><code>options</code></td><td>记 model、search_docs_prefetch</td></tr>
             <tr><td><code>apiKey</code></td><td>传给 requestCompletion，不上报</td></tr>
           </tbody>
         </table>
-        <p>内部调用 <code>requestCompletion</code>；processOutputs 暴露 finish_reason、has_tool_calls、tool_names、content_preview。</p>
+        <p>内部 <code>requestCompletion(..., { disableThinking: true })</code>；processOutputs 暴露 finish_reason、has_tool_calls、tool_names。</p>
         <div class="flow"><strong>WHERE</strong>：runConversation 的 askModel 节点</div>
-        <div class="why">排错「没调时间工具」时先看 has_tool_calls / tool_names，不必翻完整 messages。</div>
+        <div class="why">span 名不用 askModel，避免与 LangGraph 节点同名叠两层；排错先看 has_tool_calls / tool_names。</div>
+      </div>
+
+      <div class="method">
+        <div class="name">runPrefetchWithTracing / traceChatPrefetch</div>
+        <div class="sig">traceable · "chat-prefetch" · tool</div>
+        <p>语义 C：勾选搜索时服务端强制检索的独立 span（candidate_k、hit_count）。</p>
+        <div class="flow"><strong>WHERE</strong>：<code>prefetchSearchDocs.ts</code></div>
       </div>
 
       <div class="method">
@@ -113,7 +122,7 @@
           <li>tracing 关：直接 <code>tool.run</code>，catch → <code>{ error }</code>。</li>
           <li>tracing 开：<code>traceToolRun({ turn, call, run })</code>，同样不往外 throw。</li>
         </ol>
-        <div class="flow"><strong>WHERE</strong>：<code>react/applyToolCalls.ts</code>（单 Agent）。多 Agent 的 <code>runToolSafely</code> <em>当前不挂</em> LangSmith tool span。</div>
+        <div class="flow"><strong>WHERE</strong>：<code>react/applyToolCalls.ts</code>（单 Agent）与 <code>multi-agent/runToolSafely.ts</code>（allow 之后）。</div>
         <div class="why">异常变 <code>{ error }</code> 回填模型，与阶段 4 工具失败策略一致；methods 层保持干净。</div>
       </div>
 
@@ -154,7 +163,7 @@
           <tr><td>受众</td><td>终端用户 / 产品面板</td><td>开发者</td></tr>
           <tr><td>开关</td><td>始终随请求推</td><td>环境变量，默认关</td></tr>
           <tr><td>确认闸门</td><td>pending_confirm 必需</td><td>不参与交互</td></tr>
-          <tr><td>multi</td><td>全套过程 + route/done</td><td>当前未挂 chat-request 树</td></tr>
+          <tr><td>multi</td><td>全套过程 + route/done</td><td>独立 <code>multi-request</code> 树（supervisor / workers / aggregate）；勾选搜索 → forceKbSearch</td></tr>
         </tbody>
       </table>
       <div class="why">混成一套会导致：要么把开发细节推给用户，要么关 LangSmith 后面板也没了。</div>

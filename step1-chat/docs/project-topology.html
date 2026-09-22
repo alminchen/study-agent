@@ -209,9 +209,15 @@
         </tr>
         <tr>
           <td>5 交付页</td>
-          <td><span class="badge now">当前</span></td>
-          <td>调试 / 日志 / 成本专页 + eval 数据集（尚未单独拆页，现有 UsagePanel / ToolTrace）</td>
-          <td>learning-plan §下一步 9</td>
+          <td><span class="badge done">已结</span></td>
+          <td>调试 / 日志 / 成本：现网 <code>ToolTracePanel</code> · <code>UsagePanel</code> · eval 数据集（专页未拆，已验收）</td>
+          <td>learning-plan · study-chat 验收</td>
+        </tr>
+        <tr>
+          <td>post-learning 优化</td>
+          <td><span class="badge done">已结</span></td>
+          <td>语义 C · 工具轮关 thinking · chat-llm/chat-prefetch · forceKbSearch · RAG_WARMUP · RERANK_BATCH</td>
+          <td><a href="./post-learning-optimization-changelog.md">changelog</a> · <code>../post-learning-optimization-plan.md</code></td>
         </tr>
         <tr>
           <td>FastAPI + Docker</td>
@@ -234,9 +240,11 @@ flowchart TB
     RR["registerRoutes(app)"]
     LISTEN["app.listen(HOST, PORT)"]
     CFG["getRuntimeConfig()"]
+    WARM["warmRagModels()<br/>RAG_WARMUP 后台预热"]
   end
   DOT --> APP --> RR --> LISTEN
   LISTEN --> CFG
+  LISTEN --> WARM
 
   subgraph routes["server/routes/index.ts"]
     U["registerUsageRoutes<br/>GET/DELETE /api/usage"]
@@ -262,7 +270,10 @@ flowchart TB
   └─ <span class="m">registerChatMultiRoutes</span>   → POST /api/chat/multi        <span class="e">SSE 多 Agent</span>
 
 <span class="c">// 配置</span>
-<span class="m">getRuntimeConfig</span>() → { apiKey, baseUrl, model, mockMode, forceMock }</div>
+<span class="m">getRuntimeConfig</span>() → { apiKey, baseUrl, model, mockMode, forceMock }
+
+<span class="c">// post-learning：listen 后后台预热（不阻塞端口）</span>
+<span class="m">warmRagModels</span>()  <span class="c">// RAG_WARMUP=1 → embed + rerank；缺模型只 warn</span></div>
   </div>
 
   <!-- ========== 2 ========== -->
@@ -307,7 +318,7 @@ flowchart TB
     <ul class="compact">
       <li><span class="fn">runSseSession</span>：runStream / runRag 共用（Abort、占位气泡、onDelta/onTrace/onUsage/onError 收尾）</li>
       <li><span class="fn">setMultiAgent</span>：选 <code>/api/chat/multi</code> vs <code>/api/chat</code>（与 searchKb <strong>解耦</strong>）</li>
-      <li><span class="fn">setSearchKb</span>：只传 body <code>searchDocs</code>（单 Agent 在 <span class="fn">runConversation</span> 入口 prefetch）</li>
+      <li><span class="fn">setSearchKb</span>：body <code>searchDocs</code>。单 Agent → prefetch（语义 C，模型不挂 searchDocs）；多 Agent → <code>forceKbSearch</code> 强制 kb Worker</li>
       <li><span class="fn">setRagMode</span>：切到 <code>/api/rag/chat</code>，历史键分离；<span class="fn">runRag</span> 会把当前问句从 history 里剥出</li>
       <li><span class="fn">streamChat</span> / <span class="fn">askRag</span>：解析 SSE（delta / rag_meta / pending_confirm / usage / tool / guard 事件）</li>
       <li><span class="fn">askRag</span> 的 <code>rag_meta</code> 含 <code>rewriteMeta / kbRouteMeta / multiQueryMeta / hydeMeta</code> → <code>RagHitPanel</code>「问句增强」区（右侧栏）</li>
@@ -400,15 +411,16 @@ flowchart TB
   │    ├─ <span class="e">[Guard·Input]</span> <span class="m">detectInjection</span>(lastUser) → onTrace(<span class="ok">injection_detected</span>?)
   │    ├─ mock / 无 Key? → onTrace(<span class="ok">degradation</span>) → <span class="m">streamMock</span>
   │    └─ <span class="m">runConversation</span>(options, apiKey)
-  │         ├─ <span class="m">prefetchSearchDocsIfEnabled</span>  <span class="c">// searchDocs===true；在图外、第一次 ask 前</span>
-  │         │    └─ <span class="m">executeSearchDocs</span> → 命中写进本轮 system；判空 → onTrace(<span class="ok">searchDocs_empty</span>) + onDelta，<span class="e">不调 LLM</span>
+  │         ├─ <span class="m">prefetchSearchDocsIfEnabled</span>  <span class="c">// 语义 C：searchDocs===true；图外强制检索</span>
+  │         │    └─ <span class="e">[LangSmith]</span> <span class="m">runPrefetchWithTracing</span> → span <span class="ok">chat-prefetch</span>
+  │         │         └─ <span class="m">executeSearchDocs</span>({ candidateK: CHAT_CANDIDATE_K }) → 注入 system；判空 → onTrace(<span class="ok">searchDocs_empty</span>)，<span class="e">不调 LLM</span>
   │         ├─ LangSmith? → <span class="m">traceChatRequest</span> 包下面整段
   │         ├─ StateGraph: START → askModel ⇄ applyTools → reply → END
   │         ├─ askModel:
-  │         │    ├─ <span class="e">[Trace]</span> tracing? → <span class="m">traceAskModel</span>  <span class="c">// span: askModel</span>
-  │         │    │         └─ 内部仍 <span class="m">requestCompletion</span>
-  │         │    │    else → <span class="m">requestCompletion</span>(messages, options, apiKey)
-  │         │    │         └─ tools: <span class="m">toolSchemasForChat</span>(searchDocs, confirmSession?)
+  │         │    ├─ <span class="e">[Trace]</span> tracing? → <span class="m">traceAskModel</span>  <span class="c">// span 名: chat-llm（≠ 节点名 askModel）</span>
+  │         │    │         └─ 内部仍 <span class="m">requestCompletion</span>（thinking 默认 disabled）
+  │         │    │    else → <span class="m">requestCompletion</span>(…, { disableThinking: true })
+  │         │    │         └─ tools: <span class="m">toolSchemasForChat</span>(<span class="ok">false</span>, confirmSession?)  <span class="c">// 语义 C：永不挂 searchDocs</span>
   │         │    ├─ <span class="e">[Token]</span> <span class="m">parseUsageFromResponse</span> → options.onUsage(usage, model)
   │         │    │         └─ accumulator.record("askModel", …)
   │         │    └─ <span class="m">routeAfterAsk</span> → applyTools | reply
@@ -453,7 +465,7 @@ flowchart TB
     WS["writeSse / onTrace 闭包<br/>invoke 中途可写"]
     INJ["detectInjection → writeSse?"]
     ACC["UsageAccumulator"]
-    COMP["compileMultiAgentGraph({acc, confirmSession, onTrace, writeSse})"]
+    COMP["compileMultiAgentGraph({acc, confirmSession, onTrace, writeSse, forceKbSearch})"]
     INV["graph.invoke(state)"]
     DELTA["writeSse({delta})"]
     WU["writeUsageToStream(chat/multi)"]
@@ -472,7 +484,8 @@ flowchart TB
   SN --> SR["supervisorRoute"]
   SR --> CLLMS["callLLM + route tool"]
   CLLMS --> RD["RouteDecision"]
-  RD --> WSR["writeSse(supervisor_route)"]
+  RD --> FKB["forceKbSearch?<br/>ensureKbWorker"]
+  FKB --> WSR["writeSse(supervisor_route)"]
 
   WN --> GWF["getWorkerFn(name)"]
   GWF --> RT["runRealtimeWorker"]
@@ -518,17 +531,19 @@ flowchart TB
   ├─ <span class="e">[Guard·Input]</span> <span class="m">detectInjection</span> → writeSse(injection_detected?)
   ├─ <span class="e">[Token]</span> <span class="m">new UsageAccumulator</span>()
   ├─ <span class="e">[LangSmith]</span> <span class="m">runMultiRequestWithTracing</span>(userText)  <span class="c">// 根 span: multi-request</span>
-  │    └─ <span class="m">compileMultiAgentGraph</span>({ accumulator, confirmSession, onTrace, writeSse })
+  │    └─ <span class="m">compileMultiAgentGraph</span>({ …, <span class="ok">forceKbSearch: searchDocs===true</span> })
   │         ├─ onUsage = (source) => <span class="m">bindUsageCallback</span>(acc, source, defaultModel)
   │         │    source ∈ <span class="ok">supervisor | worker | aggregate</span>
   │         └─ graph.invoke({ userMessage, apiKey, … })
   │              ├─ <span class="m">supervisorNode</span> → <span class="m">withMultiSupervisorSpan</span>
   │              │    └─ <span class="m">supervisorRoute</span> → <span class="m">callLLM</span>(traceSpan=supervisor) → multi-llm
   │              │         ├─ <span class="e">[Token]</span> parseUsage → onUsage(<span class="ok">"supervisor"</span>) → acc.record
-  │              │         └─ RouteDecision → writeSse(supervisor_route)
+  │              │         ├─ forceKbSearch? → <span class="m">ensureKbWorker</span>（无 kb 则追加）
+  │              │         └─ RouteDecision → writeSse(supervisor_route, forceKbSearch)
   │              ├─ <span class="m">workersNode</span> → <span class="m">withMultiWorkersSpan</span>
   │              │    └─ Promise.all → <span class="m">withMultiWorkerSpan</span>(name) → <span class="m">getWorkerFn</span>
   │              │         ├─ realtime/kb/action → callLLM(traceSpan=worker) ⇄ <span class="m">runToolSafely</span>
+  │              │         │    └─ kb：模型调 <span class="ok">searchDocs</span>（勾选搜索时保证有此 Worker）
   │              │         │    └─ allow 后 <span class="m">runToolWithTracing</span> → LangSmith tool span
   │              │         └─ general → 一次 callLLM（无工具）
   │              │         └─ writeSse(worker_done)
@@ -1089,7 +1104,7 @@ flowchart TB
     C3["ToolGuard ✅"]
     C4["OutputGuard ✅"]
     C5["SSE onTrace ✅"]
-    C6["LangSmith ✅ chat-request/askModel/tool"]
+    C6["LangSmith ✅ chat-request/chat-prefetch/chat-llm/tool"]
   end
   subgraph multi["POST /api/chat/multi"]
     M1["Token ✅ supervisor/worker/aggregate"]
@@ -1145,7 +1160,7 @@ flowchart TB
         </tr>
         <tr>
           <td>LangSmith</td>
-          <td>traceChatRequest / traceAskModel / runToolWithTracing</td>
+          <td>traceChatRequest / chat-prefetch / chat-llm / runToolWithTracing</td>
           <td>traceMultiRequest / multi-llm / runToolWithTracing</td>
           <td>traceRagRequest / rag-retrieve / rag-llm</td>
         </tr>
@@ -1256,13 +1271,15 @@ flowchart LR
   subgraph ls["给开发看 · LangSmith"]
     EN["isLangSmithTracingEnabled"]
     ROOT["traceChatRequest · chat-request"]
-    ASK["traceAskModel · askModel"]
-    TOOL["runToolWithTracing → traceToolRun · tool"]
+    PREF["chat-prefetch · 语义 C"]
+    ASK["traceAskModel · chat-llm"]
+    TOOL["runToolWithTracing → tool"]
     MROOT["traceMultiRequest · multi-request"]
     MLLM["traceMultiLlm · multi-llm"]
   end
   RC["runConversation 仅单 Agent"] --> EN
-  EN -->|true| ROOT --> ASK
+  EN -->|true| ROOT --> PREF
+  ROOT --> ASK
   RC --> applyTools["applyToolCalls"] --> TOOL
   MULTI["chatMulti"] --> EN
   EN -->|true| MROOT --> MLLM
@@ -1277,15 +1294,18 @@ flowchart LR
 
 事件类型见 server/react/types.ts ToolTraceHandler
 
-<span class="c">// B. LangSmith</span>
+<span class="c">// B. LangSmith（post-learning 命名）</span>
 环境: LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY + LANGCHAIN_PROJECT
 
 <span class="m">runConversation</span>（/api/chat）
-  └─ <span class="m">traceChatRequest</span> → askModel / tool spans
+  └─ <span class="m">traceChatRequest</span>
+       ├─ <span class="ok">chat-prefetch</span>（勾选搜索时）
+       ├─ <span class="ok">chat-llm</span>（节点仍叫 askModel；span 刻意不同名）
+       └─ tool
 
 <span class="m">chatMulti</span>（/api/chat/multi）
   └─ <span class="m">traceMultiRequest</span>
-       ├─ multi-supervisor → multi-llm(role=supervisor)
+       ├─ multi-supervisor → multi-llm；forceKbSearch 可补 kb
        ├─ multi-workers → multi-worker → multi-llm + tool
        └─ multi-aggregate → multi-llm(role=aggregate)
 
@@ -1315,26 +1335,27 @@ flowchart LR
   IDX --> names
     </div>
     <ul class="compact">
-      <li><span class="fn">searchDocs</span>：单 Agent 两条路——① prefetch 强制检索写 system；② 模型主动 tool_call 走 <span class="fn">applyToolCalls</span></li>
+      <li><span class="fn">searchDocs</span>：单 Agent <strong>语义 C</strong>——仅 prefetch 强制检索写 system，ReAct <strong>不</strong>再挂工具；多 Agent 勾选搜索 → forceKbSearch → kbWorker 调 searchDocs；MCP 仍可调</li>
       <li><span class="fn">draft_message</span>：仅在有 <span class="fn">ConfirmSession</span> 时通过 <span class="fn">toolSchemasForChat</span> 暴露给模型；多 Agent 由 <span class="fn">actionWorker</span> 调用</li>
-      <li>RAG 专用路径不经过 toolList：内部用 <span class="fn">validateToolCall("searchDocs")</span> + <span class="fn">retrieveForAnswer</span>（语义对齐工具层）</li>
+      <li>RAG 专用路径不经过 toolList：内部用 <span class="fn">validateToolCall("searchDocs")</span> + <span class="fn">retrieveForAnswer</span>（语义对齐工具层）；<code>RERANK_BATCH_SIZE</code> / <code>RAG_WARMUP</code> 见 rag/</li>
     </ul>
   </div>
 
   <!-- ========== 8 ========== -->
-  <h2 id="pending">8. 计划中尚未单独交付（对照 learning-plan）</h2>
+  <h2 id="pending">8. 计划中尚未单独交付（对照 learning-plan / post-learning）</h2>
   <div class="card">
     <ul class="compact">
-      <li><span class="badge now">当前</span> <strong>交付页</strong>：调试页、日志页、成本页 + 整理 eval 数据集（现有面板可先用，专页未拆）</li>
-      <li><span class="badge done">已结</span> 检索前意图/扩写/路由/Multi-Query/HyDE + 单元 8/9 策略对照与回退（见 <a href="#rag-enhance">§6b</a> · <code>rag-query-enhance-notes.md</code>）</li>
-      <li><span class="badge later">后置</span> RAG 上传文档完整应用（现 <code>rag:ingest</code> + 资料问答；见 <code>dynamic-kb-learning-plan.md</code>）</li>
+      <li><span class="badge done">已结</span> <strong>交付页</strong>：现网面板 + eval 数据集（专页未拆，已验收）</li>
+      <li><span class="badge done">已结</span> <strong>post-learning 优化</strong>（study-chat）：语义 C、关 thinking、chat-llm/prefetch、forceKbSearch、预热、rerank batch — 见 <a href="./post-learning-optimization-changelog.md">changelog</a></li>
+      <li><span class="badge done">已结</span> 检索前意图/扩写/路由/Multi-Query/HyDE + 单元 8/9（见 <a href="#rag-enhance">§6b</a>）</li>
+      <li><span class="badge later">后置</span> 最终轮真流式 · MCP schema 单一来源 · UI 双入口收敛 · 关 KB 硬剥离历史</li>
+      <li><span class="badge later">后置</span> RAG 上传文档完整应用（现 <code>rag:ingest</code> + 资料问答）</li>
       <li><span class="badge later">后置</span> FastAPI + Docker</li>
-      <li><span class="badge later">后置</span> 工程优化见 <code>post-learning-optimization-plan.md</code>（学完再做）</li>
     </ul>
   </div>
 
   <footer class="note">
-    生成说明：本页按 <code>learning-plan.md</code> 与仓库现网代码对照整理（2026-09 同步）；方法名以 <code>export function/class</code> 为准。发现遗漏请对照 <code>Code/</code> 模块说明书。
+    生成说明：本页按 <code>learning-plan.md</code>、study-chat <code>post-learning-optimization-changelog.md</code> 与现网代码对照整理（2026-09 同步）；方法名以 <code>export function/class</code> 为准。
     协作红线：不允许私自删除代码注释。细泳道请打开 <a href="./flows-index.html">flows-index.html</a>。
   </footer>
 </div>

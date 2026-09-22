@@ -78,7 +78,7 @@
         <p>分别调 setRagMode / setSearchKb / setMultiAgent。流式中顶栏/选项 disabled。</p>
         <div class="why">
           「资料问答」切端点到 /api/rag/chat；「多 Agent」切 /api/chat/multi；
-          「搜索知识库」只改请求体 searchDocs，<em>不</em>改路由——三者正交。
+          「搜索知识库（必检索）」只改请求体 searchDocs，<em>不</em>改路由——单 Agent 语义 C / 多 Agent forceKb；三者正交。
         </div>
       </div>
 

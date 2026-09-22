@@ -24,16 +24,17 @@
     <h2><span class="file-path">server/index.ts</span></h2>
     <div class="method">
       <div class="name">进程入口（无 export，直接执行）</div>
-      <div class="sig">dotenv → express() → express.json → registerRoutes(app) → app.listen(PORT, HOST)</div>
+      <div class="sig">dotenv → express() → express.json → registerRoutes(app) → app.listen → warmRagModels()</div>
       <h4>做什么</h4>
       <ol class="steps">
         <li>先 <code>dotenv.config(".env.local")</code> 再 <code>.env</code>：本机密钥优先，后者不覆盖已有值。</li>
         <li><code>express.json({ limit: "1mb" })</code>：限制聊天 body 体积，防超大 history。</li>
         <li>调用 <code>registerRoutes(app)</code> 挂上全部 API（本文件不写具体 path）。</li>
         <li><code>listen</code> 后打印 mode（mock/api）与是否有 Key；无 Key 时 warn，仍可起服跑 Mock。</li>
+        <li>后台 <code>warmRagModels()</code>（<code>RAG_WARMUP=1</code>）：预热 embed + rerank，消灭首次检索冷启动；缺模型只 warn。</li>
       </ol>
-      <div class="flow"><strong>上下游：</strong>npm run dev:server → 本文件 → routes/index → 各端点</div>
-      <div class="why">入口只做接线，找「哪个 URL 干什么」去 routes/；避免 index.ts 膨胀成上帝文件。</div>
+      <div class="flow"><strong>上下游：</strong>npm run dev:server → 本文件 → routes/index → 各端点；并行 rag/warmup</div>
+      <div class="why">入口只做接线，找「哪个 URL 干什么」去 routes/；避免 index.ts 膨胀成上帝文件。预热不阻塞端口就绪。</div>
     </div>
 
     <h2><span class="file-path">server/runtimeConfig.ts</span></h2>
@@ -62,7 +63,7 @@
       <h4>做什么</h4>
       <ol class="steps">
         <li>基座 <code>SYSTEM_PROMPT</code>：何时必须调 getWeather / getCurrentTime / draft_message。</li>
-        <li>按本轮 <code>searchDocs</code> 追加 KB_ON 或 KB_OFF 文案（强调「开关只对本轮生效」）。</li>
+        <li>按本轮 <code>searchDocs</code> 追加 KB_ON 或 KB_OFF 文案（语义 C：ON 表示已注入检索结果，无需再调 searchDocs）。</li>
         <li>末尾拼 <code>SYSTEM_PROMPT_GUARD</code> 防注入边界。</li>
       </ol>
       <div class="why">把「工具规则 / 知识库口吻 / 安全」三段拼接，比前端塞 system 更可控；KB 文案按轮切换，避免历史勾选污染本轮。</div>
@@ -82,7 +83,7 @@
       <table class="params">
         <tr><th>入参要点</th><th>说明</th></tr>
         <tr><td>messages</td><td>前端 user/assistant；不含可信 system</td></tr>
-        <tr><td>searchDocs</td><td>本轮是否强制检索 + 挂 searchDocs 工具</td></tr>
+        <tr><td>searchDocs</td><td>本轮是否强制检索（语义 C：prefetch 注入 system；ReAct <strong>不</strong>挂 searchDocs 工具）</td></tr>
         <tr><td>confirmSession</td><td>有则需确认工具会 await wait</td></tr>
         <tr><td>onDelta / onTrace / onUsage</td><td>由路由接到 SSE</td></tr>
       </table>

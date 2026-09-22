@@ -174,7 +174,7 @@
           <tbody>
             <tr><td><code>messages</code></td><td>必填数组（前端 user/assistant 历史）</td></tr>
             <tr><td><code>model</code></td><td>可选；否则 runtimeConfig.model</td></tr>
-            <tr><td><code>searchDocs</code></td><td><code>=== true</code> 时服务端强制检索并挂 searchDocs 工具</td></tr>
+            <tr><td><code>searchDocs</code></td><td><code>=== true</code> 时语义 C：prefetch 强制检索写 system；ReAct <strong>不</strong>挂 searchDocs 工具</td></tr>
           </tbody>
         </table>
         <p class="flow"><strong>上游</strong>：前端取消「多 Agent」· <strong>下游</strong>：createChatStream → runConversation；确认 → POST /api/chat/confirm</p>
@@ -201,7 +201,7 @@
           <li>SSE 头；校验 messages 非空且存在 user 内容；取<strong>最后一条 user</strong>作为本轮问句。</li>
           <li>AbortController + ConfirmSession + writeSse / onTrace 闭包。</li>
           <li><code>detectInjection(userText)</code>：level≠none 时 SSE <code>injection_detected</code>（只标记不拦截）。</li>
-          <li>UsageAccumulator；<code>compileMultiAgentGraph({ accumulator, confirmSession, onTrace, writeSse })</code>。</li>
+          <li>UsageAccumulator；<code>compileMultiAgentGraph({ accumulator, confirmSession, onTrace, writeSse, forceKbSearch: searchDocs===true })</code>。</li>
           <li><code>graph.invoke({ userMessage, apiKey, baseUrl, model, signal, … })</code>——过程中已写 supervisor_route / worker_done / 确认事件。</li>
           <li>invoke 结束后写 <code>{ delta: finalOutput }</code>（整段，非逐字流式）。</li>
           <li>writeUsageToStream endpoint=<code>"chat/multi"</code> → [DONE]；finally dispose。</li>
@@ -211,6 +211,7 @@
           <tbody>
             <tr><td><code>messages</code></td><td>非空；图只吃最后一条 user（history 暂不进 Supervisor）</td></tr>
             <tr><td><code>model</code></td><td>可选</td></tr>
+            <tr><td><code>searchDocs</code></td><td><code>=== true</code> → <code>forceKbSearch</code>：Supervisor 后若无 kb 则强制追加，由 kbWorker 调 searchDocs</td></tr>
           </tbody>
         </table>
         <p class="flow"><strong>上游</strong>：前端勾选「多 Agent」· <strong>下游</strong>：multi-agent/graph；确认共用 chatConfirm</p>

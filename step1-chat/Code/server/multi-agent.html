@@ -58,9 +58,10 @@
             <tr><td><code>confirmSession?</code></td><td><code>ConfirmSession</code></td><td>未传则需确认工具安全降级</td></tr>
             <tr><td><code>onTrace?</code></td><td><code>ToolTraceHandler</code></td><td>tool_call / pending_confirm / confirm_resolved …</td></tr>
             <tr><td><code>writeSse?</code></td><td><code>(payload) =&gt; void</code></td><td>multi 专有：supervisor_route / worker_done</td></tr>
+            <tr><td><code>forceKbSearch?</code></td><td>boolean</td><td>前端勾选搜索知识库：Supervisor 后若无 kb 则 <code>ensureKbWorker</code> 强制追加</td></tr>
           </tbody>
         </table>
-        <div class="why">State 只放可序列化业务字段；跨请求确认与 SSE 写出口是请求级副作用，闭包注入更干净。</div>
+        <div class="why">State 只放可序列化业务字段；跨请求确认与 SSE 写出口是请求级副作用，闭包注入更干净。searchDocs 勾选与选路 endpoint 解耦，但会驱动 forceKbSearch。</div>
       </div>
 
       <div class="method">
@@ -68,7 +69,7 @@
         <div class="sig">→ CompiledGraph（可 invoke）</div>
         <p>注册三个节点并线性连边；按 source 绑定 <code>bindUsageCallback(acc, source, defaultModel)</code>。</p>
         <ol class="steps">
-          <li><strong>supervisorNode</strong>：调用 <code>supervisorRoute</code>，<code>writeSse({ type:"supervisor_route", workers })</code>，返回 <code>{ routeDecision }</code>。</li>
+          <li><strong>supervisorNode</strong>：调用 <code>supervisorRoute</code>；若 <code>forceKbSearch</code> 则 <code>ensureKbWorker</code>；<code>writeSse({ type:"supervisor_route", workers, forceKbSearch })</code>，返回 <code>{ routeDecision }</code>。</li>
           <li><strong>workersNode</strong>：对 <code>decision.workers</code> <code>Promise.all</code>；<code>getWorkerFn</code> 缺失则造 error 结果；每个 Worker 完成后立刻 <code>worker_done</code>；返回 <code>{ workerResults }</code>。</li>
           <li><strong>aggregateNode</strong>：调用 <code>aggregate</code>，返回 <code>{ finalOutput }</code>。</li>
         </ol>

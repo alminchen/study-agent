@@ -139,7 +139,7 @@
 
     <rect x="1110" y="24" width="160" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
     <text x="1190" y="50" text-anchor="middle" class="box">重排 Top5</text>
-    <text x="1190" y="68" text-anchor="middle" class="box-sub">或 slice 降级</text>
+    <text x="1190" y="68" text-anchor="middle" class="box-sub">RERANK_BATCH</text>
     <text x="1190" y="86" text-anchor="middle" class="file">rerank.ts</text>
 
     <line x1="1270" y1="64" x2="1300" y2="64" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowPurple)"/>
@@ -207,7 +207,7 @@
     <text x="40" y="108" class="ok">toolGuard ✅ validateToolCall(searchDocs) → 再 retrieve</text>
     <text x="40" y="136" class="ok">outputGuard ✅ detectLeakage → SSE output_leak_blocked</text>
     <text x="40" y="164" class="ok">SSE Trace ✅ ToolTracePanel · LangSmith ✅ rag-request / retrieve / llm</text>
-    <text x="40" y="192" class="box-sub">说明：RAG 无天气等业务 tools；检索本身按 searchDocs 白名单过 ToolGuard</text>
+    <text x="40" y="192" class="box-sub">说明：RAG 无业务 tools；检索按 searchDocs 过 ToolGuard；RAG_WARMUP 启动预热 · RERANK_BATCH_SIZE 分批</text>
   </g>
 
   <g transform="translate(40, 980)">

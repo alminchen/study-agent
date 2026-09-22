@@ -89,7 +89,7 @@ SYSTEM_PROMPT                    工具规则（天气/时间/…）
 + SYSTEM_PROMPT_GUARD              防注入
 ```
 
-### 3.3 勾选「搜索知识库」时（prefetch，仍在 ReAct 前）
+### 3.3 勾选「搜索知识库」时（prefetch，仍在 ReAct 前）— **语义 C**
 
 `prefetchSearchDocsIfEnabled` 不改 messages 结构，只**追加到 system.content**：
 
@@ -102,7 +102,8 @@ system.content +=
 ```
 
 - 判空 → 不调 LLM，直接固定文案回复
-- 有资料 → 继续 ReAct
+- 有资料 → 继续 ReAct；**requestCompletion 固定不挂 searchDocs**（只剩天气/时间/确认类工具）
+- LangSmith：`chat-prefetch` span；候选数可用 `CHAT_CANDIDATE_K`
 
 ### 3.4 ReAct 循环中 messages 如何变长
 
@@ -234,13 +235,13 @@ injection_detected? → tool_call → tool_result → output_leak_blocked?
 |--|-------------|-------------------|-----------------|
 | 前端 history | user/assistant | user/assistant（服务端 mostly 忽略） | prior user/assistant + question |
 | system 谁拼 | clipMessages + chat.ts | 各节点各自 system | rag/prompt.ts RAG_SYSTEM |
-| 知识库资料放哪 | 追加到 system（prefetch） | kb Worker 内部 | 追加到 system（## 资料） |
+| 知识库资料放哪 | 追加到 system（prefetch，语义 C） | kb Worker 调 searchDocs（勾选 → forceKbSearch） | 追加到 system（## 资料） |
 | tool 角色 | assistant+tool_calls + tool | Worker 内部同上 | 服务端检索按 searchDocs 过 Guard（模型无 tools） |
 | 多轮 LLM | ReAct 1~5 次 | Supervisor+Workers+Aggregate | 通常 1 次 |
 | 响应格式 | SSE | SSE | SSE |
 | Input/Output Guard | detectInjection + detectLeakage（SSE） | 同左 | 同左 |
 | Tool Guard | applyToolCalls | runToolSafely | validateToolCall(searchDocs) |
-| LangSmith | ✅ chat-request | ✅ multi-request | ✅ rag-request |
+| LangSmith | ✅ chat-request / chat-prefetch / chat-llm | ✅ multi-request（勾选搜索 → forceKbSearch） | ✅ rag-request |
 
 ---
 

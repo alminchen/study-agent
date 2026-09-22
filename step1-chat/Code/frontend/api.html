@@ -39,7 +39,7 @@
             <tr><td><code>messages</code></td><td><code>{role, content}[]</code></td><td>发给服务端的对话上下文</td></tr>
             <tr><td><code>model</code></td><td><code>string</code></td><td>模型 id</td></tr>
             <tr><td><code>signal</code></td><td><code>AbortSignal</code></td><td>stop() 中止同源</td></tr>
-            <tr><td><code>searchDocs</code></td><td><code>boolean?</code></td><td>是否打开知识库检索（只进 body）</td></tr>
+            <tr><td><code>searchDocs</code></td><td><code>boolean?</code></td><td>勾选搜索：单 Agent 语义 C（prefetch）；多 Agent → forceKbSearch（只进 body）</td></tr>
             <tr><td><code>multiAgent</code></td><td><code>boolean?</code></td><td>选路：true→multi，false→单 Agent；默认 true</td></tr>
             <tr><td><code>onDelta / onTrace / onUsage / onError</code></td><td>回调</td><td>正文 / 过程 / Token / 错误</td></tr>
           </tbody>

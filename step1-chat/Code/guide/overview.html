@@ -40,7 +40,7 @@
 → supervisorRoute → Worker(s)（runToolSafely）→ aggregate（detectLeakage）
 → usage + [DONE]</div>
       <ol class="steps">
-        <li>选路只看 multiAgent，与 searchDocs 无关。</li>
+        <li>选路只看 multiAgent；searchDocs 勾选：单 Agent → prefetch（语义 C）；多 Agent → forceKbSearch。</li>
         <li>Token source 分桶：supervisor / worker / aggregate。</li>
         <li>invoke 中途 writeSse，否则确认事件推不出去。</li>
       </ol>

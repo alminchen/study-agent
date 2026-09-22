@@ -333,12 +333,12 @@
       <div class="method">
         <div class="name">setSearchKb</div>
         <div class="sig">function setSearchKb(next: boolean): void</div>
-        <p><strong>做什么：</strong>切换「普通对话是否把 searchDocs 交给服务端」开关，写入 <code>SEARCH_KB_KEY</code>（"1"/"0"）。</p>
+        <p><strong>做什么：</strong>切换「搜索知识库（必检索）」开关，写入 <code>SEARCH_KB_KEY</code>（"1"/"0"）。单 Agent → 语义 C prefetch；多 Agent → forceKbSearch。</p>
         <ol class="steps">
           <li>更新 <code>searchKb</code> ref 并落盘。</li>
           <li>仅影响后续 runStream 请求体；不改 multiAgent，也不改 endpoint。</li>
         </ol>
-        <div class="why">与多 Agent 解耦：学员可单独观察「单 Agent + 强制检索」行为，而不被强制切到 multi 路由。</div>
+        <div class="why">与多 Agent 解耦：学员可单独观察「单 Agent + 语义 C 强制检索」或「多 Agent + forceKb」行为，而不被强制切到另一路由。</div>
       </div>
 
       <div class="method">

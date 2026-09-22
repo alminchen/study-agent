@@ -62,7 +62,7 @@
     <text x="180" y="96" text-anchor="middle" class="file">routes/chatMulti.ts</text>
 
     <rect x="380" y="24" width="520" height="120" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
-    <text x="640" y="52" text-anchor="middle" class="box">compileMultiAgentGraph({ accumulator })</text>
+    <text x="640" y="52" text-anchor="middle" class="box">compileMultiAgentGraph({ …, forceKbSearch? })</text>
     <text x="640" y="74" text-anchor="middle" class="box-sub">onUsage = (source) =&gt; bindUsageCallback(acc, source, model)</text>
     <text x="640" y="96" text-anchor="middle" class="box-sub">三种：supervisor · worker · aggregate</text>
     <text x="640" y="118" text-anchor="middle" class="file">multi-agent/graph.ts</text>
@@ -75,10 +75,10 @@
 
   <!-- Phase 2 supervisor -->
   <g transform="translate(40, 360)">
-    <text x="0" y="0" class="phase">2. Supervisor：通常 1 次 LLM → source=supervisor</text>
+    <text x="0" y="0" class="phase">2. Supervisor：通常 1 次 LLM → source=supervisor（勾选搜索 → forceKbSearch）</text>
     <rect x="20" y="24" width="700" height="90" rx="8" fill="#d1fae5" stroke="#059669"/>
     <text x="370" y="52" text-anchor="middle" class="box">supervisorNode → supervisorRoute → callLLM</text>
-    <text x="370" y="74" text-anchor="middle" class="box-sub">parseUsage → onUsage("supervisor") → acc.record</text>
+    <text x="370" y="74" text-anchor="middle" class="box-sub">forceKb? ensureKbWorker · onUsage("supervisor")</text>
     <text x="370" y="96" text-anchor="middle" class="file">supervisor.ts · llm.ts</text>
 
     <rect x="760" y="24" width="660" height="90" rx="8" fill="#ccfbf1" stroke="#0d9488"/>

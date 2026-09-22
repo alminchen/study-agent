@@ -68,7 +68,7 @@
       <span class="doc-link">源码 usage/ · guard/ · tracing/</span>
     </div>
     <img src="./crosscutting-token-guard-trace-flow.svg" alt="Token 计费 · 安全拦截 · Tracing 横切总览">
-    <figcaption>crosscutting-token-guard-trace-flow.svg — 插入点总览 → Token 流 → Guard 三道门 → Trace 双通道 → 三端点对照 → /api/chat 时序</figcaption>
+    <figcaption>crosscutting-token-guard-trace-flow.svg — Token · Guard · SSE/LangSmith（chat-prefetch/chat-llm · multi-request ✅）· 三端点对照</figcaption>
   </figure>
 
   <figure id="chat-react">
@@ -77,7 +77,7 @@
       <span class="doc-link">文档 <a href="./project-messages-flow.md">project-messages-flow.md</a> §三</span>
     </div>
     <img src="./chat-react-flow.svg" alt="单 Agent POST /api/chat 含 Token Guard Trace">
-    <figcaption>chat-react-flow.svg — Accumulator(askModel) · detectInjection · validateToolCall · detectLeakage · LangSmith chat-request · writeUsageToStream</figcaption>
+    <figcaption>chat-react-flow.svg — Accumulator · Guard · LangSmith chat-request/chat-prefetch/chat-llm · 语义 C</figcaption>
   </figure>
 
   <figure id="chat-multi">
@@ -86,7 +86,7 @@
       <span class="doc-link">文档 <a href="./project-messages-flow.md">project-messages-flow.md</a> §四</span>
     </div>
     <img src="./chat-multi-flow.svg" alt="多 Agent POST /api/chat/multi 含 Token Guard">
-    <figcaption>chat-multi-flow.svg — Worker mini ReAct 每轮 callLLM → onUsage("worker") 累加；并行 Worker 写入同一 Accumulator；再 + supervisor / aggregate</figcaption>
+    <figcaption>chat-multi-flow.svg — forceKbSearch · Worker mini ReAct 每轮 callLLM → onUsage("worker")；+ supervisor / aggregate · LangSmith multi-request</figcaption>
   </figure>
 
   <figure id="rag-chat">
@@ -95,7 +95,7 @@
       <span class="doc-link">文档 <a href="./rag-input-output-guard-changelog.md">rag-input-output-guard-changelog.md</a> · <a href="./project-messages-flow.md">project-messages-flow.md</a> §五</span>
     </div>
     <img src="./rag-chat-flow.svg" alt="资料问答检索全链与 Token">
-    <figcaption>rag-chat-flow.svg — retrieve→judge→rerank · Token(rag) · 三道 Guard · SSE Trace · LangSmith rag-request</figcaption>
+    <figcaption>rag-chat-flow.svg — retrieve→judge→rerank(batch) · Token · Guard · LangSmith rag-request · RAG_WARMUP</figcaption>
   </figure>
 
   <figure id="rag-enhance">
@@ -131,7 +131,7 @@
       <span class="doc-link">文档 <a href="./project-messages-flow.md">project-messages-flow.md</a></span>
     </div>
     <img src="./messages-assembly-flow.svg" alt="messages 三层 × 三条链路总览">
-    <figcaption>messages-assembly-flow.svg — 前端 / HTTP / LLM 三层 · 三条链路对比</figcaption>
+    <figcaption>messages-assembly-flow.svg — 前端 / HTTP / LLM 三层 · chat 语义 C · multi forceKb · rag ## 资料</figcaption>
   </figure>
 
   <figure id="resilience">
