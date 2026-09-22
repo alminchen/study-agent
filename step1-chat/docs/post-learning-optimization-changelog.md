@@ -28,6 +28,8 @@
 - `CHAT_CANDIDATE_K=10`（默认）传入 `retrieveForAnswer`
 - 资料问答 `/api/rag/chat` 仍用 `CANDIDATE_K=20`
 - 注入 system 时截断 hit：`CHAT_PREFETCH_HIT_CHARS=800`
+- **启动预热**：`RAG_WARMUP=1` → `warmRagModels()`（listen 后后台加载 embed + rerank）
+- **rerank batch**：`RERANK_BATCH_SIZE=8` 分批打分；单批失败回退串行
 
 ### P2 · 结构
 - `runConversation.forLoop.ts` 标明「仅文档对照，勿改现网」
@@ -40,7 +42,6 @@
 | 项 | 原因 |
 |----|------|
 | 最终轮真流式 | 现网末轮文字来自带 tools 的非流式 completion；真流式需拆「无 tools 再请求」或流式解析 tool_calls，单独立项 |
-| 服务启动预热 embed/rerank | 模型目录大；可用手动先跑一次问答代替；需要时再加 `WARMUP_RAG=1` |
 | MCP schema 单一来源 | 低优先级，未并进本轮 |
 | 关 KB 时强剥离历史 `[n]` | 可用 eval `kb-toggle-off` 另开；本轮仅强化 system OFF 文案 |
 | 伪造 tool_calls / 图外预路由 | 文档明确禁止 |
@@ -64,6 +65,8 @@
 - `server/chat.ts`
 - `server/tools/index.ts` / `methods/searchDocs.ts`
 - `server/rag/retrieve.ts`
+- `server/rag/rerank.ts` / `embedding.ts` / `warmup.ts`
+- `server/index.ts`（listen 后 warmRagModels）
 - `server/tracing/langsmith.ts`
 - `src/App.vue` / `src/api/chat.ts`
 - `.env`

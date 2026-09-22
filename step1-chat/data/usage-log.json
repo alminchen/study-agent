@@ -394,5 +394,16 @@
     "totalTokens": 2120,
     "llmCalls": 3,
     "estimatedCostUsd": 0.00032578
+  },
+  {
+    "id": "usage_1790042852416_jkf92w",
+    "timestamp": 1790042852417,
+    "endpoint": "rag/chat",
+    "model": "deepseek-v4-flash",
+    "promptTokens": 1212,
+    "completionTokens": 339,
+    "totalTokens": 1551,
+    "llmCalls": 2,
+    "estimatedCostUsd": 0.00026460000000000003
   }
 ]

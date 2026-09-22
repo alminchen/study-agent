@@ -39,6 +39,14 @@ export async function embed(texts: string[]): Promise<number[][]> {
   return rows;
 }
 
+/**
+ * 启动预热：加载 ONNX + 跑一条短句，避免首次检索卡在冷启动。
+ * 模型目录缺失时抛错，由 warmup 层吞掉并打日志。
+ */
+export async function warmEmbed(): Promise<void> {
+  await embed(["预热 embedding"]);
+}
+
 /** 余弦相似度，用来自测「同句应接近 1」。 */
 export function cosine(a: number[], b: number[]): number {
   let dot = 0;

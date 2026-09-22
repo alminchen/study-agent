@@ -23,6 +23,7 @@ import express from "express";
 import dotenv from "dotenv";
 import { getRuntimeConfig } from "./runtimeConfig.js";
 import { registerRoutes } from "./routes/index.js";
+import { warmRagModels } from "./rag/warmup.js";
 
 // 先 .env.local（本机密钥）再 .env（可提交的默认项）；后者不覆盖前者已有值
 dotenv.config({ path: ".env.local" });
@@ -44,4 +45,6 @@ app.listen(PORT, HOST, () => {
   if (!config.apiKey) {
     console.warn("LLM_API_KEY not found. Loaded .env.local and .env, but API mode is unavailable.");
   }
+  // 不阻塞端口：后台加载本地 ONNX，消灭首次检索冷启动
+  void warmRagModels();
 });

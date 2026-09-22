@@ -12,9 +12,10 @@
 | 文件 | 职责 |
 |------|------|
 | `vectorStore.ts` | 纯 JS 向量库（内存 + JSON 持久化） |
-| `embedding.ts` | 文本 → 向量（bge-large-zh-v1.5 本地推理） |
+| `embedding.ts` | 文本 → 向量（bge-large-zh-v1.5 本地推理）；`warmEmbed` 启动预热 |
 | `retrieve.ts` | 向量检索 + 分数门槛判空 + rerank 调度 |
-| `rerank.ts` | 交叉编码器重排（bge-reranker-base） |
+| `rerank.ts` | 交叉编码器重排（bge-reranker-base）；`RERANK_BATCH_SIZE` 分批；`warmRerank` |
+| `warmup.ts` | `RAG_WARMUP` 开关下后台预热 embed + rerank |
 | `prompt.ts` | 组织 RAG prompt（检索结果 + 用户问题 → 给模型的上下文） |
 | `answer.ts` | RAG 问答入口（retrieve → prompt → LLM 生成） |
 | `types.ts` | 类型定义（SearchHit、RetrievalJudgment 等） |
