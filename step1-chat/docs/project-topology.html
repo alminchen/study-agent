@@ -508,7 +508,7 @@ flowchart TB
   AGG --> SUM["多结果 callLLM 汇总"]
   AGG --> LEAK["detectLeakage"]
     </div>
-    <div class="calltree"><span class="c">// routes/chatMulti.ts  —— 含 Token / Guard；LangSmith Trace 现网未挂（缺口）</span>
+    <div class="calltree"><span class="c">// routes/chatMulti.ts  —— Token / Guard / SSE Trace / LangSmith ✅</span>
 <span class="m">registerChatMultiRoutes</span>
   ├─ <span class="m">setSseHeaders</span>
   ├─ 取 last user text（history 暂不进 Supervisor）
@@ -517,37 +517,36 @@ flowchart TB
   ├─ writeSse / onTrace 闭包（<span class="e">invoke 中途可写</span>）  <span class="c">// 前端过程面板 Trace</span>
   ├─ <span class="e">[Guard·Input]</span> <span class="m">detectInjection</span> → writeSse(injection_detected?)
   ├─ <span class="e">[Token]</span> <span class="m">new UsageAccumulator</span>()
-  ├─ <span class="m">compileMultiAgentGraph</span>({ accumulator, confirmSession, onTrace, writeSse })
-  │    ├─ onUsage = (source) => <span class="m">bindUsageCallback</span>(acc, source, defaultModel)
-  │    │    source ∈ <span class="ok">supervisor | worker | aggregate</span>
-  │    └─ graph.invoke({ userMessage, apiKey, … })
-  │         ├─ <span class="m">supervisorNode</span>
-  │         │    └─ <span class="m">supervisorRoute</span>
-  │         │         └─ <span class="m">callLLM</span>(route tool)
-  │         │              ├─ <span class="e">[Token]</span> parseUsage → onUsage(<span class="ok">"supervisor"</span>) → acc.record
-  │         │              └─ RouteDecision → writeSse(supervisor_route)
-  │         ├─ <span class="m">workersNode</span>
-  │         │    └─ Promise.all → <span class="m">getWorkerFn</span>(name)(ctx)
-  │         │         ctx.onUsage = onUsage(<span class="ok">"worker"</span>)
-  │         │         ├─ realtime/kb/action → callLLM ⇄ <span class="m">runToolSafely</span>
-  │         │         │    └─ 每次 callLLM：<span class="e">[Token]</span> → acc.record("worker")
-  │         │         └─ general → 一次 callLLM（无工具）
-  │         │         └─ writeSse(worker_done)
-  │         └─ <span class="m">aggregateNode</span> → <span class="m">aggregate</span>
-  │              ├─ 单成功 → 透传（可能 0 次 LLM）
-  │              ├─ 多结果 → callLLM → <span class="e">[Token]</span> onUsage(<span class="ok">"aggregate"</span>)
-  │              └─ <span class="e">[Guard·Output]</span> <span class="m">detectLeakage</span>
+  ├─ <span class="e">[LangSmith]</span> <span class="m">runMultiRequestWithTracing</span>(userText)  <span class="c">// 根 span: multi-request</span>
+  │    └─ <span class="m">compileMultiAgentGraph</span>({ accumulator, confirmSession, onTrace, writeSse })
+  │         ├─ onUsage = (source) => <span class="m">bindUsageCallback</span>(acc, source, defaultModel)
+  │         │    source ∈ <span class="ok">supervisor | worker | aggregate</span>
+  │         └─ graph.invoke({ userMessage, apiKey, … })
+  │              ├─ <span class="m">supervisorNode</span> → <span class="m">withMultiSupervisorSpan</span>
+  │              │    └─ <span class="m">supervisorRoute</span> → <span class="m">callLLM</span>(traceSpan=supervisor) → multi-llm
+  │              │         ├─ <span class="e">[Token]</span> parseUsage → onUsage(<span class="ok">"supervisor"</span>) → acc.record
+  │              │         └─ RouteDecision → writeSse(supervisor_route)
+  │              ├─ <span class="m">workersNode</span> → <span class="m">withMultiWorkersSpan</span>
+  │              │    └─ Promise.all → <span class="m">withMultiWorkerSpan</span>(name) → <span class="m">getWorkerFn</span>
+  │              │         ├─ realtime/kb/action → callLLM(traceSpan=worker) ⇄ <span class="m">runToolSafely</span>
+  │              │         │    └─ allow 后 <span class="m">runToolWithTracing</span> → LangSmith tool span
+  │              │         └─ general → 一次 callLLM（无工具）
+  │              │         └─ writeSse(worker_done)
+  │              └─ <span class="m">aggregateNode</span> → <span class="m">withMultiAggregateSpan</span> → <span class="m">aggregate</span>
+  │                   ├─ 单成功 → 透传（可能 0 次 LLM）
+  │                   ├─ 多结果 → callLLM(traceSpan=aggregate) → multi-llm
+  │                   └─ <span class="e">[Guard·Output]</span> <span class="m">detectLeakage</span>
   ├─ writeSse({ delta })
   ├─ <span class="e">[Token]</span> <span class="m">writeUsageToStream</span>(…, "chat/multi") → store + SSE usage
   └─ finally dispose()
 
-<span class="c">// runToolSafely —— Guard + 确认；无 LangSmith tool span（与单 Agent 不同）</span>
-<span class="m">runToolSafely</span>(name, rawArgs, { toolCallId, confirmSession, onTrace, signal })
+<span class="c">// runToolSafely —— Guard + 确认 + LangSmith tool（与单 Agent 共用 runToolWithTracing）</span>
+<span class="m">runToolSafely</span>(name, rawArgs, { toolCallId, confirmSession, onTrace, signal, turn })
   ├─ onTrace(tool_call)                         <span class="c">// 前端 Trace，非 LangSmith</span>
   ├─ <span class="e">[Guard·Tool]</span> <span class="m">validateToolCall</span>
   ├─ <span class="m">isToolRequiringConfirm</span>?
-  │    ├─ no  → findTool().run
-  │    └─ yes → pending_confirm → wait → confirm_resolved → allow run / deny
+  │    ├─ no  → <span class="m">runToolWithTracing</span>(turn, call) → tool.run
+  │    └─ yes → pending_confirm → wait → confirm_resolved → allow 才 runToolWithTracing / deny
   └─ onTrace(tool_result)</div>
     <p class="path">图：docs/chat-multi-flow.svg · docs/multi-agent-human-confirm-flow.svg · server/multi-agent/README.md</p>
   </div>
@@ -1098,7 +1097,7 @@ flowchart TB
     M3["ToolGuard ✅ runToolSafely"]
     M4["OutputGuard ✅ aggregate"]
     M5["SSE onTrace ✅"]
-    M6["LangSmith ❌ 未挂"]
+    M6["LangSmith ✅ multi-request/supervisor/worker/llm/tool"]
   end
   subgraph rag["POST /api/rag/chat"]
     R1["Token ✅ rag"]
@@ -1147,7 +1146,7 @@ flowchart TB
         <tr>
           <td>LangSmith</td>
           <td>traceChatRequest / traceAskModel / runToolWithTracing</td>
-          <td>未接入</td>
+          <td>traceMultiRequest / multi-llm / runToolWithTracing</td>
           <td>traceRagRequest / rag-retrieve / rag-llm</td>
         </tr>
       </tbody>
@@ -1259,10 +1258,15 @@ flowchart LR
     ROOT["traceChatRequest · chat-request"]
     ASK["traceAskModel · askModel"]
     TOOL["runToolWithTracing → traceToolRun · tool"]
+    MROOT["traceMultiRequest · multi-request"]
+    MLLM["traceMultiLlm · multi-llm"]
   end
   RC["runConversation 仅单 Agent"] --> EN
   EN -->|true| ROOT --> ASK
   RC --> applyTools["applyToolCalls"] --> TOOL
+  MULTI["chatMulti"] --> EN
+  EN -->|true| MROOT --> MLLM
+  MULTI --> runSafe["runToolSafely"] --> TOOL
   CHAT["chat + multi"] --> OT --> EV --> TP
     </div>
     <div class="calltree"><span class="c">// A. 前端过程 Trace（chat / multi / rag 均有 SSE）</span>
@@ -1279,13 +1283,16 @@ flowchart LR
 <span class="m">runConversation</span>（/api/chat）
   └─ <span class="m">traceChatRequest</span> → askModel / tool spans
 
+<span class="m">chatMulti</span>（/api/chat/multi）
+  └─ <span class="m">traceMultiRequest</span>
+       ├─ multi-supervisor → multi-llm(role=supervisor)
+       ├─ multi-workers → multi-worker → multi-llm + tool
+       └─ multi-aggregate → multi-llm(role=aggregate)
+
 <span class="m">ragChat</span>（/api/rag/chat）
   └─ <span class="m">traceRagRequest</span> → <span class="m">rag-retrieve</span> / <span class="m">rag-llm</span>
 
-刻意不上报: 完整 messages、API Key；预览字段截断（见 tracing/langsmith.ts 头注释）
-
-<span class="c">// 缺口</span>
-  multi：无 LangSmith span（Token / Guard / SSE Trace 已有）</div>
+刻意不上报: 完整 messages、API Key；预览字段截断（见 tracing/langsmith.ts 头注释）</div>
     <p class="path">docs/crosscutting-token-guard-trace-flow.svg · stage5-token-cost / prompt-injection / tracing / resilience 学习计划</p>
   </div>
 
@@ -1319,7 +1326,7 @@ flowchart LR
   <div class="card">
     <ul class="compact">
       <li><span class="badge now">当前</span> <strong>交付页</strong>：调试页、日志页、成本页 + 整理 eval 数据集（现有面板可先用，专页未拆）</li>
-      <li><span class="badge done">已结</span> 检索前意图/扩写/路由/Multi-Query/HyDE（见 <a href="#rag-enhance">§6b</a> · <code>rag-query-intent-rewrite-learning-plan.md</code>）</li>
+      <li><span class="badge done">已结</span> 检索前意图/扩写/路由/Multi-Query/HyDE + 单元 8/9 策略对照与回退（见 <a href="#rag-enhance">§6b</a> · <code>rag-query-enhance-notes.md</code>）</li>
       <li><span class="badge later">后置</span> RAG 上传文档完整应用（现 <code>rag:ingest</code> + 资料问答；见 <code>dynamic-kb-learning-plan.md</code>）</li>
       <li><span class="badge later">后置</span> FastAPI + Docker</li>
       <li><span class="badge later">后置</span> 工程优化见 <code>post-learning-optimization-plan.md</code>（学完再做）</li>

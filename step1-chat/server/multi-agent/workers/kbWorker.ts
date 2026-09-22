@@ -102,6 +102,7 @@ export async function runKBWorker(ctx: WorkerContext): Promise<WorkerResult> {
       tools: toolSchemas as unknown[],
       signal: ctx.signal,
       onUsage: ctx.onUsage,
+      traceSpan: { role: "worker", worker: "kb", turn },
     });
 
     if (!result.ok) {
@@ -128,6 +129,7 @@ export async function runKBWorker(ctx: WorkerContext): Promise<WorkerResult> {
         confirmSession: ctx.confirmSession,
         onTrace: ctx.onTrace,
         signal: ctx.signal,
+        turn,
       });
 
       messages.push({

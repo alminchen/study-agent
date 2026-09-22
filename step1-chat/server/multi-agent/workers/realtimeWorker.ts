@@ -100,6 +100,7 @@ export async function runRealtimeWorker(ctx: WorkerContext): Promise<WorkerResul
       tools: toolSchemas as unknown[],
       signal: ctx.signal,
       onUsage: ctx.onUsage,
+      traceSpan: { role: "worker", worker: "realtime", turn },
     });
 
     // LLM 调用失败 → 返回错误，Aggregate 会标注"部分信息获取失败"
@@ -128,6 +129,7 @@ export async function runRealtimeWorker(ctx: WorkerContext): Promise<WorkerResul
         confirmSession: ctx.confirmSession,
         onTrace: ctx.onTrace,
         signal: ctx.signal,
+        turn,
       });
 
       // 工具结果以 role:"tool" 回填，tool_call_id 用于和 assistant 的请求对应

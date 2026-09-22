@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "step1-chat": {
+      "command": "/usr/local/bin/node",
+      "args": [
+        "/Users/ahmin/Downloads/ower/LLM/step1-chat/node_modules/tsx/dist/cli.mjs",
+        "/Users/ahmin/Downloads/ower/LLM/step1-chat/server/mcp/stdio.ts"
+      ],
+      "cwd": "/Users/ahmin/Downloads/ower/LLM/step1-chat"
+    }
+  }
+}

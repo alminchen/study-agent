@@ -10,12 +10,14 @@
  * - JSON 序列化
  * - HTTP 错误判断
  * - 响应解析 + usage 统计
+ * - LangSmith `multi-llm` span（开关开时）
  *
- * 调用方只需关心：messages、tools（可选）、model（可选）。
+ * 调用方只需关心：messages、tools（可选）、model（可选）、traceSpan（可选）。
  */
 
 import { parseUsageFromResponse } from "../usage/parseUsage.js";
 import type { TokenUsage } from "../usage/types.js";
+import { runMultiLlmWithTracing } from "../tracing/langsmith.js";
 
 /** LLM 调用的通用参数 */
 export interface CallLLMOptions {
@@ -35,6 +37,17 @@ export interface CallLLMOptions {
   signal?: AbortSignal;
   /** 解析到 usage 时回调（Token 统计） */
   onUsage?: (usage: TokenUsage, model: string) => void;
+  /**
+   * LangSmith multi-llm span 元数据。
+   * 未传时仍打 span，role 记为 worker（兜底）；调用方应显式传入。
+   */
+  traceSpan?: {
+    role: "supervisor" | "worker" | "aggregate";
+    /** Worker 名（仅 role=worker 时有意义） */
+    worker?: string;
+    /** Worker 内 ReAct 轮次（从 0） */
+    turn?: number;
+  };
 }
 
 /** LLM 调用的响应（简化后的结构） */
@@ -54,51 +67,67 @@ export interface CallLLMResult {
 export async function callLLM(options: CallLLMOptions): Promise<CallLLMResult> {
   const baseUrl = (options.baseUrl ?? process.env.LLM_BASE_URL ?? "https://api.deepseek.com/v1").replace(/\/$/, "");
   const model = options.model ?? process.env.LLM_MODEL ?? "deepseek-chat";
+  const hasTools = Boolean(options.tools && options.tools.length > 0);
+  const span = options.traceSpan ?? { role: "worker" as const };
 
-  const body: Record<string, unknown> = {
-    model,
-    messages: options.messages,
-    stream: false,
+  const execute = async (): Promise<CallLLMResult> => {
+    const body: Record<string, unknown> = {
+      model,
+      messages: options.messages,
+      stream: false,
+    };
+    if (hasTools) {
+      body.tools = options.tools;
+      body.tool_choice = options.toolChoice ?? "auto";
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${options.apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: options.signal,
+    });
+
+    if (!response.ok) {
+      return { ok: false, status: response.status, content: null, toolCalls: [], usage: null };
+    }
+
+    const data = await response.json() as {
+      choices: {
+        message: {
+          content?: string | null;
+          tool_calls?: { id: string; function: { name: string; arguments: string } }[];
+        };
+      }[];
+    };
+
+    const usage = parseUsageFromResponse(data);
+    if (usage) {
+      options.onUsage?.(usage, model);
+    }
+
+    const msg = data.choices?.[0]?.message;
+    return {
+      ok: true,
+      status: response.status,
+      content: msg?.content ?? null,
+      toolCalls: msg?.tool_calls ?? [],
+      usage,
+    };
   };
-  if (options.tools && options.tools.length > 0) {
-    body.tools = options.tools;
-    body.tool_choice = options.toolChoice ?? "auto";
-  }
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${options.apiKey}`,
+  return runMultiLlmWithTracing(
+    {
+      role: span.role,
+      worker: span.worker,
+      turn: span.turn,
+      messageCount: options.messages.length,
+      model,
+      hasTools,
     },
-    body: JSON.stringify(body),
-    signal: options.signal,
-  });
-
-  if (!response.ok) {
-    return { ok: false, status: response.status, content: null, toolCalls: [], usage: null };
-  }
-
-  const data = await response.json() as {
-    choices: {
-      message: {
-        content?: string | null;
-        tool_calls?: { id: string; function: { name: string; arguments: string } }[];
-      };
-    }[];
-  };
-
-  const usage = parseUsageFromResponse(data);
-  if (usage) {
-    options.onUsage?.(usage, model);
-  }
-
-  const msg = data.choices?.[0]?.message;
-  return {
-    ok: true,
-    status: response.status,
-    content: msg?.content ?? null,
-    toolCalls: msg?.tool_calls ?? [],
-    usage,
-  };
+    execute,
+  );
 }

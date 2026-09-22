@@ -30,7 +30,7 @@ embed → LocalVectorStore.search → judgeRetrieval → rerank → prompt
 | Multi-Query 抬噪声（单元 6） | 候选池变吵，靠已有闸门收 |
 | HyDE 假文档带偏（单元 7） | 假文档胡编 → 检索进沟 |
 
-**纪律：** 一次只多开一个开关。当前代码默认 `RAG_QUERY_REWRITE` 关闭。
+**纪律：** 对照实验一次只开一个召回增强开关。日常默认见 §单元 8（REWRITE + KB_ROUTE）。
 
 ---
 
@@ -45,6 +45,80 @@ embed → LocalVectorStore.search → judgeRetrieval → rerank → prompt
 | 5 多库路由 | 已接线 | `kbRoute.ts` + `RAG_KB_ROUTE` + 模拟 `hr_policy` |
 | 6 Multi-Query | 已接线 | `multiQuery.ts` + `RAG_MULTI_QUERY` |
 | 7 HyDE | 已接线 | `hyde.ts` + `RAG_HYDE` |
+| 8 策略对照与默认 | 通过 | 本节 + `npm run rag:compare-enhance` |
+| 9 稳健性收齐 | 通过 | 本节 + `npm run rag:test-enhance-fallback` |
+
+---
+
+## 单元 8 · 策略对照与默认
+
+### 对照怎么跑
+
+```bash
+# 路由开着；三招互斥：single / multi / hyde（脚本内关 REWRITE）
+npm run rag:compare-enhance
+# 或自定义问句：
+npm run rag:compare-enhance -- "chunk 怎么切" "请假要交什么材料"
+```
+
+### 实测摘要（路由=1，REWRITE 关）
+
+| 问句 | single Top1 | multi Top1 | hyde Top1 | 观察 |
+|------|-------------|------------|-----------|------|
+| chunk 怎么切 | 0.51 切片注意事项（判空） | 0.60 overlap 接缝（过闸） | 0.89 **可解释验收**（题偏） | Multi 救漏召；HyDE 分高但主题漂 |
+| 请假要交什么材料 | 0.64 请假材料（对） | 0.63 同（对） | 0.91 同（对） | 三招都对；HyDE 最费 Token |
+| 不要把整篇…冒充 RAG | 0.66 §10 不要做的事（对） | 0.70 同（对） | 0.87 **可解释验收**（题偏） | 短标题问句单路已够；HyDE 易漂 |
+
+### 何时用哪招
+
+| 招 | 适合 | 代价 / 风险 |
+|----|------|-------------|
+| **单路**（±扩写） | 日常默认；口语经扩写对齐库内词 | 扩写 1 次 LLM；扩写偏了会漂 |
+| **Multi-Query** | 单路漏召、短口语、同义说法多 | embed×N；候选变吵 |
+| **HyDE** | 短问对长块向量对不齐、且主题边界清楚 | 再 1 次 LLM；假文档胡编 → 分高题偏 |
+| **路由** | 多 source / 多库（笔记 vs 制度） | 规则错会漏库；`none` 必须能区分判空 |
+
+### 本课默认策略（书面结论）
+
+**默认：`RAG_QUERY_REWRITE=1` + `RAG_KB_ROUTE=1`；`RAG_MULTI_QUERY` / `RAG_HYDE` 默认关。**
+
+理由（对照上表 + 库形态）：
+1. **延迟 / Token**：日常只要扩写 1 次 LLM + 单路 embed；Multi/HyDE 额外成本高  
+2. **稳定性**：HyDE 在笔记库上多次「分高题偏」；不适合默认  
+3. **库形态**：已有 notes + hr_policy 模拟双库，路由硬过滤价值明确  
+4. **漏召兜底**：需要时再手动 `RAG_MULTI_QUERY=1`（一次只开一招）
+
+`.env` 当前即按此默认；换招只改对应开关并重启 server。
+
+---
+
+## 单元 9 · 稳健性收齐
+
+### 回退表
+
+| 故障 | 触发示例 | status | 行为 | 是否抛穿主链 |
+|------|----------|--------|------|----------------|
+| 扩写失败 | 无 Key / `MOCK_MODE=1` / 坏 JSON | `rewrite=fallback` | `queryUsed=原句`，继续检索 | 否（catch 在 resolve） |
+| 扩写关闭 | 未设 env | `rewrite=disabled` | 与改前一致用原句 | 否 |
+| 路由关闭 | 未设 env | `kbRoute=disabled` · `all` | 全库搜 | 否 |
+| 路由 none | 天气口语 / `FORCE=none` | `route=none` | **跳过 search**，message 含 none | 否 |
+| HyDE 失败 | `MOCK_MODE=1` / 假文档过短 | `hyde=fallback` | `embedText=queryUsed` 再搜 | 否 |
+| HyDE+Multi 同开 | 两开关都 1 | `multi=skipped` · HyDE 优先 | warn；本轮不跑多路 | 否 |
+| Multi &lt;2 路 | 拼不出两句 | `multi=skipped` | 退回单路 retrieve | 否 |
+
+### 故障注入验收
+
+```bash
+npm run rag:test-enhance-fallback
+```
+
+已覆盖 ≥3 种（实测 4 项全 PASS）：
+1. rewrite MOCK → `fallback`  
+2. hyde MOCK → `fallback`  
+3. `FORCE=none` → 跳过检索 + 可区分 message  
+4. HyDE+Multi 同开 → `multi=skipped`
+
+调试字段：原句 / queryUsed / route / multi queries / hydeDoc / hits —— CLI `rag:search` 与右侧「问句增强」面板均可见。
 
 ### 单元 7 怎么跑
 

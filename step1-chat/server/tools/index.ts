@@ -34,9 +34,12 @@ const toolByName = new Map(toolList.map((tool) => [tool.name, tool]));
 /**
  * 发给模型的 tools 列表（聊天 / ReAct 用）。
  *
- * - includeSearchDocs=false → 去掉 searchDocs（与「搜索知识库」开关一致）
+ * - includeSearchDocs=false → 去掉 searchDocs
+ * - post-learning 语义 C：`/api/chat` 的 requestCompletion **固定传 false**
+ *   （勾选知识库只走 prefetch，不把 searchDocs 交给模型）
  * - includeConfirmTools=false → 去掉需人工确认的工具（未建 ConfirmSession 时不应暴露）
  * - 聊天对接后：有 ConfirmSession 时传 includeConfirmTools=true
+ * - MCP / kbWorker 等仍可直接 findTool("searchDocs")，不受本函数影响
  */
 export function toolSchemasForChat(includeSearchDocs: boolean, includeConfirmTools = false) {
   return toolList

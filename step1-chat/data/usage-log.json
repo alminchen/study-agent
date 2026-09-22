@@ -328,5 +328,71 @@
     "totalTokens": 2148,
     "llmCalls": 3,
     "estimatedCostUsd": 0.00033138000000000004
+  },
+  {
+    "id": "usage_1790041007272_vs86gt",
+    "timestamp": 1790041007272,
+    "endpoint": "chat/multi",
+    "model": "deepseek-v4-flash",
+    "promptTokens": 674,
+    "completionTokens": 1616,
+    "totalTokens": 2290,
+    "llmCalls": 2,
+    "estimatedCostUsd": 0.00054684
+  },
+  {
+    "id": "usage_1790041047767_2wpf44",
+    "timestamp": 1790041047767,
+    "endpoint": "rag/chat",
+    "model": "deepseek-v4-flash",
+    "promptTokens": 1131,
+    "completionTokens": 387,
+    "totalTokens": 1518,
+    "llmCalls": 2,
+    "estimatedCostUsd": 0.00026670000000000003
+  },
+  {
+    "id": "usage_1790041286021_gqklc1",
+    "timestamp": 1790041286021,
+    "endpoint": "chat/multi",
+    "model": "deepseek-v4-flash",
+    "promptTokens": 723,
+    "completionTokens": 2154,
+    "totalTokens": 2877,
+    "llmCalls": 2,
+    "estimatedCostUsd": 0.00070434
+  },
+  {
+    "id": "usage_1790041452753_thh8s7",
+    "timestamp": 1790041452753,
+    "endpoint": "chat",
+    "model": "deepseek-v4-flash",
+    "promptTokens": 3056,
+    "completionTokens": 383,
+    "totalTokens": 3439,
+    "llmCalls": 1,
+    "estimatedCostUsd": 0.0005350800000000001
+  },
+  {
+    "id": "usage_1790041742180_7k3x3v",
+    "timestamp": 1790041742180,
+    "endpoint": "chat/multi",
+    "model": "deepseek-v4-flash",
+    "promptTokens": 3721,
+    "completionTokens": 1842,
+    "totalTokens": 5563,
+    "llmCalls": 3,
+    "estimatedCostUsd": 0.0010367
+  },
+  {
+    "id": "usage_1790041945422_ek222l",
+    "timestamp": 1790041945422,
+    "endpoint": "chat/multi",
+    "model": "deepseek-v4-flash",
+    "promptTokens": 1913,
+    "completionTokens": 207,
+    "totalTokens": 2120,
+    "llmCalls": 3,
+    "estimatedCostUsd": 0.00032578
   }
 ]

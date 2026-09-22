@@ -135,6 +135,7 @@ export async function supervisorRoute(options: SupervisorOptions): Promise<Route
     toolChoice: "auto",
     signal: options.signal,
     onUsage: options.onUsage,
+    traceSpan: { role: "supervisor" },
   });
 
   // 兜底 1：LLM 调用失败

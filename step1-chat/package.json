@@ -26,6 +26,8 @@
         "rag:ask": "tsx scripts/ask.ts",
         "rag:rewrite": "tsx scripts/rewrite.ts",
         "rag:hyde": "tsx scripts/hyde.ts",
+        "rag:compare-enhance": "tsx scripts/compare-enhance.ts",
+        "rag:test-enhance-fallback": "tsx scripts/test-enhance-fallback.ts",
         "rag:test-rerank": "tsx scripts/test-rerank.ts",
         "mcp:stdio": "tsx server/mcp/stdio.ts",
         "mcp:ping": "tsx scripts/mcp-ping.ts",

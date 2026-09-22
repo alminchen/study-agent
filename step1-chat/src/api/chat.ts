@@ -4,7 +4,7 @@ export interface StreamChatParams {
   messages: Array<{ role: ChatRole; content: string }>;
   model: string;
   signal: AbortSignal;
-  /** 打开后服务端先强制检索，并把 searchDocs 交给模型（单 Agent 语义）。 */
+  /** 打开后服务端强制检索并注入本轮 system（语义 C）；不再把 searchDocs 交给模型。 */
   searchDocs?: boolean;
   /**
    * 是否走多 Agent。

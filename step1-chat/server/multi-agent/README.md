@@ -14,7 +14,7 @@
 
 | 文件 | 职责 |
 |------|------|
-| `llm.ts` | 公共 `callLLM`：统一 fetch / 解析 / usage 回调 |
+| `llm.ts` | 公共 `callLLM`：统一 fetch / 解析 / usage / LangSmith `multi-llm` |
 | `supervisor.ts` | 一次 LLM + `route` tool → `RouteDecision`（含 `action`） |
 | `workers/realtimeWorker.ts` | 天气+时间；工具 `getWeather` / `getCurrentTime` |
 | `workers/kbWorker.ts` | 知识库；工具 `searchDocs` |
@@ -22,11 +22,21 @@
 | `workers/generalWorker.ts` | 兜底闲聊；无工具 |
 | `workers/types.ts` | `WorkerContext`：含可选 `confirmSession` / `onTrace` |
 | `workers/index.ts` | `name → run` 注册表（含 `action`） |
-| `runToolSafely.ts` | Guard →（可选）确认闸门 → `tool.run`；对齐单 Agent `applyToolCalls` |
+| `runToolSafely.ts` | Guard →（可选）确认 → `runToolWithTracing`；对齐单 Agent |
 | `aggregate.ts` | 汇总；单 Worker 透传；失败拼接降级；`outputGuard` |
-| `graph.ts` | LangGraph：`supervisor → workers → aggregate`；下传 Session / 中途 `writeSse` |
+| `graph.ts` | LangGraph + LangSmith 节点 span（supervisor/workers/aggregate） |
 
-入口路由：[`server/routes/chatMulti.ts`](../routes/chatMulti.ts)（创建/dispose `ConfirmSession`，invoke **进行中**写 SSE）。
+入口路由：[`server/routes/chatMulti.ts`](../routes/chatMulti.ts)（`ConfirmSession` + `runMultiRequestWithTracing` 根 span，invoke **进行中**写 SSE）。
+
+### LangSmith span 树（`LANGCHAIN_TRACING_V2=true`）
+
+```
+multi-request
+  ├─ multi-supervisor → multi-llm(role=supervisor)
+  ├─ multi-workers
+  │    └─ multi-worker(name) → multi-llm + tool
+  └─ multi-aggregate → multi-llm(role=aggregate)  # 单 Worker 透传时可能无 LLM
+```
 
 ---
 
@@ -144,7 +154,7 @@ injection_detected?
 
 确认短请求（与单 Agent 共用）：`POST /api/chat/confirm` `{ confirmId, toolCallId, action }`。
 
-前端：勾选「多 Agent」走本端点；与「搜索知识库」(`searchDocs`) **解耦**，后者不决定接口。
+前端：勾选「多 Agent」走本端点；勾选「搜索知识库」时 `searchDocs=true` → `forceKbSearch`，保证路由含 kb。
 
 ## Evals
 

@@ -144,6 +144,7 @@ export async function aggregate(options: AggregateOptions): Promise<string> {
     model: options.model,
     signal,
     onUsage: options.onUsage,
+    traceSpan: { role: "aggregate" },
   });
 
   // === 降级：LLM 汇总调用失败 → 简单拼接各 Worker 结果 ===

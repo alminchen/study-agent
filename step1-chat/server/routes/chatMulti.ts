@@ -4,6 +4,7 @@ import { compileMultiAgentGraph } from "../multi-agent/graph.js";
 import { ConfirmSession } from "../react/confirmGate.js";
 import type { ToolTraceHandler } from "../react/types.js";
 import { getRuntimeConfig } from "../runtimeConfig.js";
+import { runMultiRequestWithTracing } from "../tracing/langsmith.js";
 import { UsageAccumulator } from "../usage/accumulator.js";
 import { setSseHeaders, writeUsageToStream } from "./sse.js";
 
@@ -33,13 +34,21 @@ import { setSseHeaders, writeUsageToStream } from "./sse.js";
  * 防护层（与单 Agent 对齐）：
  *   inputGuard → 本文件；toolCallGuard → Worker runToolSafely；outputGuard → aggregate
  *
+ * LangSmith（与 chat-request / rag-request 并列）：
+ *   runMultiRequestWithTracing → multi-supervisor / multi-workers / multi-aggregate
+ *   callLLM → multi-llm；runToolSafely → runToolWithTracing（tool）
+ *
+ * 前端勾选「搜索知识库」时：
+ *   body.searchDocs=true → graph.forceKbSearch → Supervisor 后若无 kb 则强制追加
+ *   由 kbWorker 调 searchDocs（与单 Agent 语义 C 的 prefetch 路径不同，但保证必检索）
+ *
  * 流程图：docs/multi-agent-human-confirm-flow.svg
  */
 export function registerChatMultiRoutes(app: Express): void {
   app.post("/api/chat/multi", async (req, res) => {
     setSseHeaders(res);
 
-    const { messages, model } = req.body ?? {};
+    const { messages, model, searchDocs } = req.body ?? {};
 
     // ---- 步骤 1：校验 messages（至少一条，含 user 角色）----
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -99,38 +108,44 @@ export function registerChatMultiRoutes(app: Express): void {
       // 可能：Supervisor 1 次 + Worker 各 1~N 次 + Aggregate 0~1 次
       const accumulator = new UsageAccumulator();
 
-      // ---- 步骤 4：编译并执行 LangGraph ----
+      // ---- 步骤 4：编译并执行 LangGraph（LangSmith 根 span：multi-request）----
       // 注意：Supervisor / Worker 过程事件在 invoke **进行中**经 writeSse/onTrace 写出；
       // 不能再「整图跑完才推 route/done」，否则确认 wait 时前端收不到 pending_confirm。
+      // confirm wait 期间根 span 仍开着（与单 Agent chat-request 一致）。
       const graph = compileMultiAgentGraph({
         accumulator,
         defaultModel,
         confirmSession,
         onTrace,
         writeSse,
-      });
-      const result = await graph.invoke({
-        userMessage: userText,
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        model: typeof model === "string" && model ? model : undefined,
-        signal: abortController.signal,
-        routeDecision: null,
-        workerResults: [],
-        finalOutput: null,
+        // 勾选「搜索知识库」→ 强制带上 kb Worker（Supervisor 漏分时补上）
+        forceKbSearch: searchDocs === true,
       });
 
-      // ---- 步骤 5：最终回复（route / worker_done / 确认事件已在 invoke 中途写出）----
-      // 单 Worker 成功时可能是透传，无二次 Aggregate LLM
-      const finalText = result.finalOutput ?? "";
-      writeSse({ delta: finalText });
+      await runMultiRequestWithTracing(userText, async () => {
+        const result = await graph.invoke({
+          userMessage: userText,
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl,
+          model: typeof model === "string" && model ? model : undefined,
+          signal: abortController.signal,
+          routeDecision: null,
+          workerResults: [],
+          finalOutput: null,
+        });
 
-      // ---- 步骤 6：Token — 写 store + 推 usage ----
-      writeUsageToStream(res, accumulator, "chat/multi", defaultModel);
+        // ---- 步骤 5：最终回复（route / worker_done / 确认事件已在 invoke 中途写出）----
+        // 单 Worker 成功时可能是透传，无二次 Aggregate LLM
+        const finalText = result.finalOutput ?? "";
+        writeSse({ delta: finalText });
 
-      // ---- 步骤 7：结束 SSE ----
-      res.write("data: [DONE]\n\n");
-      res.end();
+        // ---- 步骤 6：Token — 写 store + 推 usage ----
+        writeUsageToStream(res, accumulator, "chat/multi", defaultModel);
+
+        // ---- 步骤 7：结束 SSE ----
+        res.write("data: [DONE]\n\n");
+        res.end();
+      });
     } catch (error) {
       if (!res.writableEnded) {
         const message = error instanceof Error ? error.message : "未知错误";

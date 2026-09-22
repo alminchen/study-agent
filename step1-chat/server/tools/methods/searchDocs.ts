@@ -20,6 +20,12 @@ export interface SearchDocsResult {
   hits: SearchDocsHitView[];
 }
 
+export interface ExecuteSearchDocsOptions {
+  /** 聊天 prefetch 可传更小候选数 */
+  candidateK?: number;
+  signal?: AbortSignal;
+}
+
 function toHitView(hit: SearchHit): SearchDocsHitView {
   return {
     id: hit.chunk.id,
@@ -63,9 +69,13 @@ export function parseSearchDocsArgs(
  */
 export async function executeSearchDocs(
   args: SearchDocsArgs,
+  options?: ExecuteSearchDocsOptions,
 ): Promise<SearchDocsResult | { error: string }> {
   try {
-    const judgment = await retrieveForAnswer(args.question);
+    const judgment = await retrieveForAnswer(args.question, undefined, undefined, {
+      signal: options?.signal,
+      candidateK: options?.candidateK,
+    });
     if (judgment.empty) {
       return { error: judgment.message ?? "资料里没有相关内容" };
     }

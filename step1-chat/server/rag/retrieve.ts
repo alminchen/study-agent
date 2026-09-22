@@ -127,6 +127,11 @@ export interface RetrieveForAnswerOptions {
   onRewriteUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
   /** HyDE LLM usage → bindUsageCallback(acc, "ragHyde") */
   onHydeUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
+  /**
+   * 向量召回候选数（默认 CANDIDATE_K=20）。
+   * 聊天 prefetch 可用更小值（如 CHAT_CANDIDATE_K=10）降重排成本。
+   */
+  candidateK?: number;
 }
 
 /**
@@ -158,6 +163,7 @@ export async function retrieveForAnswer(
   minTopScore = MIN_TOP_SCORE,
   options?: RetrieveForAnswerOptions,
 ): Promise<RetrievalJudgment> {
+  const candidateK = options?.candidateK ?? CANDIDATE_K;
   // ---- 步骤 1：原句 →（可选）扩写 ----
   const { query, meta } = await resolveQueryForRetrieve(question, {
     signal: options?.signal,
@@ -226,7 +232,7 @@ export async function retrieveForAnswer(
     } else if (hyde.meta.status === "fallback") {
       console.log(`[hyde] status=fallback reason=${hyde.meta.reason ?? ""}`);
     }
-    rawHits = await retrieve(hyde.embedText, CANDIDATE_K, {
+    rawHits = await retrieve(hyde.embedText, candidateK, {
       sources: kbRouteMeta.sourcesAllowed,
     });
     multiQueryMeta = {
@@ -241,8 +247,8 @@ export async function retrieveForAnswer(
     const queries = buildMultiQueries(meta.original || question, meta);
     if (queries.length >= 2) {
       const multi = await searchMultiQuery(queries, {
-        perQueryTopK: CANDIDATE_K,
-        mergeLimit: CANDIDATE_K,
+        perQueryTopK: candidateK,
+        mergeLimit: candidateK,
         sources: kbRouteMeta.sourcesAllowed,
       });
       rawHits = multi.hits;
@@ -257,7 +263,7 @@ export async function retrieveForAnswer(
       }
     } else {
       // 拼不出 ≥2 路则退回单路，避免「开了开关却空转」
-      rawHits = await retrieve(query, CANDIDATE_K, {
+      rawHits = await retrieve(query, candidateK, {
         sources: kbRouteMeta.sourcesAllowed,
       });
       multiQueryMeta = {
@@ -271,7 +277,7 @@ export async function retrieveForAnswer(
       console.log(`[multiQuery] status=skipped reason=${multiQueryMeta.reason}`);
     }
   } else {
-    rawHits = await retrieve(query, CANDIDATE_K, {
+    rawHits = await retrieve(query, candidateK, {
       sources: kbRouteMeta.sourcesAllowed,
     });
   }

@@ -118,8 +118,8 @@
 
     <path d="M660,98 L660,130 L1040,130 L1040,140" fill="none" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
     <rect x="920" y="140" width="240" height="56" rx="8" fill="#fce7f3" stroke="#db2777"/>
-    <text x="1040" y="164" text-anchor="middle" class="box">LangSmith（仅 /api/chat）</text>
-    <text x="1040" y="182" text-anchor="middle" class="box-sub">askModel / tool span</text>
+    <text x="1040" y="164" text-anchor="middle" class="box">LangSmith（chat / multi / rag）</text>
+    <text x="1040" y="182" text-anchor="middle" class="box-sub">根 span + llm / tool</text>
   </g>
 
   <!-- ========== A. Token flow ========== -->
@@ -274,9 +274,9 @@
     <line x1="480" y1="200" x2="520" y2="200" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
 
     <rect x="520" y="160" width="200" height="80" rx="8" fill="#fce7f3" stroke="#db2777"/>
-    <text x="620" y="186" text-anchor="middle" class="box">traceChatRequest</text>
-    <text x="620" y="204" text-anchor="middle" class="box-sub">chain: chat-request</text>
-    <text x="620" y="222" text-anchor="middle" class="file">仅 /api/chat</text>
+    <text x="620" y="186" text-anchor="middle" class="box">trace*Request</text>
+    <text x="620" y="204" text-anchor="middle" class="box-sub">chat / multi / rag</text>
+    <text x="620" y="222" text-anchor="middle" class="file">三入口根 span</text>
 
     <line x1="720" y1="200" x2="760" y2="200" stroke="#db2777" stroke-width="2" marker-end="url(#arrowPink)"/>
 
@@ -420,7 +420,7 @@
     <text x="20" y="120" class="label">对照 · multi</text>
     <rect x="20" y="132" width="680" height="56" rx="8" fill="#eef2ff" stroke="#4f46e5"/>
     <text x="40" y="156" class="box">detectInjection → graph(acc) → supervisor/worker/agg 各 Token → runToolSafely → detectLeakage → writeUsage</text>
-    <text x="40" y="174" class="file">无 LangSmith 包层 · SSE 有 supervisor_route / worker_done</text>
+    <text x="40" y="174" class="file">LangSmith: multi-request / supervisor / worker / multi-llm / tool · SSE supervisor_route / worker_done</text>
 
     <text x="740" y="120" class="label">对照 · rag</text>
     <rect x="740" y="132" width="640" height="56" rx="8" fill="#ecfdf5" stroke="#059669"/>

@@ -79,7 +79,10 @@ export interface ReactLoopOptions {
   baseUrl?: string;
   onDelta: (delta: string) => void;
   onTrace?: ToolTraceHandler;
-  /** 打开「搜索知识库」为 true：prefetch 强制检索，且请求里带上 searchDocs 工具。 */
+  /**
+   * 打开「搜索知识库」为 true（post-learning 语义 C）：
+   * 服务端 prefetch 强制检索并注入本轮 system；ReAct **不**再把 searchDocs 发给模型。
+   */
   searchDocs?: boolean;
   /** 每次 askModel 拿到 usage 时回调（Token 统计） */
   onUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;

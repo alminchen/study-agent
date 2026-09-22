@@ -7,7 +7,9 @@ import type { ProviderMessage, ReactLoopOptions } from "./types.js";
 const MAX_MODEL_TURNS = 5;
 
 /**
- * 备份：手写 for 循环版 ReAct。现网走 `runConversation.ts` 的 LangGraph。
+ * 【仅文档对照 · 勿改现网】手写 for 循环版 ReAct。
+ * 现网唯一入口：`runConversation.ts`（LangGraph）。
+ * post-learning：保留本文件供对照，不要双轨改逻辑。
  *
  * 有 tool_calls 则执行并回填，再问；没有则把文字交给页面。
  *

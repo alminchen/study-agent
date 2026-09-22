@@ -28,6 +28,12 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import type { ConfirmSession } from "../react/confirmGate.js";
 import type { ToolTraceHandler } from "../react/types.js";
+import {
+  withMultiAggregateSpan,
+  withMultiSupervisorSpan,
+  withMultiWorkerSpan,
+  withMultiWorkersSpan,
+} from "../tracing/langsmith.js";
 import { bindUsageCallback, type UsageAccumulator, type UsageSource } from "../usage/accumulator.js";
 import { supervisorRoute } from "./supervisor.js";
 import type { RouteDecision } from "./supervisor.js";
@@ -80,6 +86,26 @@ export interface MultiAgentGraphOptions {
   onTrace?: ToolTraceHandler;
   /** multi 专有过程事件（supervisor_route / worker_done） */
   writeSse?: (payload: Record<string, unknown>) => void;
+  /**
+   * 前端勾选「搜索知识库」时为 true。
+   * Supervisor 若未分到 kb，强制追加 kb Worker（task=用户原文），保证必走检索。
+   */
+  forceKbSearch?: boolean;
+}
+
+/**
+ * 勾选搜索知识库时：路由结果里必须有 kb。
+ * - 已有 kb → 不动（保留 Supervisor 拆好的子任务）
+ * - 没有 kb → 追加 { name:"kb", task: 用户原文 }
+ * - 若原先只有 general，追加 kb 后仍保留 general（闲聊补充）；Aggregate 会汇总
+ */
+function ensureKbWorker(decision: RouteDecision, userMessage: string): RouteDecision {
+  if (decision.workers.some((w) => w.name === "kb")) {
+    return decision;
+  }
+  return {
+    workers: [...decision.workers, { name: "kb", task: userMessage }],
+  };
 }
 
 // ============================================================
@@ -99,6 +125,7 @@ export function compileMultiAgentGraph(options?: MultiAgentGraphOptions) {
   const confirmSession = options?.confirmSession;
   const onTrace = options?.onTrace;
   const writeSse = options?.writeSse;
+  const forceKbSearch = Boolean(options?.forceKbSearch);
 
   /** 无累加器时返回 undefined；有则按 source 打标签绑到同一个 acc */
   const onUsage = (source: UsageSource) =>
@@ -107,28 +134,44 @@ export function compileMultiAgentGraph(options?: MultiAgentGraphOptions) {
   /**
    * 节点 1：Supervisor 路由。
    * 写出 supervisor_route，让前端在 Worker 跑完之前就能看到分发结果。
+   * 勾选搜索知识库时：路由后 ensureKbWorker，保证 kb 一定进并行池。
+   * LangSmith：multi-supervisor → multi-llm(role=supervisor)
    */
   async function supervisorNode(state: MultiAgentStateType) {
-    console.log("\n=== [Multi-Agent] 1) Supervisor 路由 ===");
-    const decision = await supervisorRoute({
-      userMessage: state.userMessage,
-      apiKey: state.apiKey,
-      baseUrl: state.baseUrl,
-      model: state.model,
-      signal: state.signal,
-      onUsage: onUsage("supervisor"),
+    return withMultiSupervisorSpan(async () => {
+      console.log("\n=== [Multi-Agent] 1) Supervisor 路由 ===");
+      let decision = await supervisorRoute({
+        userMessage: state.userMessage,
+        apiKey: state.apiKey,
+        baseUrl: state.baseUrl,
+        model: state.model,
+        signal: state.signal,
+        onUsage: onUsage("supervisor"),
+      });
+
+      if (forceKbSearch) {
+        const before = decision.workers.map((w) => w.name).join(",");
+        decision = ensureKbWorker(decision, state.userMessage);
+        const after = decision.workers.map((w) => w.name).join(",");
+        if (before !== after) {
+          console.log(`  [forceKbSearch] 强制追加 kb：${before || "(空)"} → ${after}`);
+        }
+      }
+
+      console.log(`  路由结果: ${decision.workers.map((w) => `${w.name}("${w.task}")`).join(", ")}`);
+      writeSse?.({
+        type: "supervisor_route",
+        workers: decision.workers,
+        forceKbSearch,
+      });
+      return { routeDecision: decision };
     });
-    console.log(`  路由结果: ${decision.workers.map((w) => `${w.name}("${w.task}")`).join(", ")}`);
-    writeSse?.({
-      type: "supervisor_route",
-      workers: decision.workers,
-    });
-    return { routeDecision: decision };
   }
 
   /**
    * 节点 2：Worker 并行执行。
    * 把 confirmSession / onTrace 下传给每个 Worker；单个 Worker 完成后立刻 worker_done。
+   * LangSmith：multi-workers → multi-worker(name) → multi-llm / tool
    */
   async function workersNode(state: MultiAgentStateType) {
     const decision = state.routeDecision;
@@ -136,67 +179,75 @@ export function compileMultiAgentGraph(options?: MultiAgentGraphOptions) {
       return { workerResults: [] };
     }
 
-    console.log(`\n=== [Multi-Agent] 2) 执行 Workers: ${decision.workers.map((w) => w.name).join(", ")} ===`);
+    const workerNames = decision.workers.map((w) => w.name);
+    return withMultiWorkersSpan(workerNames, async () => {
+      console.log(`\n=== [Multi-Agent] 2) 执行 Workers: ${workerNames.join(", ")} ===`);
 
-    const promises = decision.workers.map(async (assignment) => {
-      const fn = getWorkerFn(assignment.name);
-      if (!fn) {
-        const missing: WorkerResult = {
-          worker: assignment.name,
-          output: `Worker "${assignment.name}" 未注册`,
-          toolsCalled: [],
-          error: true,
-        };
+      const promises = decision.workers.map(async (assignment) => {
+        const fn = getWorkerFn(assignment.name);
+        if (!fn) {
+          const missing: WorkerResult = {
+            worker: assignment.name,
+            output: `Worker "${assignment.name}" 未注册`,
+            toolsCalled: [],
+            error: true,
+          };
+          writeSse?.({
+            type: "worker_done",
+            worker: missing.worker,
+            toolsCalled: missing.toolsCalled,
+            error: missing.error,
+          });
+          return missing;
+        }
+
+        console.log(`  [${assignment.name}] 开始执行: "${assignment.task}"`);
+        const result = await withMultiWorkerSpan(assignment.name, assignment.task, () =>
+          fn({
+            task: assignment.task,
+            apiKey: state.apiKey,
+            baseUrl: state.baseUrl,
+            model: state.model,
+            signal: state.signal,
+            onUsage: onUsage("worker"),
+            confirmSession,
+            onTrace,
+          }),
+        );
+        console.log(`  [${assignment.name}] 完成: error=${result.error}, tools=${result.toolsCalled.join(",") || "无"}`);
         writeSse?.({
           type: "worker_done",
-          worker: missing.worker,
-          toolsCalled: missing.toolsCalled,
-          error: missing.error,
+          worker: result.worker,
+          toolsCalled: result.toolsCalled,
+          error: result.error,
         });
-        return missing;
-      }
+        return result;
+      });
 
-      console.log(`  [${assignment.name}] 开始执行: "${assignment.task}"`);
-      const result = await fn({
-        task: assignment.task,
-        apiKey: state.apiKey,
-        baseUrl: state.baseUrl,
-        model: state.model,
-        signal: state.signal,
-        onUsage: onUsage("worker"),
-        confirmSession,
-        onTrace,
-      });
-      console.log(`  [${assignment.name}] 完成: error=${result.error}, tools=${result.toolsCalled.join(",") || "无"}`);
-      writeSse?.({
-        type: "worker_done",
-        worker: result.worker,
-        toolsCalled: result.toolsCalled,
-        error: result.error,
-      });
-      return result;
+      const results = await Promise.all(promises);
+      return { workerResults: results };
     });
-
-    const results = await Promise.all(promises);
-    return { workerResults: results };
   }
 
   /**
    * 节点 3：Aggregate 汇总。
+   * LangSmith：multi-aggregate → multi-llm(role=aggregate)（单 Worker 透传时可能无 LLM）
    */
   async function aggregateNode(state: MultiAgentStateType) {
-    console.log("\n=== [Multi-Agent] 3) Aggregate 汇总 ===");
-    const output = await aggregate({
-      results: state.workerResults,
-      userMessage: state.userMessage,
-      apiKey: state.apiKey,
-      baseUrl: state.baseUrl,
-      model: state.model,
-      signal: state.signal,
-      onUsage: onUsage("aggregate"),
+    return withMultiAggregateSpan(state.workerResults.length, async () => {
+      console.log("\n=== [Multi-Agent] 3) Aggregate 汇总 ===");
+      const output = await aggregate({
+        results: state.workerResults,
+        userMessage: state.userMessage,
+        apiKey: state.apiKey,
+        baseUrl: state.baseUrl,
+        model: state.model,
+        signal: state.signal,
+        onUsage: onUsage("aggregate"),
+      });
+      console.log(`  最终回复长度: ${output.length} 字`);
+      return { finalOutput: output };
     });
-    console.log(`  最终回复长度: ${output.length} 字`);
-    return { finalOutput: output };
   }
 
   const graph = new StateGraph(MultiAgentState)

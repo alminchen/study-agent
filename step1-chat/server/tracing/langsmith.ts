@@ -25,28 +25,30 @@
  * ## LangSmith 里应看到的 span 树（示例：「广州天气，顺便查查几点」）
  *
  * ```
- * chat-request          run_type: chain   ← runConversation 整次 invoke
- *   ├─ askModel         run_type: llm     turn=1，可能出 getWeather
- *   ├─ tool             run_type: tool     tool_name=getWeather
- *   ├─ askModel         run_type: llm     turn=2，可能出 getCurrentTime
- *   ├─ tool             run_type: tool     tool_name=getCurrentTime
- *   └─ askModel         run_type: llm     turn=3，无 tool_calls，生成最终文字
+ * chat-request          run_type: chain
+ *   ├─ chat-prefetch?   若勾选知识库（语义 C）
+ *   ├─ chat-llm         turn=1（工具轮，thinking 默认 disabled）
+ *   ├─ tool             getWeather
+ *   └─ chat-llm         turn=2…
  * ```
  *
  * ## 谁在调用本文件
  *
- * - `runConversation.ts`：`traceChatRequest` 包整段图；`askModel` 节点里调 `traceAskModel`
- * - `applyToolCalls.ts`：每个 tool_call 经 `runToolWithTracing` → `traceToolRun`
- * - `ragChat.ts` / `answer.ts`：`traceRagRequest` → `traceRagRetrieve` / `traceRagLlm`
+ * - `runConversation.ts`：`traceChatRequest`；节点内 `traceAskModel`（span 名 chat-llm）
+ * - `prefetchSearchDocs.ts`：`runPrefetchWithTracing` → chat-prefetch
+ * - `applyToolCalls.ts`：`runToolWithTracing` → `traceToolRun`
+ * - `ragChat.ts` / `answer.ts`：`traceRagRequest` → rag-retrieve / rag-llm
+ * - `chatMulti.ts` / `multi-agent/*`：`traceMultiRequest` → multi-* spans
  *
  * ## 刻意不上报 / 截断的内容
  *
- * - 完整 `messages` 数组（太长、易含历史）；askModel 只记 message_count
+ * - 完整 `messages` 数组（太长、易含历史）；chat-llm 只记 message_count
  * - `LLM_API_KEY`、用户 API Key
  * - 工具结果超过 500 字的 JSON（`result_preview` 截断）
  * - 用户问句超过 120 字（`user_preview` 截断）
  *
  * 详细学习计划：`stage5-tracing-learning-plan.md`、`stage5-tracing-hands-on.md`
+ * post-learning：`docs/post-learning-optimization-changelog.md`
  */
 
 import { traceable } from "langsmith/traceable";
@@ -94,6 +96,9 @@ export const traceChatRequest = traceable(
 /**
  * LLM span：LangGraph `askModel` 节点里每一次 `requestCompletion`。
  *
+ * 名称刻意用 `chat-llm`（不用 askModel），避免与 LangGraph 节点名叠两层同名，
+ * 排错时不会误以为跑了两次 LLM。
+ *
  * 对应关系：
  * - 代码：`complete.ts` → POST chat/completions（带 tools）
  * - 图：`runConversation.ts` 的 askModel 节点，每轮 turn 一次
@@ -110,17 +115,20 @@ export const traceAskModel = traceable(
     options: ReactLoopOptions;
     apiKey: string;
   }): Promise<ProviderChoice> => {
-    const { choice } = await requestCompletion(input.messages, input.options, input.apiKey);
+    const { choice } = await requestCompletion(input.messages, input.options, input.apiKey, {
+      disableThinking: true,
+    });
     return choice;
   },
   {
-    name: "askModel",
+    name: "chat-llm",
     run_type: "llm",
     processInputs: (inputs) => ({
       turn: inputs.turn,
       model: inputs.options.model ?? process.env.LLM_MODEL ?? "deepseek-chat",
       message_count: inputs.messages.length,
-      search_docs: Boolean(inputs.options.searchDocs),
+      search_docs_prefetch: Boolean(inputs.options.searchDocs),
+      thinking: "disabled",
     }),
     processOutputs: (outputs) => {
       const message = outputs.message;
@@ -135,6 +143,47 @@ export const traceAskModel = traceable(
   },
 );
 
+/**
+ * Tool span：聊天路径上的 prefetch 检索（语义 C：服务端必检索）。
+ * 与模型 tool_calls 的 `tool` span 区分：本 span 名 `chat-prefetch`。
+ */
+export const traceChatPrefetch = traceable(
+  async (input: {
+    question: string;
+    candidateK: number;
+    run: () => Promise<unknown>;
+  }): Promise<unknown> => input.run(),
+  {
+    name: "chat-prefetch",
+    run_type: "tool",
+    processInputs: (inputs) => ({
+      tool_name: "searchDocs",
+      path: "prefetch",
+      question_preview: inputs.question.slice(0, 120),
+      candidate_k: inputs.candidateK,
+    }),
+    processOutputs: (outputs) => {
+      const row = outputs as { error?: string; empty?: boolean; hits?: unknown[] } | null;
+      return {
+        is_error: Boolean(row && "error" in row && row.error),
+        hit_count: Array.isArray(row?.hits) ? row.hits.length : null,
+        result_preview: JSON.stringify(outputs).slice(0, 500),
+      };
+    },
+  },
+);
+
+/** 开关开 → chat-prefetch span；关 → 直接 run。 */
+export async function runPrefetchWithTracing<T>(
+  question: string,
+  candidateK: number,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isLangSmithTracingEnabled()) {
+    return run();
+  }
+  return traceChatPrefetch({ question, candidateK, run }) as Promise<T>;
+}
 /**
  * Tool span：单次 tool_call 的执行（getWeather / getCurrentTime / searchDocs …）。
  *
@@ -323,4 +372,197 @@ export async function runRagLlmWithTracing<T extends { content: string; usage: u
     return run();
   }
   return traceRagLlm({ messageCount, model, run }) as Promise<T>;
+}
+
+/**
+ * 根 span：一次 `/api/chat/multi`（多 Agent）整段请求。
+ * 与 chat-request / rag-request 并列。
+ *
+ * LangSmith 树示例（「广州天气，顺便查笔记」）：
+ * ```
+ * multi-request
+ *   ├─ multi-supervisor
+ *   │    └─ multi-llm          role=supervisor
+ *   ├─ multi-workers
+ *   │    ├─ multi-worker       worker=realtime
+ *   │    │    ├─ multi-llm     turn=0
+ *   │    │    ├─ tool          getWeather
+ *   │    │    └─ multi-llm     turn=1
+ *   │    └─ multi-worker       worker=kb
+ *   │         ├─ multi-llm
+ *   │         └─ tool          searchDocs
+ *   └─ multi-aggregate
+ *        └─ multi-llm          role=aggregate（单 Worker 透传时可能无此 LLM）
+ * ```
+ */
+export const traceMultiRequest = traceable(
+  async (input: { run: () => Promise<void>; userPreview: string }) => {
+    await input.run();
+  },
+  {
+    name: "multi-request",
+    run_type: "chain",
+    processInputs: (inputs) => ({
+      user_preview: inputs.userPreview.slice(0, 120),
+    }),
+  },
+);
+
+/** chain：Supervisor 路由节点。 */
+export const traceMultiSupervisor = traceable(
+  async (input: { run: () => Promise<unknown> }): Promise<unknown> => input.run(),
+  {
+    name: "multi-supervisor",
+    run_type: "chain",
+  },
+);
+
+/** chain：Workers 并行节点（内部再挂各 multi-worker）。 */
+export const traceMultiWorkers = traceable(
+  async (input: { workerNames: string[]; run: () => Promise<unknown> }): Promise<unknown> =>
+    input.run(),
+  {
+    name: "multi-workers",
+    run_type: "chain",
+    processInputs: (inputs) => ({
+      workers: inputs.workerNames,
+      worker_count: inputs.workerNames.length,
+    }),
+  },
+);
+
+/** chain：单个 Worker 执行（含内部 mini ReAct）。 */
+export const traceMultiWorker = traceable(
+  async (input: {
+    worker: string;
+    task: string;
+    run: () => Promise<unknown>;
+  }): Promise<unknown> => input.run(),
+  {
+    name: "multi-worker",
+    run_type: "chain",
+    processInputs: (inputs) => ({
+      worker: inputs.worker,
+      task_preview: inputs.task.slice(0, 120),
+    }),
+  },
+);
+
+/** chain：Aggregate 汇总节点。 */
+export const traceMultiAggregate = traceable(
+  async (input: { workerCount: number; run: () => Promise<unknown> }): Promise<unknown> =>
+    input.run(),
+  {
+    name: "multi-aggregate",
+    run_type: "chain",
+    processInputs: (inputs) => ({
+      worker_count: inputs.workerCount,
+    }),
+  },
+);
+
+/**
+ * LLM span：多 Agent 路径上每一次 `callLLM`（Supervisor / Worker / Aggregate）。
+ * 与 askModel / rag-llm 并列；不走 requestCompletion，故单独打点。
+ */
+export const traceMultiLlm = traceable(
+  async (input: {
+    role: "supervisor" | "worker" | "aggregate";
+    worker?: string;
+    turn?: number;
+    messageCount: number;
+    model: string;
+    hasTools: boolean;
+    run: () => Promise<unknown>;
+  }): Promise<unknown> => input.run(),
+  {
+    name: "multi-llm",
+    run_type: "llm",
+    processInputs: (inputs) => ({
+      role: inputs.role,
+      worker: inputs.worker ?? null,
+      turn: inputs.turn ?? null,
+      model: inputs.model,
+      message_count: inputs.messageCount,
+      has_tools: inputs.hasTools,
+    }),
+    processOutputs: (outputs) => {
+      const row = outputs as {
+        ok?: boolean;
+        content?: string | null;
+        toolCalls?: { function: { name: string } }[];
+      };
+      const toolCalls = row.toolCalls ?? [];
+      return {
+        ok: row.ok ?? null,
+        has_tool_calls: toolCalls.length > 0,
+        tool_names: toolCalls.map((c) => c.function.name),
+        content_preview: row.content?.slice(0, 200) ?? null,
+      };
+    },
+  },
+);
+
+/** 多 Agent LLM：开关开 → traceMultiLlm；关 → 直接 run。 */
+export async function runMultiLlmWithTracing<T>(
+  meta: {
+    role: "supervisor" | "worker" | "aggregate";
+    worker?: string;
+    turn?: number;
+    messageCount: number;
+    model: string;
+    hasTools: boolean;
+  },
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isLangSmithTracingEnabled()) {
+    return run();
+  }
+  return traceMultiLlm({ ...meta, run }) as Promise<T>;
+}
+
+/** 根 span 包装：开关开 → multi-request；关 → 直接 run。 */
+export async function runMultiRequestWithTracing(
+  userPreview: string,
+  run: () => Promise<void>,
+): Promise<void> {
+  if (!isLangSmithTracingEnabled()) {
+    await run();
+    return;
+  }
+  await traceMultiRequest({ userPreview, run });
+}
+
+/** Supervisor 节点 chain。 */
+export async function withMultiSupervisorSpan<T>(run: () => Promise<T>): Promise<T> {
+  if (!isLangSmithTracingEnabled()) return run();
+  return traceMultiSupervisor({ run }) as Promise<T>;
+}
+
+/** Workers 并行节点 chain。 */
+export async function withMultiWorkersSpan<T>(
+  workerNames: string[],
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isLangSmithTracingEnabled()) return run();
+  return traceMultiWorkers({ workerNames, run }) as Promise<T>;
+}
+
+/** 单个 Worker chain。 */
+export async function withMultiWorkerSpan<T>(
+  worker: string,
+  task: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isLangSmithTracingEnabled()) return run();
+  return traceMultiWorker({ worker, task, run }) as Promise<T>;
+}
+
+/** Aggregate 节点 chain。 */
+export async function withMultiAggregateSpan<T>(
+  workerCount: number,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isLangSmithTracingEnabled()) return run();
+  return traceMultiAggregate({ workerCount, run }) as Promise<T>;
 }

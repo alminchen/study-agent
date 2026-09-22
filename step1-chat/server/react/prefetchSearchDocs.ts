@@ -1,8 +1,19 @@
 import { executeSearchDocs } from "../tools/methods/searchDocs.js";
 import type { SearchDocsHitView, SearchDocsResult } from "../tools/methods/searchDocs.js";
 import { isRerankDegraded } from "../rag/rerank.js";
+import { runPrefetchWithTracing } from "../tracing/langsmith.js";
 import type { ConsecutiveFailureTracker } from "./toolFailure.js";
 import type { ProviderMessage, ReactLoopOptions } from "./types.js";
+
+/** 聊天路径候选数（低于资料问答默认 20）；可用 CHAT_CANDIDATE_K 覆盖。 */
+function chatCandidateK(): number {
+  const raw = Number(process.env.CHAT_CANDIDATE_K ?? "10");
+  if (!Number.isFinite(raw) || raw < 1) return 10;
+  return Math.min(Math.floor(raw), 20);
+}
+
+/** 注入 system 时单段原文上限，避免第二轮上下文过贵。 */
+const HIT_TEXT_MAX = Number(process.env.CHAT_PREFETCH_HIT_CHARS ?? "800");
 
 /** 从 messages 取最后一条 user 文本。 */
 export function getLastUserText(messages: ProviderMessage[]): string {
@@ -15,12 +26,18 @@ export function getLastUserText(messages: ProviderMessage[]): string {
   return "";
 }
 
+function clipHitText(text: string): string {
+  if (!Number.isFinite(HIT_TEXT_MAX) || HIT_TEXT_MAX <= 0) return text;
+  if (text.length <= HIT_TEXT_MAX) return text;
+  return `${text.slice(0, HIT_TEXT_MAX)}…`;
+}
+
 function formatHitsForModel(hits: SearchDocsHitView[]): string {
   return hits
     .map((hit, index) => {
       const n = index + 1;
       const heading = hit.title ? ` title="${hit.title}"` : "";
-      return `[${n}] id=${hit.id} source=${hit.source}${heading}\n${hit.text}`;
+      return `[${n}] id=${hit.id} source=${hit.source}${heading}\n${clipHitText(hit.text)}`;
     })
     .join("\n\n");
 }
@@ -49,12 +66,10 @@ export interface PrefetchResult {
 
 /**
  * 勾选「搜索知识库」时：在第一次 askModel 之前强制检索（保证必走资料库）。
- * searchDocs 仍挂进模型 tools。
  *
- * **P0 改动**：判空后返回 `empty: true`，由 `runConversation` 直接用固定文案回复，
- * 不再注入 system 让模型继续——避免模型编造文档名和章节号。
- *
- * 有资料时，结果仍追加到本轮 system，不伪造 assistant / tool_calls。
+ * ## post-learning 语义 C
+ * 检索结果注入本轮 system；**不再**把 searchDocs 挂给 ReAct 模型（见 complete.ts）。
+ * 判空后返回 `empty: true`，由 `runConversation` 直接用固定文案回复。
  */
 export async function prefetchSearchDocsIfEnabled(
   messages: ProviderMessage[],
@@ -73,8 +88,12 @@ export async function prefetchSearchDocsIfEnabled(
     arguments: args,
   });
 
-  console.log("\n=== 0) 强制检索知识库（已勾选开关）===");
-  const result = await executeSearchDocs(args);
+  console.log("\n=== 0) 强制检索知识库（语义 C：prefetch，模型不挂 searchDocs）===");
+
+  const candidateK = chatCandidateK();
+  const result = await runPrefetchWithTracing(question, candidateK, () =>
+    executeSearchDocs(args, { candidateK }),
+  );
   failures.record("searchDocs", result);
 
   console.log(JSON.stringify(result, null, 2));

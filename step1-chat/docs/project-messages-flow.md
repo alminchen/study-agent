@@ -240,7 +240,7 @@ injection_detected? → tool_call → tool_result → output_leak_blocked?
 | 响应格式 | SSE | SSE | SSE |
 | Input/Output Guard | detectInjection + detectLeakage（SSE） | 同左 | 同左 |
 | Tool Guard | applyToolCalls | runToolSafely | validateToolCall(searchDocs) |
-| LangSmith | ✅ chat-request | ❌ | ✅ rag-request |
+| LangSmith | ✅ chat-request | ✅ multi-request | ✅ rag-request |
 
 ---
 

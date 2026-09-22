@@ -86,7 +86,9 @@ function compileReactGraph(
           apiKey,
         });
       }
-      const { choice } = await requestCompletion(state.messages, options, apiKey);
+      const { choice } = await requestCompletion(state.messages, options, apiKey, {
+        disableThinking: true,
+      });
       return choice;
     };
 

@@ -46,6 +46,7 @@ export async function runActionWorker(ctx: WorkerContext): Promise<WorkerResult>
       tools: toolSchemas as unknown[],
       signal: ctx.signal,
       onUsage: ctx.onUsage,
+      traceSpan: { role: "worker", worker: "action", turn },
     });
 
     if (!result.ok) {
@@ -69,6 +70,7 @@ export async function runActionWorker(ctx: WorkerContext): Promise<WorkerResult>
         confirmSession: ctx.confirmSession,
         onTrace: ctx.onTrace,
         signal: ctx.signal,
+        turn,
       });
       messages.push({
         role: "tool",

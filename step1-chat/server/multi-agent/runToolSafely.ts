@@ -1,6 +1,7 @@
 /**
  * Worker 执行工具：Guard →（可选）人工确认 → run。
  * 确认语义对齐单 Agent applyToolCalls / runWithOptionalConfirm。
+ * 实际执行走 `runToolWithTracing`，与单 Agent 共用 LangSmith tool span。
  */
 
 import { validateToolCall } from "../guard/toolCallGuard.js";
@@ -8,6 +9,7 @@ import { isToolRequiringConfirm } from "../react/toolsRequiringConfirm.js";
 import type { ConfirmSession } from "../react/confirmGate.js";
 import type { ToolTraceHandler } from "../react/types.js";
 import { findTool } from "../tools/index.js";
+import { runToolWithTracing } from "../tracing/langsmith.js";
 
 export interface RunToolSafelyOptions {
   /** 模型返回的 tool_call.id，确认 API 用同一个键 */
@@ -15,6 +17,8 @@ export interface RunToolSafelyOptions {
   confirmSession?: ConfirmSession;
   onTrace?: ToolTraceHandler;
   signal?: AbortSignal;
+  /** Worker 内 ReAct 轮次（供 LangSmith tool span 的 turn 字段） */
+  turn?: number;
 }
 
 export async function runToolSafely(
@@ -22,7 +26,7 @@ export async function runToolSafely(
   rawArguments: string,
   options: RunToolSafelyOptions,
 ): Promise<unknown> {
-  const { toolCallId, confirmSession, onTrace, signal } = options;
+  const { toolCallId, confirmSession, onTrace, signal, turn = 0 } = options;
 
   let parsedArgs: unknown = rawArguments;
   try {
@@ -41,14 +45,21 @@ export async function runToolSafely(
     return result;
   }
 
-  const tool = findTool(name);
-  if (!tool) {
+  if (!findTool(name)) {
     const result = { error: `未知工具: ${name}` };
     onTrace?.({ type: "tool_result", name, result });
     return result;
   }
 
   let result: unknown;
+
+  /** 真实执行走与单 Agent 相同的 LangSmith tool span（含错误转 { error }） */
+  const executeTraced = () =>
+    runToolWithTracing(turn, {
+      id: toolCallId,
+      type: "function",
+      function: { name, arguments: rawArguments },
+    });
 
   if (isToolRequiringConfirm(name)) {
     if (!confirmSession) {
@@ -83,11 +94,12 @@ export async function runToolSafely(
       if (action === "deny") {
         result = { error: "用户拒绝执行该操作" };
       } else {
-        result = await tool.run(rawArguments);
+        // allow 之后才打 LangSmith tool span（与单 Agent 一致：只观测真实执行）
+        result = await executeTraced();
       }
     }
   } else {
-    result = await tool.run(rawArguments);
+    result = await executeTraced();
   }
 
   onTrace?.({ type: "tool_result", name, result });

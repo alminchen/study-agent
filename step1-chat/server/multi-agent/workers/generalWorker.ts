@@ -61,6 +61,7 @@ export async function runGeneralWorker(ctx: WorkerContext): Promise<WorkerResult
     model: ctx.model,
     signal: ctx.signal,
     onUsage: ctx.onUsage,
+    traceSpan: { role: "worker", worker: "general" },
   });
 
   // LLM 调用失败

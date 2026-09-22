@@ -51,7 +51,10 @@ const modeLabel = computed(() =>
 const starters = computed(() => (ragMode.value ? RAG_STARTERS : CHAT_STARTERS));
 const placeholder = computed(() => {
   if (ragMode.value) return "问已入库的笔记，Enter 发送";
-  if (searchKb.value) return "将先检索知识库，Enter 发送";
+  if (searchKb.value && multiAgent.value) {
+    return "多 Agent：将强制走 kb Worker 检索知识库";
+  }
+  if (searchKb.value) return "将先检索知识库并注入本轮（不再让模型调 searchDocs）";
   return "输入消息，Enter 发送";
 });
 
@@ -266,6 +269,7 @@ function toggleMultiAgent() {
                 @change="toggleSearchKb"
               />
               搜索知识库
+              <span class="kb-hint" title="服务端必检索并注入；聊天 ReAct 只保留天气/时间等工具">（必检索）</span>
             </label>
           </div>
         </footer>

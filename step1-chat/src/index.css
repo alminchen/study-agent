@@ -626,6 +626,11 @@ button {
   margin: 0;
 }
 
+.kb-hint {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
 .composer-input {
   flex: 1;
   min-height: 40px;

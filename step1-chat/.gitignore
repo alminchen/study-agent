@@ -6,3 +6,4 @@ dist
 models/
 .chroma/
 chroma-data/
+data/
