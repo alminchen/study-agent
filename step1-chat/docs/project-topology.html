@@ -97,7 +97,7 @@
 <div class="wrap">
   <h1>step1-chat · 学习计划对照拓扑</h1>
   <p class="lede">对照 <code>LLM/learning-plan.md</code> 与<strong>当前仓库实现</strong>，把已落地能力画成方法级调用拓扑。浏览器直接打开本页即可。</p>
-  <p class="lede">细泳道 SVG：<a href="./flows-index.html">flows-index.html</a>（含 <a href="./flows-index.html#rag-enhance">3b 问句增强</a>）· 模块说明书：<a href="../Code/index.html">Code/</a> · 消息流：<a href="./project-messages-flow.md">project-messages-flow.md</a> · 总计划：<a href="../../learning-plan.md">learning-plan.md</a></p>
+  <p class="lede">细泳道 SVG：<a href="./flows-index.html">flows-index.html</a>（含 <a href="./flows-index.html#rag-enhance">3b 问句增强</a>、<a href="./flows-index.html#structured-output">0b 结构化输出</a>）· 模块说明书：<a href="../Code/index.html">Code/</a> · 消息流：<a href="./project-messages-flow.md">project-messages-flow.md</a> · 结构化总结：<a href="./structured-output.md">structured-output.md</a> · 总计划：<a href="../../learning-plan.md">learning-plan.md</a></p>
   <p class="lede" style="font-size:13px;color:#64748b">同步说明：以 <code>server/</code>、<code>src/</code> 导出函数为准；若与旧 SVG 不一致，以本页与源码为准。</p>
 
   <nav class="toc" aria-label="目录">
@@ -111,6 +111,9 @@
     <a href="#draft">5b draft_message</a>
     <a href="#rag">6 RAG</a>
     <a href="#rag-enhance">6b 问句增强</a>
+    <a href="#structured">6c 结构化输出</a>
+    <a href="#plan">6d 计划执行</a>
+    <a href="#long-context">6e 长上下文</a>
     <a href="#cross">7 Token/Guard/Trace</a>
     <a href="#tools">7b 工具表</a>
     <a href="#pending">8 未交付</a>
@@ -134,6 +137,24 @@
           <td><span class="badge done">已结</span></td>
           <td><code>src/App.vue</code> · <span class="fn">useChat</span> · <span class="fn">runSseSession</span> · <span class="fn">streamChat</span>/<span class="fn">askRag</span> · SSE · localStorage</td>
           <td>learning-plan §阶段1</td>
+        </tr>
+        <tr>
+          <td>进阶学习 · Streaming 结构化输出</td>
+          <td><span class="badge now">已实现 / 未实测</span></td>
+          <td><code>server/routes/chatStructured.ts</code> · <span class="fn">streamStructuredCompletion</span> · <span class="fn">StructuredStreamAccumulator</span> · <span class="fn">parseStructuredChunk</span> · <span class="fn">streamStructured</span> · <span class="fn">runStructured</span> · <span class="fn">StructuredBlock</span></td>
+          <td><a href="./structured-output.md">阶段总结</a> · <a href="./structured-output-flow.svg">全链路 SVG</a> · <a href="#structured">§6c</a></td>
+        </tr>
+        <tr>
+          <td>进阶学习 · Plan-and-Execute</td>
+          <td><span class="badge now">已实现 / 未实测</span></td>
+          <td><code>server/routes/chatPlan.ts</code> · <span class="fn">runPlanGraph</span> · <span class="fn">classifyTask</span> · <span class="fn">createRealPlanner</span> · <span class="fn">createRealExecutor</span> · <span class="fn">decideReplan</span> · <span class="fn">PlanTimeline</span></td>
+          <td><a href="./plan-and-execute.md">阶段总结</a> · <a href="./plan-and-execute-flow.svg">全链路 SVG</a> · <a href="#plan">§6d</a></td>
+        </tr>
+        <tr>
+          <td>进阶学习第 3 项 · 长上下文管理<br/><span style="font-size:12px;color:#64748b">用户称“阶段 3”，区别于主线阶段 3 RAG</span></td>
+          <td><span class="badge done">已结</span></td>
+          <td><code>server/context/</code> · <span class="fn">buildContext</span> · <span class="fn">summarizeDroppedMessages</span> · <span class="fn">resolveBudgetTokens</span> · <span class="fn">assertToolPairing</span> · <code>ContextCompactionNotice</code></td>
+          <td><a href="./long-context.md">阶段总结</a> · <a href="./long-context-flow.svg">全链路 SVG</a> · <a href="#long-context">§6e</a></td>
         </tr>
         <tr>
           <td>2 Function Calling</td>
@@ -253,12 +274,16 @@ flowchart TB
     C["registerChatRoutes<br/>POST /api/chat"]
     CF["registerChatConfirmRoutes<br/>POST/GET /api/chat/confirm"]
     M["registerChatMultiRoutes<br/>POST /api/chat/multi"]
+    S["registerChatStructuredRoutes<br/>POST /api/chat/structured"]
+    P["registerChatPlanRoutes<br/>POST /api/chat/plan"]
   end
-  RR --> U & H & R & C & CF & M
+  RR --> U & H & R & C & CF & M & S & P
 
   C --> SSE1["setSseHeaders + writeUsageToStream"]
   M --> SSE2["setSseHeaders + writeUsageToStream"]
   R --> SSE3["setSseHeaders + writeUsageToStream"]
+  S --> SSE4["setSseHeaders + structured_* SSE<br/>usage + LangSmith"]
+  P --> SSE5["setSseHeaders + plan_* SSE<br/>usage + LangSmith"]
     </div>
     <div class="calltree"><span class="c">// server/index.ts</span>
 <span class="m">registerRoutes</span>(app)
@@ -267,7 +292,9 @@ flowchart TB
   ├─ <span class="m">registerRagChatRoutes</span>     → POST /api/rag/chat          <span class="e">SSE 资料问答</span>
   ├─ <span class="m">registerChatRoutes</span>        → POST /api/chat              <span class="e">SSE 单 Agent</span>
   ├─ <span class="m">registerChatConfirmRoutes</span> → POST/GET /api/chat/confirm  <span class="e">JSON 确认</span>
-  └─ <span class="m">registerChatMultiRoutes</span>   → POST /api/chat/multi        <span class="e">SSE 多 Agent</span>
+  ├─ <span class="m">registerChatMultiRoutes</span>   → POST /api/chat/multi        <span class="e">SSE 多 Agent</span>
+  ├─ <span class="m">registerChatStructuredRoutes</span> → POST /api/chat/structured <span class="e">SSE 结构化输出</span>
+  └─ <span class="m">registerChatPlanRoutes</span>      → POST /api/chat/plan        <span class="e">SSE 计划执行</span>
 
 <span class="c">// 配置</span>
 <span class="m">getRuntimeConfig</span>() → { apiKey, baseUrl, model, mockMode, forceMock }
@@ -281,30 +308,47 @@ flowchart TB
   <div class="card">
     <div class="mermaid">
 flowchart TB
-  APP["App.vue<br/>toggle: ragMode / multiAgent / searchKb"] --> UC["useChat()"]
+  APP["App.vue<br/>toggle: ragMode / multiAgent / searchKb<br/>structuredTarget: text / table / code"] --> UC["useChat()"]
 
   subgraph toggles["开关（互不绑死 endpoint）"]
     SMA["setMultiAgent → localStorage"]
     SKB["setSearchKb → searchDocs body"]
     SRAG["setRagMode → 换历史键"]
+    SSTRUCT["structuredTarget → table / code"]
+    SPLAN["setPlanEnabled → localStorage<br/>planMode: auto / react / plan"]
   end
-  UC --> SMA & SKB & SRAG
+  UC --> SMA & SKB & SRAG & SSTRUCT & SPLAN
 
   UC --> SEND["send(content)"]
   SEND -->|ragMode| RR["runRag"]
-  SEND -->|!ragMode| RS["runStream"]
+  SEND -->|!ragMode + table/code| SST["sendStructured"]
+  SEND -->|!ragMode + planEnabled| RP["runPlan"]
+  SEND -->|!ragMode + !planEnabled + text| RS["runStream"]
 
   RR --> RSS["runSseSession 骨架"]
   RS --> RSS
+  SST --> RST["runStructured"]
+  RST --> RSS
+  RP --> RSS
   RSS -->|rag| AR["askRag()"]
   RSS -->|chat| SC["streamChat({ multiAgent, searchDocs, … })"]
+  RSS -->|structured| SAPI["streamStructured({ target, … })"]
+  RSS -->|plan| PAPI["streamPlan({ mode, searchDocs, … })"]
   AR --> RAGAPI["POST /api/rag/chat"]
   SC --> CHATAPI["POST /api/chat 或 /multi"]
+  SAPI --> STRUCTAPI["POST /api/chat/structured"]
+  PAPI --> PLANAPI["POST /api/chat/plan"]
   AR --> RHIT["onRagMeta → RagHitPanel"]
   SC --> PARSE["解析 SSE:<br/>delta / rag_meta / tool_* / pending_confirm<br/>confirm_resolved / usage / DONE"]
+  SAPI --> SPARSE["解析 SSE:<br/>structured_start / delta<br/>snapshot / done / error / usage / DONE"]
   PARSE --> TRACE["toolTrace[] → ToolTracePanel"]
   PARSE --> USAGE["lastUsage → UsagePanel"]
   PARSE --> MSG["messages 助手气泡"]
+  SPARSE --> SNAP["onSnapshot → revision 去重"]
+  SNAP --> BLOCK["StructuredBlock"]
+  SPARSE --> SDONE["onDone → completed"]
+  SPARSE --> SERR["onError → error / lastRevision"]
+  PAPI -->|plan_* 事件| PTL["PlanTimeline<br/>计划 + 步骤状态（只在内存）"]
 
   UC --> RTC["resolveToolConfirm"]
   RTC --> CCT["confirmChatTool"]
@@ -316,11 +360,15 @@ flowchart TB
   UC --> CLEAR["clear + localStorage"]
     </div>
     <ul class="compact">
-      <li><span class="fn">runSseSession</span>：runStream / runRag 共用（Abort、占位气泡、onDelta/onTrace/onUsage/onError 收尾）</li>
+      <li><span class="fn">runSseSession</span>：runStream / runRag / runStructured 共用（Abort、占位气泡、回调与终态收尾）</li>
       <li><span class="fn">setMultiAgent</span>：选 <code>/api/chat/multi</code> vs <code>/api/chat</code>（与 searchKb <strong>解耦</strong>）</li>
       <li><span class="fn">setSearchKb</span>：body <code>searchDocs</code>。单 Agent → prefetch（语义 C，模型不挂 searchDocs）；多 Agent → <code>forceKbSearch</code> 强制 kb Worker</li>
       <li><span class="fn">setRagMode</span>：切到 <code>/api/rag/chat</code>，历史键分离；<span class="fn">runRag</span> 会把当前问句从 history 里剥出</li>
+      <li><span class="fn">setPlanEnabled</span>：localStorage 开关（默认关），打开后走 <code>/api/chat/plan</code>；<span class="fn">planMode</span> = auto / react / plan（auto 由分类器决定是否进 Planner）</li>
+      <li><span class="fn">PlanTimeline</span>：只吃 <code>plan_*</code> 事件（plan_created / plan_step_* / plan_replanned / plan_finished），与 <code>ToolTracePanel</code> 数据源分开</li>
       <li><span class="fn">streamChat</span> / <span class="fn">askRag</span>：解析 SSE（delta / rag_meta / pending_confirm / usage / tool / guard 事件）</li>
+      <li><span class="fn">sendStructured</span> → <span class="fn">runStructured</span> → <span class="fn">streamStructured</span>：table/code 走独立结构化协议；正文由稳定 snapshot 和最终 result 驱动，不使用 delta 拼接</li>
+      <li><span class="fn">streamStructured</span>：只接受更高 <code>revision</code>；<code>structured_done</code> 先暂存，看到 <code>[DONE]</code> 后才提交最终结果</li>
       <li><span class="fn">askRag</span> 的 <code>rag_meta</code> 含 <code>rewriteMeta / kbRouteMeta / multiQueryMeta / hydeMeta</code> → <code>RagHitPanel</code>「问句增强」区（右侧栏）</li>
       <li><span class="fn">resolveToolConfirm</span> → <span class="fn">confirmChatTool</span>：点允许/拒绝 → 不解绑原 SSE，只解开 <code>ConfirmSession.wait</code></li>
     </ul>
@@ -344,7 +392,8 @@ flowchart TB
 
   subgraph ccs["chat.ts · createChatStream"]
     BSP["buildSystemPrompt(searchDocs)<br/>KB_ON/OFF + GUARD"]
-    CLIP["clipMessages"]
+    CTX["buildContext<br/>budget 模式<br/>system → 摘要 → 近期窗口"]
+    LEG["clipMessages<br/>legacy 模式"]
     INJ["detectInjection → onTrace?"]
     MOCK["streamMock?"]
     RC["runConversation"]
@@ -356,7 +405,10 @@ flowchart TB
     GRAPH["compileReactGraph → invoke"]
   end
   ACC --> CCS_ENTRY["createChatStream({confirmSession, searchDocs, …})"]
-  CCS_ENTRY --> BSP --> CLIP --> INJ --> MOCK
+  CCS_ENTRY --> BSP --> MODE{"contextMode?"}
+  MODE -->|budget<br/>/api/chat| CTX --> INJ
+  MODE -->|legacy<br/>其它调用| LEG --> INJ
+  INJ --> MOCK
   INJ --> RC
   MOCK --> RC
   RC --> PRE --> EMPTY
@@ -405,12 +457,19 @@ flowchart TB
   ├─ <span class="m">new ConfirmSession</span>()                    <span class="c">// sessions.set(confirmId)</span>
   ├─ <span class="e">[Token]</span> <span class="m">new UsageAccumulator</span>()
   ├─ <span class="e">[Token]</span> <span class="m">bindUsageCallback</span>(acc, <span class="ok">"askModel"</span>, defaultModel) → onUsage
-  ├─ <span class="m">createChatStream</span>({ confirmSession, searchDocs, onDelta, onTrace, onUsage })
+  ├─ <span class="e">[Token]</span> <span class="m">bindUsageCallback</span>(acc, <span class="ok">"summary"</span>, defaultModel) → onSummaryUsage
+  ├─ <span class="m">parseContextSummary</span>(contextSummary)  <span class="c">// 非法摘要按 null 处理</span>
+  ├─ <span class="m">createChatStream</span>({ contextMode: <span class="ok">"budget"</span>, contextSummary, confirmSession, searchDocs, onDelta, onTrace, onUsage })
   │    ├─ <span class="m">buildSystemPrompt</span>(searchDocs)  <span class="c">// KB_ON / KB_OFF + GUARD</span>
-  │    ├─ <span class="m">clipMessages</span>(messages, maxContextMessages)
+  │    ├─ <span class="m">resolveBudgetTokens</span>(windowTokens, budgetRatio)  <span class="c">// 默认 64000 × 0.5</span>
+  │    ├─ <span class="m">buildContext</span>(messages, summary, systemPrompt, budgetTokens)  <span class="c">// system → 摘要 → 近期原文</span>
+  │    │    └─ 有 droppedMessages → <span class="m">summarizeDroppedMessages</span> → 成功则重建；失败/超时 → <span class="ok">degraded=true</span>
+  │    │         └─ <span class="m">onTrace</span>(<span class="ok">context_compacted</span>)  <span class="c">// 不带 delta，不进正文</span>
+  │    ├─ <span class="m">clipMessages</span>(messages, maxContextMessages)  <span class="c">// 仅 contextMode="legacy" 回退路径</span>
   │    ├─ <span class="e">[Guard·Input]</span> <span class="m">detectInjection</span>(lastUser) → onTrace(<span class="ok">injection_detected</span>?)
   │    ├─ mock / 无 Key? → onTrace(<span class="ok">degradation</span>) → <span class="m">streamMock</span>
   │    └─ <span class="m">runConversation</span>(options, apiKey)
+  │         ├─ <span class="m">assertToolPairing</span>(messages)  <span class="c">// 进图前检查 tool_calls / tool 结果配对</span>
   │         ├─ <span class="m">prefetchSearchDocsIfEnabled</span>  <span class="c">// 语义 C：searchDocs===true；图外强制检索</span>
   │         │    └─ <span class="e">[LangSmith]</span> <span class="m">runPrefetchWithTracing</span> → span <span class="ok">chat-prefetch</span>
   │         │         └─ <span class="m">executeSearchDocs</span>({ candidateK: CHAT_CANDIDATE_K }) → 注入 system；判空 → onTrace(<span class="ok">searchDocs_empty</span>)，<span class="e">不调 LLM</span>
@@ -437,6 +496,7 @@ flowchart TB
   │         │    │              ├─ onTrace(confirm_resolved)
   │         │    │              └─ allow → runToolCall / deny → {error}
   │         │    ├─ onTrace(tool_result)
+  │         │    ├─ <span class="m">assertToolPairing</span>(messages)  <span class="c">// 工具回填后立刻校验</span>
   │         │    └─ <span class="m">createConsecutiveFailureTracker</span>  <span class="c">// 降级/熔断</span>
   │         └─ reply:
   │              ├─ searchDocs? → <span class="m">normalizeKnowledgeAnswer</span>
@@ -1090,9 +1150,382 @@ flowchart TB
     <p class="path">源码：server/rag/queryEnhance/{parseIntent,rewriteQuery,kbRoute,multiQuery,hyde,index}.ts · retrieve.ts · answer.ts · routes/ragChat.ts · src/api/rag.ts · RagHitPanel.vue</p>
   </div>
 
+  <!-- ========== 6c structured ========== -->
+  <h2 id="structured">6c. Streaming 结构化输出（进阶学习 · 已实现 / 未实测）</h2>
+  <p class="lede">独立端点 <code>POST /api/chat/structured</code>，不修改普通聊天、多 Agent 和 RAG 协议。生成中只展示通过 snapshot schema 的稳定快照，模型结束后再通过最终 Zod schema 进入完成态。细泳道：<a href="./structured-output-flow.svg">structured-output-flow.svg</a> · 阶段总结：<a href="./structured-output.md">structured-output.md</a></p>
+
+  <div class="card">
+    <h3>6c.1 总览图（请求 → 文本流 → snapshot → final result）</h3>
+    <div class="mermaid">
+flowchart TB
+  FE["App.vue<br/>structuredTarget: table/code"] --> SS["useChat.sendStructured()"]
+  SS --> RS["runStructured()"]
+  RS --> SESSION["runSseSession()"]
+  SESSION --> CLIENT["streamStructured()<br/>POST /api/chat/structured"]
+  CLIENT --> ROUTE["registerChatStructuredRoutes"]
+  ROUTE --> REQ["StructuredChatRequestSchema.safeParse()"]
+  REQ -->|fail| HTTP400["400 JSON"]
+  REQ -->|ok| START["setSseHeaders + requestId<br/>AbortController + res.on close"]
+  START --> SSE0["structured_start"]
+  START --> MODE{"config.mockMode?"}
+
+  MODE -->|yes| MOCK["streamMockStructuredChunks()"]
+  MODE -->|no| PROVIDER["streamStructuredCompletion()<br/>OpenAI compatible stream"]
+  PROVIDER --> JSONMODE{"JSON mode unsupported?"}
+  JSONMODE -->|yes| RETRY["prompt-only retry once"]
+  JSONMODE -->|no| CHUNK
+  RETRY --> CHUNK["acceptChunk()"]
+  MOCK --> CHUNK
+
+  CHUNK --> DELTA["structured_delta<br/>sequence + receivedChars"]
+  CHUNK --> ACC["StructuredStreamAccumulator.append()"]
+  ACC --> PARSER["parseStructuredChunk()<br/>complete / incomplete / invalid"]
+  PARSER --> SNAPCHK{"stable snapshot?"}
+  SNAPCHK -->|no| WAIT["wait next chunk"]
+  WAIT --> CHUNK
+  SNAPCHK -->|yes| SNAP["StructuredSnapshotSchema<br/>revision += 1"]
+  SNAP --> SNAPSSE["structured_snapshot SSE"]
+  SNAPSSE --> REV["useChat revision dedupe"]
+  REV --> VIEW["StructuredBlock.vue<br/>table / code"]
+
+  ACC --> FINISH["StructuredStreamAccumulator.finish()"]
+  FINISH --> PARSEJSON{"JSON.parse<br/>+ single fence repair"}
+  PARSEJSON -->|fail| E1["structured_error<br/>invalid_final_json"]
+  PARSEJSON -->|ok| FINALCHK{"StructuredResultSchema?"}
+  FINALCHK -->|fail| E2["structured_error<br/>schema_validation_failed"]
+  FINALCHK -->|ok| DONE["structured_done"]
+  DONE --> DONE2["等待 DONE 哨兵"] --> COMMIT["useChat onDone<br/>status=completed + result"]
+  COMMIT --> HISTORY["只持久化最终 result<br/>snapshot 不进入历史"]
+
+  START --> ABORT["stop / res close"]
+  ABORT --> CANCEL["abortController.abort()<br/>accumulator.abort()"]
+  CANCEL --> INCOMPLETE["status=incomplete<br/>保留最后稳定 snapshot"]
+
+  ROUTE --> USAGE["UsageAccumulator<br/>bindUsageCallback('structured')"]
+  ROUTE --> TRACE["traceStructuredRequest<br/>traceStructuredLlm per attempt"]
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6c.2 完整调用树（前端 / 路由 / provider / 状态机 / 终态）</h3>
+    <div class="calltree"><span class="c">// ========== A. 前端入口 ==========</span>
+<span class="m">App.vue</span> structuredTarget=table|code
+  └─ <span class="m">useChat.sendStructured</span>(content, target)
+       ├─ 追加 user message · persistCurrentHistory()
+       └─ <span class="m">runStructured</span>(history, model, target)
+            ├─ patchLatest({ structured: { status:"streaming", revision:0 } })
+            ├─ <span class="m">runSseSession</span> 提供 AbortController / onUsage / onError
+            └─ <span class="m">streamStructured</span>({ messages, model, target, signal, ... })
+                 ├─ onSnapshot → 只接受 status=streaming 且 revision 更大的事件
+                 ├─ onDone → 先暂存，看到 data:[DONE] 后才提交 result
+                 └─ onError → status=error · lastRevision · errorCode
+
+<span class="c">// ========== B. Express 路由 ==========</span>
+<span class="m">registerChatStructuredRoutes</span>
+  └─ POST /api/chat/structured
+       ├─ <span class="m">StructuredChatRequestSchema.safeParse</span>(req.body)
+       │    └─ 失败 → 400 JSON { error, issues[] }
+       ├─ <span class="m">setSseHeaders</span>(res) · requestId · startedAt
+       ├─ new <span class="m">StructuredStreamAccumulator</span>()
+       ├─ new AbortController · res.on("close")
+       ├─ <span class="m">writeEvent</span>(structured_start)
+       ├─ Mock → <span class="m">streamMockStructuredChunks</span>
+       ├─ API  → <span class="m">runStructuredCompletionWithTracing</span>
+       │         └─ <span class="m">streamStructuredCompletion</span>
+       ├─ 每个 content chunk → <span class="m">acceptChunk</span>
+       ├─ 结束 → <span class="m">accumulator.finish</span>
+       └─ usage / trace / structured_done / structured_error / [DONE]
+
+<span class="c">// ========== C. provider 流适配 ==========</span>
+<span class="m">streamStructuredCompletion</span>
+  ├─ fetch(chat/completions) · stream=true · signal
+  ├─ JSON mode 可选 → response_format=json_object
+  ├─ <span class="m">readSseData</span>(body) → 只提取 data 行
+  ├─ 读取 choices[0].delta.content
+  ├─ 忽略空 delta / reasoning_content
+  ├─ <span class="m">onChunk</span>(content)
+  ├─ <span class="m">parseUsageFromResponse</span> → onUsage(累计最大值)
+  └─ 错误分类：request / stream / JSON mode unsupported
+
+<span class="c">// ========== D. accumulator 状态机 ==========</span>
+<span class="m">StructuredStreamAccumulator.append</span>(chunk)
+  ├─ status !== streaming → accepted=false · rejectedChunkCount++
+  ├─ accumulatedText += chunk
+  ├─ <span class="m">parseStructuredChunk</span>(accumulatedText, parseState)
+  │    ├─ complete → 当前字段可进入快照
+  │    ├─ incomplete → 等待后续 chunk
+  │    └─ invalid → 记录诊断，不把半成品送 UI
+  └─ snapshot 通过 <span class="m">StructuredSnapshotSchema</span> → revision++
+
+<span class="m">StructuredStreamAccumulator.finish</span>()
+  ├─ status 必须仍为 streaming
+  ├─ <span class="m">JSON.parse</span>(accumulatedText)
+  ├─ 失败 → 最多剥离一层 JSON Markdown fence 后重试一次
+  ├─ <span class="m">StructuredResultSchema.safeParse</span>(value)
+  ├─ 成功 → status=completed
+  └─ 失败 → status=failed · invalid_final_json / schema_validation_failed
+
+<span class="c">// ========== E. SSE 与 UI 终态 ==========</span>
+structured_start
+  → structured_delta*        <span class="c">// 仅接收进度，不渲染</span>
+  → structured_snapshot*     <span class="c">// revision 单调递增，唯一增量渲染源</span>
+  → usage?                   <span class="c">// 最多一次，缺失不影响业务完成</span>
+  → structured_done          <span class="c">// 最终 Zod 已通过</span>
+  → data: [DONE]
+
+stop / 客户端断连
+  → abortController.abort() + accumulator.abort()
+  → status=incomplete · 保留最后稳定 snapshot · 不写最终历史
+
+错误码
+  model_request_failed · model_stream_interrupted · partial_parse_failed
+  invalid_final_json · schema_validation_failed · provider_json_mode_unsupported</div>
+    <ul class="compact">
+      <li><strong>四层不要混</strong>：provider token stream、服务端 SSE、snapshot schema、最终 result schema 是四层独立约束</li>
+      <li><strong>生成中</strong>：只有 <span class="fn">StructuredSnapshotSchema</span> 通过的字段可渲染；<code>structured_delta.receivedChars</code> 不能推断已有可展示内容</li>
+      <li><strong>完成时</strong>：<code>structured_done</code> 还必须等到 <code>[DONE]</code> 才提交；partial snapshot 不写入 localStorage，也不进入下一轮上下文</li>
+      <li><strong>停止时</strong>：最后稳定 snapshot 保留为 <code>incomplete</code>；迟到 chunk 被 accumulator 拒绝，不能把终态改回 streaming</li>
+      <li><strong>横切边界</strong>：结构化端点接入 usage 和 LangSmith；普通聊天的 Input/Tool/Output Guard 不复用，因为该链路只生成结构化内容，不执行工具</li>
+      <li><strong>验证边界</strong>：本轮未运行 dev、build、typecheck、测试、Evals 或浏览器验证；首 chunk、首个 snapshot、done、总耗时和旧链路回归均保持“未测”</li>
+    </ul>
+    <p class="path">源码：server/routes/chatStructured.ts · server/structured/{types,complete,streamAccumulator,parsePartialJson,mockStream}.ts · src/api/chat.ts · src/composables/useChat.ts · src/components/{StructuredBlock,ChatMessageItem}.vue · server/tracing/langsmith.ts · server/usage/accumulator.ts</p>
+  </div>
+
+  <!-- ========== 6d ========== -->
+  <h2 id="plan">6d. Plan-and-Execute 计划执行（进阶学习 · 已实现 / 未实测）</h2>
+  <p class="lede">独立端点 <code>POST /api/chat/plan</code>，不改写 <code>/api/chat</code>（单 Agent ReAct）的协议。先用<strong>纯规则</strong>分类器决定走计划还是 ReAct，走计划时由 Planner 产出可校验的计划，再按顺序逐步执行，失败时最多 Re-plan 一次。细泳道：<a href="./plan-and-execute-flow.svg">plan-and-execute-flow.svg</a> · 阶段总结：<a href="./plan-and-execute.md">plan-and-execute.md</a> · 消息流视角：<a href="./project-messages-flow.md">project-messages-flow.md</a></p>
+
+  <div class="card">
+    <h3>6d.1 总览图（规则路由 → Planner → 顺序执行 → Re-plan → 终态）</h3>
+    <div class="mermaid">
+flowchart TB
+  FE["App.vue<br/>planEnabled=true<br/>planMode: auto / react / plan"] --> UC["useChat.send()"]
+  UC --> CLIENT["streamPlan()"]
+  CLIENT --> ROUTE["registerChatPlanRoutes"]
+  ROUTE --> REQ["PlanChatRequestSchema.safeParse()"]
+  REQ -->|fail| HTTP400["400 JSON"]
+  REQ -->|ok| START["setSseHeaders + requestId<br/>AbortController + res.on close"]
+  START --> GRAPH["runPlanGraph()"]
+
+  GRAPH --> CLS["classifyTask()<br/>纯规则 · 不调模型"]
+  CLS --> RT{"mode = react?"}
+  RT -->|yes| FALLBACK["reactFallback.run()<br/>只回退一次"]
+  RT -->|no| PLAN["createRealPlanner.plan()<br/>system(计划提示词) + user(问句)"]
+  PLAN --> VALID{"validatePlan()<br/>步数≤6 / 工具白名单 / 知识库必含检索"}
+  VALID -->|invalid| FALLBACK
+  VALID -->|ok| CREATED["plan_created"]
+
+  CREATED --> STEP["createRealExecutor.runStep()<br/>system(单步提示词) + user(目标+当前步+已完成摘要)<br/>tools = 本步白名单 ≤3"]
+  STEP --> TOOL{"模型要调工具?"}
+  TOOL -->|yes| GUARD["applyToolCalls → validateToolCall<br/>需确认 → ConfirmSession.wait"]
+  GUARD --> STEP
+  TOOL -->|no| DONESTEP["plan_step_done"]
+  DONESTEP --> NEXT{"还有下一步?"}
+  NEXT -->|yes| STEP
+  NEXT -->|no| FINAL["createRealFinalReplier.reply()<br/>system(终答提示词) + user(已完成步骤摘要)"]
+  FINAL --> FINISHED["plan_finished"]
+
+  STEP -->|工具失败| REPLANGATE{"decideReplan()<br/>临时失败 / 不可执行动作"}
+  REPLANGATE -->|允许且未超限| REPLAN["createRealReplanner<br/>受控改写剩余步骤"]
+  REPLAN --> STEP
+  REPLANGATE -->|拒绝或超限| FAILSTEP["plan_step_failed"]
+
+  FALLBACK --> DELTA["delta"]
+  FINISHED --> DELTA
+  FAILSTEP --> DELTA
+  DELTA --> USAGE["usage → UsagePanel"]
+  DELTA --> DONE["[DONE]"]
+
+  ROUTE --> OBS["createPlanObserver()<br/>13 字段观测"]
+  OBS --> LANG["runPlanRequestWithTracing()<br/>LangSmith: plan-request / plan-planner"]
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6d.2 完整调用树（前端 / 路由 / 分类 / 计划 / 执行 / Re-plan / 终态）</h3>
+    <div class="calltree"><span class="c">// ========== A. 前端入口 ==========</span>
+<span class="m">App.vue</span> planEnabled · planMode
+  └─ <span class="m">useChat.send</span>(content)
+       └─ <span class="m">streamPlan</span>({ messages, model, mode, searchDocs, signal, … })
+            ├─ 解析 plan_* 事件 → <span class="m">PlanTimeline</span>（计划 + 步骤状态，只在内存）
+            ├─ 解析 tool_call / pending_confirm → <span class="m">ToolTracePanel</span>
+            └─ 解析 delta / usage / [DONE] → 助手气泡 · UsagePanel
+
+<span class="c">// ========== B. Express 路由 ==========</span>
+<span class="m">registerChatPlanRoutes</span>
+  └─ POST /api/chat/plan
+       ├─ <span class="m">PlanChatRequestSchema.safeParse</span>(req.body)
+       │    └─ 失败 → 400 JSON { error, issues[] }
+       ├─ <span class="m">setSseHeaders</span>(res) · requestId · AbortController · res.on("close")
+       ├─ new <span class="m">ConfirmSession</span>（与单 Agent 共用确认机制）
+       ├─ <span class="m">runPlanExecute</span>(options)   <span class="c">// 装配组件，不依赖 Express，可直接单测</span>
+       └─ 事件出口：<span class="m">onEvent</span>(plan_*) 与 <span class="m">onTrace</span>(tool_*) 共用一路 SSE
+
+<span class="c">// ========== C. 分类（纯规则） ==========</span>
+<span class="m">classifyTask</span>({ userMessage, mode, searchDocs })
+  ├─ reasonCode: explicit_react | explicit_plan | research_then_produce
+  │             sequential_keywords | artifact_request | multi_capability
+  │             single_step | too_ambiguous
+  ├─ mode=react → 不调 Planner，直接 <span class="m">reactFallback.run</span>()
+  └─ 其余 → 进 Planner；SSE 先发 <span class="m">plan_route</span>
+
+<span class="c">// ========== D. 规划 ==========</span>
+<span class="m">createRealPlanner</span>.plan(ctx)
+  ├─ messages: [system(buildPlanSystemPrompt), user(userMessage)]
+  ├─ tools: <span class="m">createEmitPlanTool</span>(availableTools)   <span class="c">// 只允许 emit_plan</span>
+  └─ 返回 { kind:"plan", plan } | { kind:"fallback", reasonCode, message }
+
+<span class="m">validatePlan</span>(plan, { requireSearchDocs, availableTools })
+  ├─ 步数 ≤ <span class="m">MAX_PLAN_STEPS</span>(6) · JSON 长度 ≤ 4000
+  ├─ 工具必须是本步白名单且数量 ≤ <span class="m">MAX_STEP_TOOLS</span>(3)
+  ├─ 知识库开启时必须含 searchDocs 步骤
+  └─ 不合法 → <span class="m">plan_fallback</span> → ReAct 一次（不重试 Planner）
+
+<span class="c">// ========== E. 顺序执行 ==========</span>
+<span class="m">createRealExecutor</span>.runStep(ctx)
+  ├─ messages: [system(buildStepSystemPrompt), user(目标 + 当前步 + 已完成摘要)]
+  ├─ tools: 本步白名单（≤3）
+  ├─ 模型轮数 ≤ <span class="m">MAX_STEP_MODEL_TURNS</span>(2)
+  ├─ 工具调用 → <span class="m">applyToolCalls</span> → <span class="m">validateToolCall</span>
+  │    └─ 需人工确认 → <span class="m">ConfirmSession.wait</span>（SSE 保持连接）
+  ├─ 成功 → <span class="m">plan_step_done</span> · 失败 → <span class="m">plan_step_failed</span>
+  └─ 步骤按计划顺序执行，失败后不再执行后续步骤
+
+<span class="c">// ========== F. 受控 Re-plan ==========</span>
+<span class="m">decideReplan</span>({ reason: tool_temporary_failure | unexecutable_action, … })
+  ├─ 允许 → <span class="m">createRealReplanner</span> 改写剩余步骤 → <span class="m">plan_replanned</span>
+  ├─ <span class="m">MAX_REPLAN</span>(1) 用尽 → 不再 Re-plan，直接失败
+  └─ 用户拒绝确认（confirm_denied）→ 不触发 Re-plan
+
+<span class="c">// ========== G. 终态与观测 ==========</span>
+<span class="m">createRealFinalReplier</span>.reply(ctx)
+  ├─ messages: [system(buildFinalReplySystemPrompt), user(已完成步骤摘要)]
+  └─ 只引用已完成的步骤 → delta → plan_finished → usage → [DONE]
+
+<span class="m">createPlanObserver</span>
+  └─ requestId / planId / revision / mode / reasonCode / stepId / modelCalls
+     / toolCalls / replanCount / plannerLatencyMs / totalLatencyMs
+     / abortReason / errorCode
+
+错误码
+  classify_failed · planner_failed · invalid_plan · plan_empty · plan_too_long
+  step_turn_limit · step_tool_limit · tool_not_allowed · tool_failed
+  confirm_denied · replan_limit · model_budget_exhausted · aborted · final_reply_failed</div>
+    <ul class="compact">
+      <li><strong>规则先于模型</strong>：<span class="fn">classifyTask</span> 是纯规则，不调 LLM；简单问题直接进 ReAct，Planner 不会被调用</li>
+      <li><strong>三段独立上下文</strong>：规划 / 单步 / 终答各自自包含，<strong>不是</strong>一条长 chat 史；每步只挂本步白名单工具（≤ 3）</li>
+      <li><strong>回退只退一次</strong>：<span class="fn">plan_fallback</span> 后由 ReAct 接管并结束，不再二次回退；Planner 也不重试</li>
+      <li><strong>预算硬约束</strong>：模型调用上限 <span class="fn">MAX_MODEL_CALLS</span>(15)；超预算 → <code>model_budget_exhausted</code></li>
+      <li><strong>Re-plan 受控</strong>：最多 1 次（<span class="fn">MAX_REPLAN</span>）；用户拒绝确认（<code>confirm_denied</code>）不触发 Re-plan</li>
+      <li><strong>状态只在内存</strong>：计划与步骤状态放 <code>planState</code>，不写 localStorage；<code>ChatMessage</code> 无 plan 字段，刷新不污染历史</li>
+      <li><strong>验证边界</strong>：本轮未跑真实模型评测与浏览器点验（需联网 / 需起服务）；自动化结果见 <a href="./plan-and-execute.md">plan-and-execute.md</a> §12</li>
+    </ul>
+    <p class="path">源码：server/routes/chatPlan.ts · server/plan-execute/{classify,prompts,schema,planner,executor,replan,finalReply,graph,observe,types}.ts · src/api/chat.ts · src/composables/useChat.ts · src/components/{PlanTimeline,ToolTracePanel}.vue · server/tracing/langsmith.ts · server/usage/accumulator.ts</p>
+  </div>
+
+  <!-- ========== 6e ========== -->
+  <h2 id="long-context">6e. 长上下文管理（进阶学习第 3 项 · 已结）</h2>
+  <p class="lede">单 Agent 链路 <code>POST /api/chat</code> 已从「按条数截断」升级为「按 token 预算分层保留」：先按窗口比例算预算，再按 system → 摘要 → 近期原文组装；被挤出去的历史交给摘要模型压缩，摘要失败则降级为裸窗口，聊天不中断。细泳道：<a href="./long-context-flow.svg">long-context-flow.svg</a> · 阶段总结：<a href="./long-context.md">long-context.md</a> · 索引：<a href="./flows-index.html#long-context">flows-index.html 0d</a></p>
+
+  <div class="card">
+    <h3>6e.1 总览图（前端摘要 → 预算 → buildContext → 摘要 → SSE）</h3>
+    <div class="mermaid">
+flowchart TB
+  FE["useChat.send()<br/>history + contextSummary"] --> API["streamChat()<br/>POST /api/chat"]
+  API --> ROUTE["registerChatRoutes()<br/>parseContextSummary()"]
+  ROUTE --> CCS["createChatStream()<br/>contextMode=budget"]
+  CCS --> BUDGET["resolveBudgetTokens()<br/>window × ratio"]
+  BUDGET --> BUILD["buildContext()<br/>system → summary → recent window"]
+  BUILD --> DROP{"droppedMessages?"}
+  DROP -->|no| RUN["runConversation()"]
+  DROP -->|yes| SUM["summarizeDroppedMessages()<br/>超时 / 非法 JSON → null"]
+  SUM --> HAS{"summary?"}
+  HAS -->|yes| REBUILD["buildContext() 重建<br/>摘要覆盖旧原文"]
+  HAS -->|no| DEGRADE["degraded=true<br/>只保留近期原文"]
+  REBUILD --> EVENT["onTrace(context_compacted)"]
+  DEGRADE --> EVENT
+  EVENT --> RUN
+  RUN --> PAIR["assertToolPairing()<br/>进图前 + 工具回填后"]
+  PAIR --> GRAPH["askModel ⇄ applyTools → reply"]
+  GRAPH --> SSE["delta · usage · [DONE]"]
+  SSE --> FE2["useChat：持久化摘要<br/>ContextCompactionNotice"]
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6e.2 方法调用树（前端 / 路由 / 预算 / 构建 / 摘要 / 执行）</h3>
+    <div class="calltree"><span class="c">// ========== A. 前端 ==========</span>
+<span class="m">useChat.send</span>
+  └─ <span class="m">runSseSession</span>
+       ├─ 请求开始：<span class="m">contextCompaction</span> 重置为 null
+       ├─ <span class="m">streamChat</span>({ messages, contextSummary, onContextCompacted, … })
+       └─ <span class="m">onContextCompacted</span>(event)
+            ├─ <span class="m">contextCompaction</span> = event
+            └─ event.summary? → <span class="m">localStorage</span>[CONTEXT_SUMMARY_KEY]
+
+<span class="c">// ========== B. 路由 ==========</span>
+<span class="m">registerChatRoutes</span>
+  ├─ <span class="m">setSseHeaders</span> · <span class="m">new ConfirmSession</span>() · <span class="m">new UsageAccumulator</span>()
+  ├─ <span class="e">[Token]</span> <span class="m">bindUsageCallback</span>(acc, <span class="ok">"askModel"</span>, defaultModel)
+  ├─ <span class="e">[Token]</span> <span class="m">bindUsageCallback</span>(acc, <span class="ok">"summary"</span>, defaultModel)
+  ├─ <span class="m">parseContextSummary</span>(contextSummary)  <span class="c">// 非法摘要等同 null</span>
+  └─ <span class="m">createChatStream</span>({ contextMode: <span class="ok">"budget"</span>, contextSummary, … })
+
+<span class="c">// ========== C. 预算与分层构建 ==========</span>
+<span class="m">createChatStream</span>
+  ├─ <span class="m">resolveBudgetTokens</span>(windowTokens, budgetRatio)  <span class="c">// 默认 64000 × 0.5</span>
+  ├─ <span class="m">buildContext</span>({ messages, summary, systemPrompt, budgetTokens, maxRecentRounds: 40 })
+  │    ├─ <span class="m">estimateMessagesTokens</span> / <span class="m">estimateMessageTokens</span>  <span class="c">// CJK×1 + 非CJK÷4 + 4/条</span>
+  │    ├─ <span class="m">renderSummaryText</span>(summary)  <span class="c">// 独立 system；约束 → 事实 → 决定 → 未决</span>
+  │    └─ 输出 messages / droppedMessages / droppedMessageIndices / degraded / …
+  ├─ droppedMessages.length &gt; 0?
+  │    ├─ <span class="m">summarizeDroppedMessages</span>({ droppedMessages, droppedMessageIndices, previousSummary, … })
+  │    ├─ summary? → <span class="m">buildContext</span>({ …, summary })  <span class="c">// 摘要覆盖范围内的旧原文不再注入</span>
+  │    └─ <span class="m">onTrace</span>(<span class="ok">context_compacted</span>)  <span class="c">// 不带 delta，不污染正文</span>
+  └─ <span class="m">dispatchChat</span> → <span class="m">runConversation</span>
+
+<span class="c">// ========== D. ReAct 执行边界 ==========</span>
+<span class="m">runConversation</span>
+  ├─ <span class="m">assertToolPairing</span>(messages)  <span class="c">// 进图前</span>
+  ├─ <span class="m">prefetchSearchDocsIfEnabled</span> → searchDocs_empty? 固定文案，不调 LLM
+  ├─ StateGraph: START → askModel ⇄ applyTools → reply → END
+  ├─ applyTools 回填后 → <span class="m">assertToolPairing</span>(messages)  <span class="c">// 孤儿 tool / 顺序错误直接抛</span>
+  └─ reply → detectLeakage → onDelta
+    </div>
+    <ul class="compact">
+      <li><strong>整轮保留</strong>：历史轮次按 user + assistant 成对保留，避免模型看到「自己没回过的提问」</li>
+      <li><strong>本轮提问必留</strong>：最后一条未回应的 user 没有 assistant 配对，但必须注入；预算不足时截断正文并打标记</li>
+      <li><strong>摘要去重</strong>：摘要带 <code>compactedUntilIndex</code>，覆盖范围内的原文不再重复注入，避免「摘要 + 原文」说两遍</li>
+      <li><strong>失败只降级</strong>：摘要网络异常、超时、非 2xx、非法 JSON、空结果统一返回 <code>null</code>；<code>degraded=true</code>，聊天照常继续</li>
+      <li><strong>工具配对硬校验</strong>：<span class="fn">assertToolPairing</span> 在进图前和工具回填后各查一次，孤儿 tool_calls / tool 结果、顺序颠倒、重复回填都会抛错</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6e.3 生效范围与配置</h3>
+    <table class="map">
+      <thead>
+        <tr><th>链路</th><th>上下文策略</th><th>是否压缩</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>/api/chat</code>（单 Agent）</td><td><span class="fn">buildContext</span> budget 模式：system → 摘要 → 近期窗口</td><td><span class="badge done">会</span></td></tr>
+        <tr><td><code>/api/chat/multi</code>（多 Agent）</td><td>只把当前这一轮交给图</td><td>不会（没有历史可压）</td></tr>
+        <tr><td><code>/api/chat/plan</code>（计划）</td><td>走 legacy 模式</td><td>不会</td></tr>
+        <tr><td><code>/api/rag/chat</code>（资料问答）</td><td>独立 RAG prompt + 最近 6 条 history</td><td>不会</td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li>预算：<code>LLM_CONTEXT_WINDOW_TOKENS</code>（默认 <code>64000</code>）× <code>LLM_CONTEXT_BUDGET_RATIO</code>（默认 <code>0.5</code>），下限 <code>1024</code>，安全系数 <code>1.15</code></li>
+      <li>摘要：最多 40 轮近期原文、摘要正文上限 1200 字符、每类最多 12 条、单条最多 120 字符、超时 30 秒、<code>max_tokens=1500</code>、<code>temperature=0.2</code></li>
+      <li>SSE：<code>context_compacted</code> 只更新提示与持久化摘要；前端未知事件仍忽略，压缩事件不会进入 <code>onDelta</code></li>
+      <li>验证边界：40 项接入检查与 50 轮长对话脚本通过，<code>npm run typecheck</code> / <code>npm run build</code> 通过；真实网关 token 用量与浏览器人工点验未做</li>
+    </ul>
+    <p class="path">源码：server/context/{buildContext,summarize,tokenBudget,parseContextSummary,assertToolPairing}.ts · server/chat.ts · server/routes/chat.ts · server/react/runConversation.ts · src/composables/useChat.ts · src/api/chat.ts · src/components/ContextCompactionNotice.vue</p>
+  </div>
+
   <!-- ========== 7 ========== -->
   <h2 id="cross">7. 横切：Token 计费 · 安全 Guard · Trace（方法级）</h2>
-  <p class="lede">三条能力横切挂在业务链路上；下面拆开画调用逻辑。细泳道 SVG：<a href="./crosscutting-token-guard-trace-flow.svg">crosscutting-token-guard-trace-flow.svg</a></p>
+  <p class="lede">Token、Guard、Trace 横切挂在普通聊天 / 多 Agent / RAG / 计划执行四条业务链上；结构化端点的 usage / LangSmith 单独见 <a href="#structured">§6c</a>。细泳道 SVG：<a href="./crosscutting-token-guard-trace-flow.svg">crosscutting-token-guard-trace-flow.svg</a></p>
 
   <div class="card">
     <h3>7.1 挂载矩阵（谁有 / 谁缺）</h3>
@@ -1122,10 +1555,18 @@ flowchart TB
     R5["SSE Trace ✅"]
     R6["LangSmith ✅ rag-request/retrieve/llm"]
   end
+  subgraph plan["POST /api/chat/plan"]
+    P1["Token ✅ 规划/单步/终答"]
+    P2["InputGuard ✅ 复用"]
+    P3["ToolGuard ✅ applyToolCalls + ConfirmSession"]
+    P4["OutputGuard ✅ 复用"]
+    P5["SSE Trace ✅ plan_* → PlanTimeline"]
+    P6["LangSmith ✅ plan-request/plan-planner"]
+  end
     </div>
     <table class="map">
       <thead>
-        <tr><th>横切</th><th>/api/chat</th><th>/api/chat/multi</th><th>/api/rag/chat</th></tr>
+        <tr><th>横切</th><th>/api/chat</th><th>/api/chat/multi</th><th>/api/rag/chat</th><th>/api/chat/plan</th></tr>
       </thead>
       <tbody>
         <tr>
@@ -1133,36 +1574,42 @@ flowchart TB
           <td>bindUsageCallback("askModel") → writeUsageToStream</td>
           <td>source 分桶 supervisor/worker/aggregate → writeUsageToStream</td>
           <td>bindUsageCallback("rag") → writeUsageToStream</td>
+          <td>UsageAccumulator → writeUsageToStream（规划 / 单步 / 终答共用一个累加器）</td>
         </tr>
         <tr>
           <td>Input Guard</td>
           <td>createChatStream → detectInjection → onTrace</td>
           <td>chatMulti → detectInjection → writeSse</td>
           <td>ragChat → detectInjection → SSE injection_detected</td>
+          <td>复用工具链路的 Guard；分类失败 → classify_failed</td>
         </tr>
         <tr>
           <td>Tool Guard</td>
           <td>applyToolCalls → validateToolCall</td>
           <td>runToolSafely → validateToolCall</td>
           <td>answerFromDocs → validateToolCall("searchDocs")</td>
+          <td>复用 applyToolCalls + ConfirmSession；越权工具 → tool_not_allowed</td>
         </tr>
         <tr>
           <td>Output Guard</td>
           <td>reply → detectLeakage</td>
           <td>aggregate → detectLeakage</td>
           <td>answerFromDocs → detectLeakage → SSE output_leak_blocked</td>
+          <td>复用工具链路 Guard；计划失败按错误码终止</td>
         </tr>
         <tr>
           <td>前端 Trace（SSE）</td>
           <td>onTrace → ToolTracePanel</td>
           <td>onTrace/writeSse → 同面板</td>
           <td>askRag SSE → 同面板 + RagHitPanel</td>
+          <td>tool_* → ToolTracePanel；plan_* → PlanTimeline（两套数据源分开）</td>
         </tr>
         <tr>
           <td>LangSmith</td>
           <td>traceChatRequest / chat-prefetch / chat-llm / runToolWithTracing</td>
           <td>traceMultiRequest / multi-llm / runToolWithTracing</td>
           <td>traceRagRequest / rag-retrieve / rag-llm</td>
+          <td>runPlanRequestWithTracing → plan-request / plan-planner</td>
         </tr>
       </tbody>
     </table>
@@ -1348,6 +1795,7 @@ flowchart LR
       <li><span class="badge done">已结</span> <strong>交付页</strong>：现网面板 + eval 数据集（专页未拆，已验收）</li>
       <li><span class="badge done">已结</span> <strong>post-learning 优化</strong>（study-chat）：语义 C、关 thinking、chat-llm/prefetch、forceKbSearch、预热、rerank batch — 见 <a href="./post-learning-optimization-changelog.md">changelog</a></li>
       <li><span class="badge done">已结</span> 检索前意图/扩写/路由/Multi-Query/HyDE + 单元 8/9（见 <a href="#rag-enhance">§6b</a>）</li>
+      <li><span class="badge now">已实现 / 未实测</span> <strong>Plan-and-Execute 计划执行</strong>：规则路由 → Planner → 顺序 Executor → 受控 Re-plan → 终态 + 观测（见 <a href="#plan">§6d</a> · <a href="./plan-and-execute.md">阶段总结</a>）；真实模型评测与浏览器点验未做</li>
       <li><span class="badge later">后置</span> 最终轮真流式 · MCP schema 单一来源 · UI 双入口收敛 · 关 KB 硬剥离历史</li>
       <li><span class="badge later">后置</span> RAG 上传文档完整应用（现 <code>rag:ingest</code> + 资料问答）</li>
       <li><span class="badge later">后置</span> FastAPI + Docker</li>
@@ -1355,7 +1803,8 @@ flowchart LR
   </div>
 
   <footer class="note">
-    生成说明：本页按 <code>learning-plan.md</code>、study-chat <code>post-learning-optimization-changelog.md</code> 与现网代码对照整理（2026-09 同步）；方法名以 <code>export function/class</code> 为准。
+    生成说明：本页按 <code>learning-plan.md</code>、study-chat <code>post-learning-optimization-changelog.md</code>、结构化输出阶段总结与现网代码对照整理（2026-10 同步）；方法名以 <code>export function/class</code> 为准。
+    Plan-and-Execute 章节按 <code>server/plan-execute/</code> 与 <code>server/routes/chatPlan.ts</code> 同步整理（2026-11 同步）。
     协作红线：不允许私自删除代码注释。细泳道请打开 <a href="./flows-index.html">flows-index.html</a>。
   </footer>
 </div>

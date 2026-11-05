@@ -10,5 +10,11 @@
     "noEmit": true,
     "esModuleInterop": true
   },
-  "include": ["server", "evals", "scripts/run-evals.ts"]
+  "include": [
+    "server",
+    "evals",
+    "scripts/run-evals.ts",
+    "scripts/run-plan-evals.ts",
+    "scripts/test-long-context.ts"
+  ]
 }

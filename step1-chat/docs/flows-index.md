@@ -9,6 +9,9 @@
 | 图 | 说明 | 对应文档 |
 |----|------|----------|
 | [crosscutting-token-guard-trace-flow.svg](./crosscutting-token-guard-trace-flow.svg) | **横切流程图**：插入点 → Token 流 → Guard 三道门 → Trace 双通道 → 三端点对照 | usage/ · guard/ · tracing/ |
+| [structured-output-flow.svg](./structured-output-flow.svg) | **Streaming 结构化输出**：请求 → provider 流 → partial parser → 稳定 snapshot → 最终 Zod → Vue 终态 | [structured-output.md](./structured-output.md) · 拓扑 [§6c](./project-topology.html#structured) |
+| [plan-and-execute-flow.svg](./plan-and-execute-flow.svg) | **Plan-and-Execute**：规则路由 → Planner 产计划 → 顺序 Executor → 受控 Re-plan → 最终回答 + 观测 | [plan-and-execute.md](./plan-and-execute.md) · 拓扑 [§6d](./project-topology.html#plan) |
+| [long-context-flow.svg](./long-context-flow.svg) | **长上下文管理**：预算窗口 + 结构化摘要 → buildContext 分层 → 摘要降级 → context_compacted | [long-context.md](./long-context.md) · 拓扑 [§6e](./project-topology.html#long-context) |
 | [human-confirm-flow.svg](./human-confirm-flow.svg) | 单 Agent 人工确认完整泳道（wait/resolve/dispose）+ §6 横切归属 | [human-confirm-changelog.md](./human-confirm-changelog.md) |
 | [multi-agent-human-confirm-flow.svg](./multi-agent-human-confirm-flow.svg) | **多 Agent 人工确认**：chatMulti → graph → actionWorker → runToolSafely → 共用 confirm API | [multi-agent-human-confirm-changelog.md](./multi-agent-human-confirm-changelog.md) |
 | [chat-react-flow.svg](./chat-react-flow.svg) | 单 Agent ReAct + Accumulator / Guard / Trace | [project-messages-flow.md](./project-messages-flow.md) §三 |
@@ -19,4 +22,4 @@
 | [resilience-failure-flow.svg](./resilience-failure-flow.svg) | 失败地图与恢复策略 | [resilience-failure-map.md](./resilience-failure-map.md) |
 | [dynamic-tool-discovery-flow.svg](./dynamic-tool-discovery-flow.svg) | 工具静态注册 vs 动态发现 | [dynamic-tool-discovery.md](./dynamic-tool-discovery.md) |
 
-更偏时序图（参与者竖线）的旧图仍在 [`diagrams/`](../diagrams/index.html)。
+Markdown 索引与浏览器版 [flows-index.html](./flows-index.html) 一一对应，所有流程图资产均位于当前 `docs` 目录。

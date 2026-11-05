@@ -200,7 +200,7 @@
   <g transform="translate(40, 1940)">
     <text x="0" y="0" class="phase">附：业务主链简图（与横切并行）</text>
     <rect x="10" y="20" width="1420" height="120" rx="10" fill="#ecfdf5" stroke="#059669"/>
-    <text x="30" y="52" class="box">clipMessages → [prefetch 语义C?] → askModel ↔ applyTools(无 searchDocs) → reply</text>
+    <text x="30" y="52" class="box">buildContext(legacy→clipMessages) → [prefetch 语义C?] → askModel ↔ applyTools(无 searchDocs) → reply</text>
     <text x="30" y="80" class="box-sub">Mock/无 Key → streamMock + onTrace(degradation)，无 Usage / 无 LangSmith 真 span</text>
     <text x="30" y="108" class="box-sub">人工确认旁路详见 human-confirm-flow.svg（confirm 路由本身不计 Token）</text>
   </g>

@@ -1,3 +1,5 @@
+import type { ContextCompactionEvent } from "../context/types.js";
+
 /** ReAct 循环里发给模型的普通对话句（不含 tool 回填）。 */
 export interface TextMessage {
   role: "system" | "user" | "assistant";
@@ -68,7 +70,8 @@ export type ToolTraceHandler = (
     | { type: "searchDocs_result"; result: unknown }
     | { type: "degradation"; reason: string; message: string }
     | { type: "injection_detected"; level?: string; rules: string[] }
-    | { type: "output_leak_blocked"; matchedFingerprints: string[] },
+    | { type: "output_leak_blocked"; matchedFingerprints: string[] }
+    | ContextCompactionEvent,
 ) => void;
 
 /** ReAct 循环需要的最小选项，不绑死 chat.ts。 */

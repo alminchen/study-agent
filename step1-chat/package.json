@@ -32,7 +32,9 @@
         "mcp:stdio": "tsx server/mcp/stdio.ts",
         "mcp:ping": "tsx scripts/mcp-ping.ts",
         "eval:chat": "tsx scripts/run-evals.ts",
-        "eval:multi": "tsx scripts/run-evals-multi.ts"
+        "eval:multi": "tsx scripts/run-evals-multi.ts",
+        "eval:plan": "tsx scripts/run-plan-evals.ts",
+        "test:long-context": "tsx scripts/test-long-context.ts"
     },
     "dependencies": {
         "@huggingface/transformers": "^4.2.0",

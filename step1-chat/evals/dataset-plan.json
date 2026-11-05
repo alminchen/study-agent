@@ -1,0 +1,398 @@
+[
+  {
+    "id": "simple-greeting",
+    "messages": [{ "role": "user", "content": "你好" }],
+    "expected": "react",
+    "reasonCode": "single_step",
+    "scenario": "route",
+    "expect": {
+      "mode": "react",
+      "reasonCode": "single_step",
+      "plannerCalled": false,
+      "planVisible": false,
+      "reactFallbackCalled": true
+    }
+  },
+  {
+    "id": "simple-time",
+    "messages": [{ "role": "user", "content": "现在几点" }],
+    "expected": "react",
+    "reasonCode": "single_step",
+    "scenario": "route",
+    "expect": {
+      "mode": "react",
+      "reasonCode": "single_step",
+      "plannerCalled": false,
+      "planVisible": false,
+      "reactFallbackCalled": true
+    }
+  },
+  {
+    "id": "simple-weather",
+    "messages": [{ "role": "user", "content": "广州天气" }],
+    "expected": "react",
+    "reasonCode": "single_step",
+    "scenario": "route",
+    "expect": {
+      "mode": "react",
+      "reasonCode": "single_step",
+      "plannerCalled": false,
+      "planVisible": false,
+      "reactFallbackCalled": true
+    }
+  },
+  {
+    "id": "simple-explain",
+    "messages": [{ "role": "user", "content": "解释什么是 Function Calling" }],
+    "expected": "react",
+    "reasonCode": "single_step",
+    "scenario": "route",
+    "expect": {
+      "mode": "react",
+      "reasonCode": "single_step",
+      "plannerCalled": false,
+      "planVisible": false,
+      "reactFallbackCalled": true
+    }
+  },
+  {
+    "id": "simple-translate",
+    "messages": [{ "role": "user", "content": "把这句话翻译成英文" }],
+    "expected": "react",
+    "reasonCode": "single_step",
+    "scenario": "route",
+    "expect": {
+      "mode": "react",
+      "reasonCode": "single_step",
+      "plannerCalled": false,
+      "planVisible": false,
+      "reactFallbackCalled": true
+    }
+  },
+  {
+    "id": "simple-code",
+    "messages": [{ "role": "user", "content": "给我一个 Vue 防抖函数" }],
+    "expected": "react",
+    "reasonCode": "single_step",
+    "scenario": "route",
+    "expect": {
+      "mode": "react",
+      "reasonCode": "single_step",
+      "plannerCalled": false,
+      "planVisible": false,
+      "reactFallbackCalled": true
+    }
+  },
+  {
+    "id": "complex-weather-time",
+    "messages": [{ "role": "user", "content": "先查广州天气，再查现在几点，最后总结" }],
+    "expected": "plan",
+    "reasonCode": "sequential_keywords",
+    "scenario": "route",
+    "expect": {
+      "mode": "plan",
+      "reasonCode": "sequential_keywords",
+      "plannerCalled": true,
+      "planVisible": true,
+      "reactFallbackCalled": false
+    }
+  },
+  {
+    "id": "complex-research-report",
+    "messages": [{ "role": "user", "content": "查资料并写一份部署方案对比" }],
+    "expected": "plan",
+    "reasonCode": "research_then_produce",
+    "scenario": "route",
+    "expect": {
+      "mode": "plan",
+      "reasonCode": "research_then_produce",
+      "plannerCalled": true,
+      "planVisible": true,
+      "reactFallbackCalled": false
+    }
+  },
+  {
+    "id": "complex-cache-advice",
+    "messages": [{ "role": "user", "content": "调研三种缓存策略，再给出小团队建议" }],
+    "expected": "plan",
+    "reasonCode": "research_then_produce",
+    "scenario": "route",
+    "expect": {
+      "mode": "plan",
+      "reasonCode": "research_then_produce",
+      "plannerCalled": true,
+      "planVisible": true,
+      "reactFallbackCalled": false
+    }
+  },
+  {
+    "id": "complex-retrieve-draft",
+    "messages": [{ "role": "user", "content": "先检索知识库，再根据资料起草通知" }],
+    "expected": "plan",
+    "reasonCode": "research_then_produce",
+    "scenario": "route",
+    "expect": {
+      "mode": "plan",
+      "reasonCode": "research_then_produce",
+      "plannerCalled": true,
+      "planVisible": true,
+      "reactFallbackCalled": false
+    }
+  },
+  {
+    "id": "complex-migration",
+    "messages": [{ "role": "user", "content": "对比两种实现并生成迁移步骤" }],
+    "expected": "plan",
+    "reasonCode": "artifact_request",
+    "scenario": "route",
+    "expect": {
+      "mode": "plan",
+      "reasonCode": "artifact_request",
+      "plannerCalled": true,
+      "planVisible": true,
+      "reactFallbackCalled": false
+    }
+  },
+  {
+    "id": "complex-analyze-fix",
+    "messages": [{ "role": "user", "content": "先分析失败原因，再给出修复计划" }],
+    "expected": "plan",
+    "reasonCode": "artifact_request",
+    "scenario": "route",
+    "expect": {
+      "mode": "plan",
+      "reasonCode": "artifact_request",
+      "plannerCalled": true,
+      "planVisible": true,
+      "reactFallbackCalled": false
+    }
+  },
+  {
+    "id": "plan-order-steps",
+    "messages": [{ "role": "user", "content": "先查广州天气，再查现在几点，最后总结" }],
+    "expected": "plan",
+    "reasonCode": "sequential_keywords",
+    "scenario": "plan-order",
+    "mockPlan": {
+      "goal": "汇总广州天气与当前时间",
+      "steps": [
+        {
+          "id": "step_1",
+          "title": "查询广州天气",
+          "action": "调用 getWeather 获取广州天气",
+          "doneWhen": "拿到广州天气结果",
+          "tools": ["getWeather"]
+        },
+        {
+          "id": "step_2",
+          "title": "查询当前时间",
+          "action": "调用 getCurrentTime 获取当前时间",
+          "doneWhen": "拿到当前时间",
+          "tools": ["getCurrentTime"]
+        },
+        {
+          "id": "step_3",
+          "title": "汇总结果",
+          "action": "把天气和时间汇总成一句话",
+          "doneWhen": "输出同时包含天气和时间的总结",
+          "tools": []
+        }
+      ]
+    },
+    "expect": {
+      "mode": "plan",
+      "reasonCode": "sequential_keywords",
+      "plannerCalled": true,
+      "planVisible": true,
+      "maxSteps": 6,
+      "stepOrder": ["step_1", "step_2", "step_3"],
+      "doneSteps": ["step_1", "step_2", "step_3"],
+      "finalStatus": "completed"
+    }
+  },
+  {
+    "id": "plan-too-many-steps",
+    "messages": [{ "role": "user", "content": "先查资料，再写一份部署方案对比" }],
+    "expected": "plan",
+    "reasonCode": "research_then_produce",
+    "scenario": "too-many-steps",
+    "mockPlan": {
+      "goal": "七步超限计划",
+      "steps": [
+        { "id": "step_1", "title": "步骤一", "action": "执行动作一", "doneWhen": "拿到结果一", "tools": [] },
+        { "id": "step_2", "title": "步骤二", "action": "执行动作二", "doneWhen": "拿到结果二", "tools": [] },
+        { "id": "step_3", "title": "步骤三", "action": "执行动作三", "doneWhen": "拿到结果三", "tools": [] },
+        { "id": "step_4", "title": "步骤四", "action": "执行动作四", "doneWhen": "拿到结果四", "tools": [] },
+        { "id": "step_5", "title": "步骤五", "action": "执行动作五", "doneWhen": "拿到结果五", "tools": [] },
+        { "id": "step_6", "title": "步骤六", "action": "执行动作六", "doneWhen": "拿到结果六", "tools": [] },
+        { "id": "step_7", "title": "步骤七", "action": "执行动作七", "doneWhen": "拿到结果七", "tools": [] }
+      ]
+    },
+    "expect": {
+      "fallbackReason": "plan_too_long",
+      "reactFallbackCalled": true,
+      "planVisible": false
+    }
+  },
+  {
+    "id": "plan-invalid-tool",
+    "messages": [{ "role": "user", "content": "先检索知识库，再根据资料起草通知" }],
+    "expected": "plan",
+    "reasonCode": "research_then_produce",
+    "scenario": "invalid-plan",
+    "mockPlan": {
+      "goal": "包含非法工具的计划",
+      "steps": [
+        { "id": "step_1", "title": "检索", "action": "调用检索工具", "doneWhen": "拿到检索结果", "tools": ["searchDocs"] },
+        { "id": "step_2", "title": "起草", "action": "调用不存在的工具", "doneWhen": "拿到草稿", "tools": ["search_web"] }
+      ]
+    },
+    "expect": {
+      "fallbackReason": "invalid_plan",
+      "reactFallbackCalled": true,
+      "planVisible": false
+    }
+  },
+  {
+    "id": "plan-empty",
+    "messages": [{ "role": "user", "content": "调研三种缓存策略，再给出小团队建议" }],
+    "expected": "plan",
+    "reasonCode": "research_then_produce",
+    "scenario": "empty-plan",
+    "mockPlan": {
+      "goal": "空计划",
+      "steps": []
+    },
+    "expect": {
+      "fallbackReason": "plan_empty",
+      "reactFallbackCalled": true,
+      "planVisible": false
+    }
+  },
+  {
+    "id": "plan-replan-once",
+    "messages": [{ "role": "user", "content": "先查广州天气，再查现在几点，最后总结" }],
+    "expected": "plan",
+    "reasonCode": "sequential_keywords",
+    "scenario": "replan-once",
+    "mockPlan": {
+      "goal": "第二步失败后重规划",
+      "steps": [
+        { "id": "step_1", "title": "查询天气", "action": "调用 getWeather", "doneWhen": "拿到天气", "tools": ["getWeather"] },
+        { "id": "step_2", "title": "查询时间", "action": "调用 getCurrentTime", "doneWhen": "拿到时间", "tools": ["getCurrentTime"] },
+        { "id": "step_3", "title": "汇总", "action": "汇总结果", "doneWhen": "输出总结", "tools": [] }
+      ]
+    },
+    "expect": {
+      "replanCount": 1,
+      "replanned": true,
+      "doneSteps": ["step_1", "step_2", "step_3"],
+      "finalStatus": "completed"
+    }
+  },
+  {
+    "id": "plan-replan-limit",
+    "messages": [{ "role": "user", "content": "先查广州天气，再查现在几点，最后总结" }],
+    "expected": "plan",
+    "reasonCode": "sequential_keywords",
+    "scenario": "replan-limit",
+    "mockPlan": {
+      "goal": "第二步持续失败",
+      "steps": [
+        { "id": "step_1", "title": "查询天气", "action": "调用 getWeather", "doneWhen": "拿到天气", "tools": ["getWeather"] },
+        { "id": "step_2", "title": "查询时间", "action": "调用 getCurrentTime", "doneWhen": "拿到时间", "tools": ["getCurrentTime"] },
+        { "id": "step_3", "title": "汇总", "action": "汇总结果", "doneWhen": "输出总结", "tools": [] }
+      ]
+    },
+    "expect": {
+      "replanCount": 1,
+      "replanned": true,
+      "doneSteps": ["step_1"],
+      "errorCode": "tool_failed",
+      "finalStatus": "failed"
+    }
+  },
+  {
+    "id": "plan-confirm-denied",
+    "messages": [{ "role": "user", "content": "先检索知识库，再根据资料起草通知" }],
+    "expected": "plan",
+    "reasonCode": "research_then_produce",
+    "scenario": "confirm-denied",
+    "mockPlan": {
+      "goal": "第二步需要人工确认",
+      "steps": [
+        { "id": "step_1", "title": "检索资料", "action": "调用 searchDocs", "doneWhen": "拿到资料", "tools": ["searchDocs"] },
+        { "id": "step_2", "title": "起草通知", "action": "调用 draft_message 起草", "doneWhen": "拿到草稿", "tools": ["draft_message"] },
+        { "id": "step_3", "title": "发送通知", "action": "发送通知", "doneWhen": "通知已发送", "tools": [] }
+      ]
+    },
+    "expect": {
+      "replanCount": 0,
+      "replanned": false,
+      "doneSteps": ["step_1"],
+      "errorCode": "confirm_denied",
+      "finalStatus": "failed"
+    }
+  },
+  {
+    "id": "plan-abort-after-first-step",
+    "messages": [{ "role": "user", "content": "先查广州天气，再查现在几点，最后总结" }],
+    "expected": "plan",
+    "reasonCode": "sequential_keywords",
+    "scenario": "abort",
+    "mockPlan": {
+      "goal": "第一步后中止",
+      "steps": [
+        { "id": "step_1", "title": "查询天气", "action": "调用 getWeather", "doneWhen": "拿到天气", "tools": ["getWeather"] },
+        { "id": "step_2", "title": "查询时间", "action": "调用 getCurrentTime", "doneWhen": "拿到时间", "tools": ["getCurrentTime"] },
+        { "id": "step_3", "title": "汇总", "action": "汇总结果", "doneWhen": "输出总结", "tools": [] }
+      ]
+    },
+    "expect": {
+      "startedSteps": ["step_1"],
+      "doneSteps": ["step_1"],
+      "finalStatus": "aborted"
+    }
+  },
+  {
+    "id": "plan-model-budget-exhausted",
+    "messages": [{ "role": "user", "content": "调研三种缓存策略，再给出小团队建议" }],
+    "expected": "plan",
+    "reasonCode": "research_then_produce",
+    "scenario": "budget",
+    "mockPlan": {
+      "goal": "预算耗尽",
+      "steps": [
+        { "id": "step_1", "title": "查询天气", "action": "调用 getWeather", "doneWhen": "拿到天气", "tools": ["getWeather"] },
+        { "id": "step_2", "title": "查询时间", "action": "调用 getCurrentTime", "doneWhen": "拿到时间", "tools": ["getCurrentTime"] }
+      ]
+    },
+    "expect": {
+      "startedSteps": [],
+      "errorCode": "model_budget_exhausted",
+      "finalStatus": "failed"
+    }
+  },
+  {
+    "id": "plan-final-reply-only-executed",
+    "messages": [{ "role": "user", "content": "先查广州天气，再查现在几点，最后总结" }],
+    "expected": "plan",
+    "reasonCode": "sequential_keywords",
+    "scenario": "final-reply",
+    "mockPlan": {
+      "goal": "最终回答只引用已执行步骤",
+      "steps": [
+        { "id": "step_1", "title": "查询天气", "action": "调用 getWeather", "doneWhen": "拿到天气", "tools": ["getWeather"] },
+        { "id": "step_2", "title": "查询时间", "action": "调用 getCurrentTime", "doneWhen": "拿到时间", "tools": ["getCurrentTime"] },
+        { "id": "step_3", "title": "汇总结果", "action": "汇总结果", "doneWhen": "输出总结", "tools": [] }
+      ]
+    },
+    "expect": {
+      "replanCount": 1,
+      "doneSteps": ["step_1", "step_2"],
+      "finalReplyOnlyDone": true,
+      "finalReplyExcludes": ["汇总结果"],
+      "finalStatus": "completed"
+    }
+  }
+]

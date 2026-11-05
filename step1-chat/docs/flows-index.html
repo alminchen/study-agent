@@ -46,11 +46,14 @@
 <div class="wrap">
   <h1>step1-chat · 流程 SVG 索引</h1>
   <p class="lede">泳道流程图（含方法名、调用链，以及 <strong>Token / Guard / Trace</strong> 横切）。浏览器直接打开本页即可浏览。</p>
-  <p class="lede">Markdown 索引：<a href="./flows-index.md">flows-index.md</a> · 时序图：<a href="../diagrams/index.html">diagrams/index.html</a> · <strong>学习计划对照拓扑</strong>：<a href="./project-topology.html">project-topology.html</a></p>
+  <p class="lede">Markdown 索引：<a href="./flows-index.md">flows-index.md</a> · <strong>学习计划对照拓扑</strong>：<a href="./project-topology.html">project-topology.html</a></p>
 
   <nav class="toc" aria-label="目录">
     <strong>跳转</strong>
     <a href="#crosscutting">0 横切总览</a>
+    <a href="#structured-output">0b 结构化输出</a>
+    <a href="#plan-execute">0c 计划执行</a>
+    <a href="#long-context">0d 长上下文</a>
     <a href="#chat-react">1 单 Agent</a>
     <a href="#chat-multi">2 多 Agent</a>
     <a href="#rag-chat">3 资料问答</a>
@@ -69,6 +72,33 @@
     </div>
     <img src="./crosscutting-token-guard-trace-flow.svg" alt="Token 计费 · 安全拦截 · Tracing 横切总览">
     <figcaption>crosscutting-token-guard-trace-flow.svg — Token · Guard · SSE/LangSmith（chat-prefetch/chat-llm · multi-request ✅）· 三端点对照</figcaption>
+  </figure>
+
+  <figure id="structured-output">
+    <div class="fhead">
+      <span class="no">0b · Streaming 结构化输出</span>
+      <span class="doc-link">文档 <a href="./structured-output.md">structured-output.md</a> · 拓扑 <a href="./project-topology.html#structured">§6c</a></span>
+    </div>
+    <img src="./structured-output-flow.svg" alt="Streaming 结构化输出从请求到最终 Zod 校验的完整流程">
+    <figcaption>structured-output-flow.svg — Vue 请求 · Express SSE · Mock/provider · accumulator · partial JSON · snapshot revision · final Zod · abort/error/usage/trace</figcaption>
+  </figure>
+
+  <figure id="plan-execute">
+    <div class="fhead">
+      <span class="no">0c · Plan-and-Execute</span>
+      <span class="doc-link">文档 <a href="./plan-and-execute.md">plan-and-execute.md</a> · 拓扑 <a href="./project-topology.html#plan">§6d</a></span>
+    </div>
+    <img src="./plan-and-execute-flow.svg" alt="Plan-and-Execute 从规则路由到顺序执行与受控 Re-plan 的完整流程">
+    <figcaption>plan-and-execute-flow.svg — 规则路由(auto/react/plan) · Planner emit_plan · 计划契约校验 · 单步上下文收窄 · 受控 Re-plan(≤1) · 终态与 13 字段观测</figcaption>
+  </figure>
+
+  <figure id="long-context">
+    <div class="fhead">
+      <span class="no">0d · 长上下文管理</span>
+      <span class="doc-link">文档 <a href="./long-context.md">long-context.md</a> · 拓扑 <a href="./project-topology.html#long-context">§6e</a></span>
+    </div>
+    <img src="./long-context-flow.svg" alt="长上下文管理：预算窗口 + 结构化摘要">
+    <figcaption>long-context-flow.svg — buildContext(system→summary→window) · summarizeDroppedMessages · context_compacted · degraded 回退 · assertToolPairing</figcaption>
   </figure>
 
   <figure id="chat-react">

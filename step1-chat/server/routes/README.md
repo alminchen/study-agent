@@ -7,6 +7,7 @@
 |------|------|------|
 | `usage.ts` | `GET/DELETE /api/usage` | JSON |
 | `health.ts` | `GET /api/health` | JSON |
+| `models.ts` | `GET /api/models` | JSON（代理 `LLM_BASE_URL/models`，失败回退内置列表） |
 | `ragChat.ts` | `POST /api/rag/chat` | SSE（资料问答 + Token + 三道 Guard + Trace + LangSmith） |
 | `chat.ts` | `POST /api/chat` | SSE（单 Agent + ConfirmSession） |
 | `chatConfirm.ts` | `POST/GET /api/chat/confirm` | JSON（人工确认，单/多 Agent 共用） |

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { UsageSnapshot, UsageSummary } from "../types";
+import type { ContextCompactionEvent, UsageSnapshot, UsageSummary } from "../types";
 
 const props = defineProps<{
   lastUsage: UsageSnapshot | null;
   summary: UsageSummary | null;
   serverMode: "mock" | "api" | "unknown";
+  /** 最近一次请求的上下文压缩事件；没有压缩时为 null。 */
+  compaction?: ContextCompactionEvent | null;
 }>();
 
 const showPanel = computed(() => props.serverMode === "api" && (props.lastUsage || props.summary));
@@ -41,6 +43,17 @@ function formatTokens(n: number): string {
       <div class="usage-row">
         <span class="usage-label">估算成本</span>
         <span>{{ formatCost(lastUsage.estimatedCostUsd) }}</span>
+      </div>
+      <!-- 上下文压缩：本轮没有发生压缩就不显示这一行。 -->
+      <div v-if="compaction" class="usage-row">
+        <span class="usage-label">上下文压缩</span>
+        <span>
+          {{ formatTokens(compaction.originalTokens) }} →
+          {{ formatTokens(compaction.compactedTokens) }} token
+          <template v-if="compaction.summaryTokens > 0">
+            （摘要 {{ formatTokens(compaction.summaryTokens) }}）
+          </template>
+        </span>
       </div>
     </div>
     <div v-if="summary && summary.totalRequests > 0" class="usage-block usage-total">

@@ -14,7 +14,7 @@ export function setSseHeaders(res: express.Response): void {
 /**
  * SSE 路径写 Token 用量：合成 UsageRecord → 落盘 → 推 { type:"usage", ... } 事件。
  * Mock / 检索判空未调 LLM 时 accumulator.isEmpty，直接跳过。
- * 调用方：/api/chat、/api/chat/multi、/api/rag/chat。
+ * 调用方：/api/chat、/api/chat/multi、/api/rag/chat、/api/chat/structured。
  */
 export function writeUsageToStream(
   res: express.Response,

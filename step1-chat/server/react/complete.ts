@@ -1,4 +1,5 @@
 import { toolSchemasForChat } from "../tools/index.js";
+import type { ToolSchema } from "../tools/types.js";
 import { parseUsageFromResponse } from "../usage/parseUsage.js";
 import type { TokenUsage } from "../usage/types.js";
 import type { ProviderChoice, ProviderMessage, ReactLoopOptions } from "./types.js";
@@ -16,6 +17,12 @@ export interface RequestCompletionExtras {
    * 代理若不支持 `thinking` 字段，可能 400；可用 LLM_TOOL_TURN_THINKING=keep 关掉本逻辑。
    */
   disableThinking?: boolean;
+  /**
+   * 覆盖默认工具列表。
+   * ReAct 走聊天工具；Planner 走 emit_plan 独占工具（不挂任何业务工具）。
+   * 不传时行为与之前完全一致。
+   */
+  tools?: ToolSchema[];
 }
 
 /** 工具轮默认关 thinking；设为 keep 则不传 thinking 字段（兼容旧代理）。 */
@@ -51,7 +58,7 @@ export async function requestCompletion(
   const body: Record<string, unknown> = {
     model,
     messages,
-    tools: toolSchemasForChat(includeSearchDocs, includeConfirmTools),
+    tools: extras?.tools ?? toolSchemasForChat(includeSearchDocs, includeConfirmTools),
     tool_choice: "auto",
     stream: false,
   };

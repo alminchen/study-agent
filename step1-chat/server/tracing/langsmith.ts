@@ -566,3 +566,274 @@ export async function withMultiAggregateSpan<T>(
   if (!isLangSmithTracingEnabled()) return run();
   return traceMultiAggregate({ workerCount, run }) as Promise<T>;
 }
+
+/** 最终 schema 失败时写入 trace 的精简 issue，不包含模型完整原文。 */
+export interface StructuredTraceIssue {
+  path: Array<string | number>;
+  code: string;
+  expected: string | null;
+  actualType: string;
+  message: string;
+}
+
+/** 一次结构化请求结束时交给 LangSmith 根 span 的诊断快照。 */
+export interface StructuredTraceOutcome {
+  status: "completed" | "failed" | "aborted";
+  model: string;
+  target: string;
+  lastRevision: number;
+  errorCode: string | null;
+  validationCode: string | null;
+  validationIssues: StructuredTraceIssue[];
+  repairApplied: string | null;
+  jsonModeFallback: boolean;
+  usageRecorded: boolean;
+  chunkCount: number;
+  rejectedChunkCount: number;
+  lastRejectedChunkDiagnostic: string | null;
+}
+
+/** 根 span 输入只保留脱敏后的用户预览和请求元数据。 */
+export interface StructuredTraceMeta {
+  userPreview: string;
+  model: string;
+  target: string;
+  messageCount: number;
+  jsonModeRequested: boolean;
+}
+
+/** 根 span：一次 /api/chat/structured 请求，不记录完整 prompt 或模型原文。 */
+export const traceStructuredRequest = traceable(
+  async (input: { meta: StructuredTraceMeta; run: () => Promise<StructuredTraceOutcome> }) =>
+    input.run(),
+  {
+    name: "structured-request",
+    run_type: "chain",
+    processInputs: (inputs) => ({
+      model: inputs.meta.model,
+      target: inputs.meta.target,
+      message_count: inputs.meta.messageCount,
+      json_mode_requested: inputs.meta.jsonModeRequested,
+      user_preview: inputs.meta.userPreview.slice(0, 120),
+    }),
+    processOutputs: (outputs) => ({
+      status: outputs.status,
+      model: outputs.model,
+      target: outputs.target,
+      last_revision: outputs.lastRevision,
+      error_code: outputs.errorCode,
+      validation_code: outputs.validationCode,
+      validation_issue_count: outputs.validationIssues.length,
+      validation_issues: outputs.validationIssues.slice(0, 10),
+      repair_applied: outputs.repairApplied,
+      json_mode_fallback: outputs.jsonModeFallback,
+      usage_recorded: outputs.usageRecorded,
+      chunk_count: outputs.chunkCount,
+      rejected_chunk_count: outputs.rejectedChunkCount,
+      last_rejected_chunk_diagnostic: outputs.lastRejectedChunkDiagnostic,
+    }),
+  },
+);
+
+/** LLM span：结构化模型流；JSON mode 降级后的重试会单独产生一条 span。 */
+export const traceStructuredLlm = traceable(
+  async (input: {
+    model: string;
+    target: string;
+    messageCount: number;
+    jsonMode: boolean;
+    run: () => Promise<unknown>;
+  }): Promise<unknown> => input.run(),
+  {
+    name: "structured-llm",
+    run_type: "llm",
+    processInputs: (inputs) => ({
+      model: inputs.model,
+      target: inputs.target,
+      message_count: inputs.messageCount,
+      json_mode: inputs.jsonMode,
+    }),
+    processOutputs: (outputs) => {
+      const row = outputs as {
+        status?: string;
+        error?: { code?: string };
+        usage?: unknown;
+        stats?: {
+          finishReason?: string | null;
+          chunkCount?: number;
+          receivedChars?: number;
+          sawDone?: boolean;
+        };
+      } | null;
+      return {
+        status: row?.status ?? null,
+        error_code: row?.error?.code ?? null,
+        finish_reason: row?.stats?.finishReason ?? null,
+        chunk_count: row?.stats?.chunkCount ?? null,
+        received_chars: row?.stats?.receivedChars ?? null,
+        saw_done: row?.stats?.sawDone ?? null,
+        has_usage: Boolean(row?.usage),
+      };
+    },
+  },
+);
+
+/** 根 span 包装：开关开 → structured-request；关 → 直接 run。 */
+export async function runStructuredRequestWithTracing(
+  meta: StructuredTraceMeta,
+  run: () => Promise<StructuredTraceOutcome>,
+): Promise<StructuredTraceOutcome> {
+  // 未开启 tracing 时保持零额外网络调用，直接执行原业务函数。
+  if (!isLangSmithTracingEnabled()) return run();
+  return traceStructuredRequest({ meta, run });
+}
+
+/**
+ * 为一次真实模型流创建 LLM span。
+ *
+ * JSON mode 不受支持后的 prompt-only 重试会再次调用本函数，因此 trace 中能看到
+ * 两次独立模型尝试；Mock 分支不经过这里。
+ */
+export async function runStructuredCompletionWithTracing<T>(
+  meta: {
+    model: string;
+    target: string;
+    messageCount: number;
+    jsonMode: boolean;
+  },
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isLangSmithTracingEnabled()) return run();
+  return traceStructuredLlm({ ...meta, run }) as Promise<T>;
+}
+
+/**
+ * LLM span：Plan-and-Execute 的规划调用。
+ *
+ * 与 chat-llm 并列但只看 Planner 这一段：
+ * - 只挂 emit_plan 工具，模型不调业务工具
+ * - 输出重点是「计划是否成形」：步数、校验错误码、是否走了 fallback
+ * - latency_ms 单独记，规划慢是这类架构最常见的体感问题
+ */
+export const tracePlanPlanner = traceable(
+  async (input: {
+    planId: string;
+    revision: number;
+    model: string;
+    run: () => Promise<{
+      hasToolCall: boolean;
+      stepCount: number | null;
+      validationCode: string | null;
+      fellBack: boolean;
+      latencyMs: number;
+      modelCalls: number;
+    }>;
+  }) => input.run(),
+  {
+    name: "plan-planner",
+    run_type: "llm",
+    processInputs: (inputs) => ({
+      plan_id: inputs.planId,
+      revision: inputs.revision,
+      model: inputs.model,
+    }),
+    processOutputs: (outputs) => ({
+      has_tool_call: outputs.hasToolCall,
+      step_count: outputs.stepCount,
+      validation_code: outputs.validationCode,
+      fell_back: outputs.fellBack,
+      latency_ms: outputs.latencyMs,
+      model_calls: outputs.modelCalls,
+    }),
+  },
+);
+
+/** 开关开 → plan-planner span；关 → 直接 run。 */
+export async function runPlanPlannerWithTracing<T extends {
+  hasToolCall: boolean;
+  stepCount: number | null;
+  validationCode: string | null;
+  fellBack: boolean;
+  latencyMs: number;
+  modelCalls: number;
+}>(
+  meta: { planId: string; revision: number; model: string },
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!isLangSmithTracingEnabled()) return run();
+  return tracePlanPlanner({ ...meta, run }) as Promise<T>;
+}
+
+/* ---------------- 计划请求的观测字段与根 span（步骤 11） ---------------- */
+
+/**
+ * 一次计划请求的观测字段（步骤 11 契约）。
+ *
+ * 13 个字段覆盖三类问题：
+ - 走到哪一步：planId / revision / mode / reasonCode / stepId
+ - 花了多少：modelCalls / toolCalls / plannerLatencyMs / totalLatencyMs / replanCount
+ - 怎么结束的：abortReason / errorCode
+ *
+ * requestId 把「前端一次请求」和「服务端日志一条」对上；
+ * user_preview 只取最后一条用户消息的短预览，不落完整 prompt。
+ */
+export interface PlanObservation {
+  requestId: string;
+  planId: string;
+  revision: number;
+  mode: string;
+  reasonCode: string | null;
+  stepId: string | null;
+  modelCalls: number;
+  toolCalls: number;
+  replanCount: number;
+  plannerLatencyMs: number;
+  totalLatencyMs: number;
+  abortReason: string | null;
+  errorCode: string | null;
+}
+
+/** 根 span：一次 `/api/chat/plan` 请求对应的整段计划执行。 */
+export const tracePlanRequest = traceable(
+  async (input: {
+    requestId: string;
+    planId: string;
+    mode: string;
+    userPreview: string;
+    run: () => Promise<PlanObservation>;
+  }): Promise<PlanObservation> => input.run(),
+  {
+    name: "plan-request",
+    run_type: "chain",
+    processInputs: (inputs) => ({
+      request_id: inputs.requestId,
+      plan_id: inputs.planId,
+      mode: inputs.mode,
+      user_preview: inputs.userPreview.slice(0, 120),
+    }),
+    processOutputs: (outputs) => ({
+      request_id: outputs.requestId,
+      plan_id: outputs.planId,
+      revision: outputs.revision,
+      mode: outputs.mode,
+      reason_code: outputs.reasonCode,
+      step_id: outputs.stepId,
+      model_calls: outputs.modelCalls,
+      tool_calls: outputs.toolCalls,
+      replan_count: outputs.replanCount,
+      planner_latency_ms: outputs.plannerLatencyMs,
+      total_latency_ms: outputs.totalLatencyMs,
+      abort_reason: outputs.abortReason,
+      error_code: outputs.errorCode,
+    }),
+  },
+);
+
+/** 开关开 → plan-request span；关 → 直接 run。 */
+export async function runPlanRequestWithTracing(
+  meta: { requestId: string; planId: string; mode: string; userPreview: string },
+  run: () => Promise<PlanObservation>,
+): Promise<PlanObservation> {
+  if (!isLangSmithTracingEnabled()) return run();
+  return tracePlanRequest({ ...meta, run });
+}

@@ -1,0 +1,466 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 2020" width="1480" height="2020" role="img" aria-label="Plan and Execute Flow">
+  <title>Plan-and-Execute 全链路</title>
+  <desc>从 Vue 前端发起计划请求、Express 路由校验、规则路由判定、Planner 产出计划、顺序 Executor 执行、受控 Re-plan 到最终回答与观测日志的完整调用链。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#059669"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 23px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .lane { font: 700 13px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #475569; }
+      .file { font: 400 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-blue { font: 600 11px sans-serif; fill: #2563eb; }
+      .label-green { font: 600 11px sans-serif; fill: #047857; }
+      .label-amber { font: 600 11px sans-serif; fill: #b45309; }
+      .warn { font: 600 11px sans-serif; fill: #b91c1c; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .mono { font: 500 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #334155; }
+    ]]></style>
+  </defs>
+
+  <rect width="1480" height="2020" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">Plan-and-Execute 全链路</text>
+  <text x="40" y="67" class="subtitle">Vue 发起 -&gt; Express 路由校验 -&gt; 规则路由判定 -&gt; Planner 产计划 -&gt; 顺序 Executor -&gt; 受控 Re-plan -&gt; 最终回答 + 观测日志</text>
+
+  <g transform="translate(40, 88)">
+    <rect x="0" y="0" width="1400" height="48" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="16" y="15" width="18" height="18" rx="3" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="42" y="29" class="legend">前端</text>
+    <rect x="140" y="15" width="18" height="18" rx="3" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="166" y="29" class="legend">路由 / SSE</text>
+    <rect x="300" y="15" width="18" height="18" rx="3" fill="#d1fae5" stroke="#059669"/>
+    <text x="326" y="29" class="legend">计划状态机</text>
+    <rect x="460" y="15" width="18" height="18" rx="3" fill="#fef3c7" stroke="#d97706"/>
+    <text x="486" y="29" class="legend">契约 / 观测</text>
+    <rect x="620" y="15" width="18" height="18" rx="3" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="646" y="29" class="legend">回退 / 终止</text>
+    <text x="820" y="29" class="note">实线 = 调用顺序 · 虚线 = SSE 事件 · 计划只回退一次 ReAct，Re-plan 最多一次</text>
+  </g>
+
+  <!-- ========== 1 前端 ========== -->
+  <g transform="translate(40, 152)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#eff6ff" stroke="#bfdbfe"/>
+    <text x="16" y="23" class="lane">1 · 前端发起（Vue / useChat）</text>
+  </g>
+
+  <g transform="translate(60, 200)">
+    <rect x="0" y="0" width="280" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="76" rx="2" fill="#2563eb"/>
+    <text x="16" y="24" class="box">App.vue</text>
+    <text x="16" y="43" class="box-sub">planEnabled 开关</text>
+    <text x="16" y="60" class="box-sub">planMode: auto | react | plan</text>
+    <text x="16" y="72" class="file">src/App.vue</text>
+  </g>
+
+  <g transform="translate(380, 200)">
+    <rect x="0" y="0" width="280" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="76" rx="2" fill="#2563eb"/>
+    <text x="16" y="24" class="box">useChat.runPlan()</text>
+    <text x="16" y="43" class="box-sub">planState = emptyPlanState()</text>
+    <text x="16" y="60" class="box-sub">history 只给 user/assistant</text>
+    <text x="16" y="72" class="file">src/composables/useChat.ts</text>
+  </g>
+
+  <g transform="translate(700, 200)">
+    <rect x="0" y="0" width="280" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="76" rx="2" fill="#2563eb"/>
+    <text x="16" y="24" class="box">streamPlan()</text>
+    <text x="16" y="43" class="box-sub">POST /api/chat/plan (SSE)</text>
+    <text x="16" y="60" class="box-sub">mode + searchDocs 一起下发</text>
+    <text x="16" y="72" class="file">src/api/chat.ts</text>
+  </g>
+
+  <g transform="translate(1020, 200)">
+    <rect x="0" y="0" width="280" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="76" rx="2" fill="#2563eb"/>
+    <text x="16" y="24" class="box">runSseSession()</text>
+    <text x="16" y="43" class="box-sub">signal / onDelta / onTrace</text>
+    <text x="16" y="60" class="box-sub">计划事件与工具事件分流</text>
+    <text x="16" y="72" class="file">src/composables/useChat.ts</text>
+  </g>
+
+  <path d="M340 238 L378 238" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M660 238 L698 238" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M980 238 L1018 238" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ========== 2 路由 ========== -->
+  <g transform="translate(40, 316)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#eef2ff" stroke="#c7d2fe"/>
+    <text x="16" y="23" class="lane">2 · Express 路由与请求校验</text>
+  </g>
+
+  <g transform="translate(60, 364)">
+    <rect x="0" y="0" width="280" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="76" rx="2" fill="#4f46e5"/>
+    <text x="16" y="24" class="box">registerChatPlanRoutes</text>
+    <text x="16" y="43" class="box-sub">POST /api/chat/plan</text>
+    <text x="16" y="60" class="box-sub">与 chat / multi / structured 并列</text>
+    <text x="16" y="72" class="file">server/routes/chatPlan.ts</text>
+  </g>
+
+  <g transform="translate(380, 364)">
+    <rect x="0" y="0" width="280" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="76" rx="2" fill="#4f46e5"/>
+    <text x="16" y="24" class="box">PlanChatRequestSchema</text>
+    <text x="16" y="43" class="box-sub">safeParse：缺 model / 缺消息</text>
+    <text x="16" y="60" class="box-sub">→ 400 JSON</text>
+    <text x="16" y="72" class="file">server/plan-execute/types.ts</text>
+  </g>
+
+  <g transform="translate(700, 364)">
+    <rect x="0" y="0" width="280" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="76" rx="2" fill="#4f46e5"/>
+    <text x="16" y="24" class="box">setSseHeaders + requestId</text>
+    <text x="16" y="43" class="box-sub">AbortController + res.on close</text>
+    <text x="16" y="60" class="box-sub">planId 随请求下发</text>
+    <text x="16" y="72" class="file">server/routes/chatPlan.ts</text>
+  </g>
+
+  <g transform="translate(1020, 364)">
+    <rect x="0" y="0" width="280" height="76" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="76" rx="2" fill="#4f46e5"/>
+    <text x="16" y="24" class="box">runPlanExecute()</text>
+    <text x="16" y="43" class="box-sub">拼装 planner / executor</text>
+    <text x="16" y="60" class="box-sub">mockMode 切 Mock / 真实</text>
+    <text x="16" y="72" class="file">server/routes/chatPlan.ts</text>
+  </g>
+
+  <path d="M340 402 L378 402" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M660 402 L698 402" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M980 402 L1018 402" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M1160 276 L1160 362" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ========== 3 路由判定 ========== -->
+  <g transform="translate(40, 480)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/>
+    <text x="16" y="23" class="lane">3 · 路由判定（纯规则，不调模型）</text>
+  </g>
+
+  <g transform="translate(60, 528)">
+    <rect x="0" y="0" width="300" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">classifyTask()</text>
+    <text x="16" y="43" class="box-sub">输入：最后一条 user + mode</text>
+    <text x="16" y="60" class="box-sub">+ searchDocs 开关</text>
+    <text x="16" y="74" class="file">server/plan-execute/classify.ts</text>
+  </g>
+
+  <g transform="translate(430, 528)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">reasonCode</text>
+    <text x="16" y="43" class="box-sub">research_then_produce</text>
+    <text x="16" y="60" class="box-sub">sequential_keywords / artifact_request</text>
+    <text x="16" y="74" class="file">附触发信号 signals[]</text>
+  </g>
+
+  <g transform="translate(780, 528)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">mode = react</text>
+    <text x="16" y="43" class="box-sub">单步 / 说不清 / 天气时间类</text>
+    <text x="16" y="60" class="box-sub">→ 不进入 Planner</text>
+    <text x="16" y="74" class="file">plan_route 事件</text>
+  </g>
+
+  <g transform="translate(1120, 528)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">mode = plan</text>
+    <text x="16" y="43" class="box-sub">进 Planner 产计划</text>
+    <text x="16" y="60" class="box-sub">步骤顺序 = 执行顺序</text>
+    <text x="16" y="74" class="file">plan_route 事件</text>
+  </g>
+
+  <path d="M360 568 L428 568" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M710 568 L778 568" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M1060 568 L1118 568" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M210 476 L210 526" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ========== 4 Planner ========== -->
+  <g transform="translate(40, 648)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/>
+    <text x="16" y="23" class="lane">4 · Planner 产计划 + 计划契约校验</text>
+  </g>
+
+  <g transform="translate(60, 696)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">createRealPlanner()</text>
+    <text x="16" y="43" class="box-sub">只挂 emit_plan 一个工具</text>
+    <text x="16" y="60" class="box-sub">工具参数 = 整份计划</text>
+    <text x="16" y="74" class="file">server/plan-execute/planner.ts</text>
+  </g>
+
+  <g transform="translate(380, 696)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">validatePlan()</text>
+    <text x="16" y="43" class="box-sub">1~6 步 · id 连续 · 工具白名单</text>
+    <text x="16" y="60" class="box-sub">每步 ≤3 工具 · JSON ≤4000 字</text>
+    <text x="16" y="74" class="file">server/plan-execute/schema.ts</text>
+  </g>
+
+  <g transform="translate(700, 696)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">plan_created</text>
+    <text x="16" y="43" class="box-sub">计划时间线立刻可见</text>
+    <text x="16" y="60" class="box-sub">revision = 0</text>
+    <text x="16" y="74" class="file">SSE 事件</text>
+  </g>
+
+  <g transform="translate(1020, 696)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#fef2f2" stroke="#fecaca"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#dc2626"/>
+    <text x="16" y="24" class="box">plan_empty / plan_too_long</text>
+    <text x="16" y="43" class="box-sub">invalid_plan</text>
+    <text x="16" y="60" class="box-sub">→ plan_fallback → ReAct 一次</text>
+    <text x="16" y="74" class="file">不回退第二次 Planner</text>
+  </g>
+
+  <path d="M340 736 L378 736" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M660 736 L698 736" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M980 736 L1018 736" class="arrow" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowRed)"/>
+  <path d="M1260 608 L1260 694" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M1300 736 L1345 736 L1345 1196 L840 1196 L840 1238" class="arrow" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowRed)"/>
+
+  <!-- ========== 5 顺序执行 ========== -->
+  <g transform="translate(40, 832)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/>
+    <text x="16" y="23" class="lane">5 · 顺序执行（单步上下文收窄）</text>
+  </g>
+
+  <g transform="translate(60, 880)">
+    <rect x="0" y="0" width="280" height="100" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="100" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">plan_step_started</text>
+    <text x="16" y="43" class="box-sub">高亮当前步骤</text>
+    <text x="16" y="60" class="box-sub">步骤状态机</text>
+    <text x="16" y="78" class="box-sub">pending→running→done|failed</text>
+    <text x="16" y="95" class="file">SSE 事件</text>
+  </g>
+
+  <g transform="translate(380, 880)">
+    <rect x="0" y="0" width="280" height="100" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="100" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">createRealExecutor()</text>
+    <text x="16" y="43" class="box-sub">每步只拿：目标 + 当前步</text>
+    <text x="16" y="60" class="box-sub">+ 已完成摘要 + 白名单工具</text>
+    <text x="16" y="78" class="box-sub">模型轮 ≤2 · 工具 ≤3</text>
+    <text x="16" y="95" class="file">server/plan-execute/executor.ts</text>
+  </g>
+
+  <g transform="translate(700, 880)">
+    <rect x="0" y="0" width="280" height="100" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="100" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">工具与人工确认</text>
+    <text x="16" y="43" class="box-sub">复用 toolGuard / ConfirmSession</text>
+    <text x="16" y="60" class="box-sub">pending_confirm → allow | deny</text>
+    <text x="16" y="78" class="box-sub">拒绝即终止，不换工具绕过</text>
+    <text x="16" y="95" class="file">server/react/confirmGate.ts</text>
+  </g>
+
+  <g transform="translate(1020, 880)">
+    <rect x="0" y="0" width="280" height="100" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="100" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">plan_step_done</text>
+    <text x="16" y="43" class="box-sub">步骤摘要 + 工具清单</text>
+    <text x="16" y="60" class="box-sub">下一个步骤才开始</text>
+    <text x="16" y="78" class="box-sub">失败走 plan_step_failed</text>
+    <text x="16" y="95" class="file">SSE 事件</text>
+  </g>
+
+  <path d="M340 924 L378 924" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M660 924 L698 924" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M980 924 L1018 924" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M1160 980 L1160 992 L200 992 L200 982" class="arrow" fill="none" stroke="#059669" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrowGreen)"/>
+  <text x="640" y="988" class="label-green">下一步（顺序固定）</text>
+
+  <!-- ========== 6 Re-plan ========== -->
+  <g transform="translate(40, 1024)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#fef2f2" stroke="#fecaca"/>
+    <text x="16" y="23" class="lane">6 · 受控 Re-plan（最多一次）</text>
+  </g>
+
+  <g transform="translate(60, 1072)">
+    <rect x="0" y="0" width="280" height="100" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="100" rx="2" fill="#dc2626"/>
+    <text x="16" y="24" class="box">decideReplan()</text>
+    <text x="16" y="43" class="box-sub">可：tool_failed / step_tool_limit</text>
+    <text x="16" y="60" class="box-sub">step_turn_limit / tool_not_allowed</text>
+    <text x="16" y="78" class="box-sub">不可：confirm_denied / aborted</text>
+    <text x="16" y="95" class="file">server/plan-execute/replan.ts</text>
+  </g>
+
+  <g transform="translate(380, 1072)">
+    <rect x="0" y="0" width="280" height="100" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="100" rx="2" fill="#dc2626"/>
+    <text x="16" y="24" class="box">validateReplanCandidate()</text>
+    <text x="16" y="43" class="box-sub">目标不变</text>
+    <text x="16" y="60" class="box-sub">已完成步骤逐字段照抄</text>
+    <text x="16" y="78" class="box-sub">步数 ≤ min(剩余预算, 6)</text>
+    <text x="16" y="95" class="file">不合法 → 保留根因</text>
+  </g>
+
+  <g transform="translate(700, 1072)">
+    <rect x="0" y="0" width="280" height="100" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="100" rx="2" fill="#dc2626"/>
+    <text x="16" y="24" class="box">plan_replanned</text>
+    <text x="16" y="43" class="box-sub">revision += 1</text>
+    <text x="16" y="60" class="box-sub">旧计划保留在 planHistory</text>
+    <text x="16" y="78" class="box-sub">从失败那一步继续</text>
+    <text x="16" y="95" class="file">SSE 事件</text>
+  </g>
+
+  <g transform="translate(1020, 1072)">
+    <rect x="0" y="0" width="280" height="100" rx="8" fill="#fef2f2" stroke="#fecaca"/>
+    <rect x="0" y="0" width="4" height="100" rx="2" fill="#dc2626"/>
+    <text x="16" y="24" class="box">replan_limit</text>
+    <text x="16" y="43" class="box-sub">已用过一次 → 直接终止</text>
+    <text x="16" y="60" class="box-sub">不可绕过</text>
+    <text x="16" y="78" class="box-sub">MAX_REPLAN = 1</text>
+    <text x="16" y="95" class="file">终态 failed</text>
+  </g>
+
+  <path d="M340 1116 L378 1116" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M660 1116 L698 1116" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M980 1116 L1018 1116" class="arrow" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowRed)"/>
+  <path d="M1160 980 L1160 1012 L200 1012 L200 1070" class="arrow" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrowRed)"/>
+  <text x="430" y="1008" class="warn">plan_step_failed → 判断能否重规划</text>
+
+  <!-- ========== 7 终态 ========== -->
+  <g transform="translate(40, 1192)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/>
+    <text x="16" y="23" class="lane">7 · 最终回答与终态</text>
+  </g>
+
+  <g transform="translate(60, 1240)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">createRealFinalReplier()</text>
+    <text x="16" y="43" class="box-sub">只允许引用已执行步骤</text>
+    <text x="16" y="60" class="box-sub">未执行的步骤不许出现在答案里</text>
+    <text x="16" y="74" class="file">server/plan-execute/finalReply.ts</text>
+  </g>
+
+  <g transform="translate(380, 1240)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">plan_finished</text>
+    <text x="16" y="43" class="box-sub">status: completed | failed</text>
+    <text x="16" y="60" class="box-sub">| aborted（用户停止）</text>
+    <text x="16" y="74" class="file">终态不可逆</text>
+  </g>
+
+  <g transform="translate(700, 1240)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">ReAct 兜底</text>
+    <text x="16" y="43" class="box-sub">mode=react 或计划非法时</text>
+    <text x="16" y="60" class="box-sub">一次跑完，不进 Planner</text>
+    <text x="16" y="74" class="file">plan_fallback</text>
+  </g>
+
+  <g transform="translate(1020, 1240)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#059669"/>
+    <text x="16" y="24" class="box">模型调用预算</text>
+    <text x="16" y="43" class="box-sub">整任务共享 MAX_MODEL_CALLS = 15</text>
+    <text x="16" y="60" class="box-sub">规划 1 + 每步 2 + Re-plan 1 + 终答 1</text>
+    <text x="16" y="74" class="file">耗尽 → model_budget_exhausted</text>
+  </g>
+
+  <path d="M340 1280 L378 1280" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M660 1280 L698 1280" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M840 1116 L840 1238" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M1160 1320 L1160 1350 L200 1350 L200 1322" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ========== 8 观测 ========== -->
+  <g transform="translate(40, 1376)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#fffbeb" stroke="#fde68a"/>
+    <text x="16" y="23" class="lane">8 · 观测（日志 / Tracing / 用量）</text>
+  </g>
+
+  <g transform="translate(60, 1424)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#d97706"/>
+    <text x="16" y="24" class="box">[plan] 日志</text>
+    <text x="16" y="43" class="box-sub">13 个观测字段</text>
+    <text x="16" y="60" class="box-sub">requestId / planId / revision / mode</text>
+    <text x="16" y="74" class="file">不记完整 prompt 与工具原文</text>
+  </g>
+
+  <g transform="translate(380, 1424)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#d97706"/>
+    <text x="16" y="24" class="box">LangSmith</text>
+    <text x="16" y="43" class="box-sub">plan-request（chain）</text>
+    <text x="16" y="60" class="box-sub">plan-planner（llm）</text>
+    <text x="16" y="74" class="file">开关关闭时完全不打网络</text>
+  </g>
+
+  <g transform="translate(700, 1424)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#d97706"/>
+    <text x="16" y="24" class="box">usage 事件</text>
+    <text x="16" y="43" class="box-sub">modelCalls / toolCalls 计入面板</text>
+    <text x="16" y="60" class="box-sub">endpoint = chat/plan</text>
+    <text x="16" y="74" class="file">UsagePanel</text>
+  </g>
+
+  <g transform="translate(1020, 1424)">
+    <rect x="0" y="0" width="280" height="80" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <rect x="0" y="0" width="4" height="80" rx="2" fill="#d97706"/>
+    <text x="16" y="24" class="box">离线 Evals</text>
+    <text x="16" y="43" class="box-sub">22 条数据集 · 规则判分</text>
+    <text x="16" y="60" class="box-sub">npm run eval:plan</text>
+    <text x="16" y="74" class="file">不打模型，可进 CI</text>
+  </g>
+
+  <path d="M340 1464 L378 1464" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M660 1464 L698 1464" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M980 1464 L1018 1464" class="arrow" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ========== 9 SSE 事件序 ========== -->
+  <g transform="translate(40, 1544)">
+    <rect x="0" y="0" width="1400" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="16" y="23" class="lane">9 · SSE 事件顺序（固定，前端按此渲染时间线）</text>
+  </g>
+
+  <g transform="translate(60, 1592)">
+    <rect x="0" y="0" width="1320" height="150" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="20" y="28" class="mono">plan_route → plan_created → plan_step_started → plan_step_done →（可选 plan_replanned）→ plan_step_failed → plan_finished</text>
+    <text x="20" y="56" class="mono">plan_fallback：计划非法时取代后续计划事件，只回退一次 ReAct</text>
+    <text x="20" y="84" class="label">工具事件（tool_call / tool_result / pending_confirm / confirm_resolved）与计划事件同出口但分开渲染：</text>
+    <text x="20" y="106" class="mono">工具 → ToolTracePanel · 计划 → PlanTimeline.vue</text>
+    <text x="20" y="130" class="label">前端规则：planId 不同的事件一律忽略；plan_finished 之后不再接受步骤事件；Re-plan 追加 planHistory 不覆盖旧计划。</text>
+  </g>
+
+  <g transform="translate(40, 1770)">
+    <rect x="0" y="0" width="1400" height="110" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+    <text x="20" y="28" class="lane">边界与已知问题</text>
+    <text x="20" y="52" class="label">· 知识库开启时，计划必须包含检索步骤（invalid_plan）——「改为可选用」尚未拍板。</text>
+    <text x="20" y="74" class="label">· 前端没有自动化测试框架，计划时间线目前靠人工验收；真实模型 Evals 需要联网环境。</text>
+    <text x="20" y="96" class="label">· 计划状态只存在内存 planState，不写 localStorage：刷新后未完成计划不会污染长期历史。</text>
+  </g>
+</svg>

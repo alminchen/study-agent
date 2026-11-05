@@ -8,6 +8,7 @@
 - 多 Agent：Supervisor 路由后并行执行 `realtime`、`kb`、`action`、`general` Worker，再统一汇总。
 - 独立 RAG 资料问答：本地 Embedding 检索、分数闸门、重排、提示词拼接和引用展示。
 - 工具调用、人工确认、MCP Server、LangSmith 跟踪、Token 用量统计和输入/工具/输出防护。
+- Streaming 结构化输出：表格/代码 partial snapshot、最终 Zod 校验、停止和错误终态。
 - 学习脚本与评测脚本：可以独立验证切分、Embedding、检索、重排、提示词和 Agent 路由。
 
 项目面向学习和本地验证，不是生产级平台。会话、确认状态、向量库和用量存储目前都采用单进程或本地文件实现。
@@ -41,6 +42,7 @@
 | 输出防护 | `server/guard/outputGuard.ts` | 检测系统提示词指纹并替换泄露内容 |
 | Token 统计 | `server/usage/` | 请求级累加、SSE 推送、JSON 落盘和成本估算 |
 | LangSmith 跟踪 | `server/tracing/langsmith.ts` | 覆盖 chat、multi 和 RAG 请求 |
+| Streaming 结构化输出 | `server/routes/chatStructured.ts`、`server/structured/` | 独立 SSE 端点，支持表格/代码稳定快照与最终 schema 校验 |
 | MCP Server | `server/mcp/` | 通过 stdio 暴露天气、时间和知识库工具 |
 | 回归评测 | `evals/` | 分别评测单 Agent 和多 Agent |
 
@@ -132,7 +134,7 @@ LLM_MODEL=deepseek-chat
 页面支持：
 
 - 多轮对话和 SSE 流式显示。
-- 模型切换。前端内置 `deepseek-v4-flash`、`gpt-5.4-mini`、`gpt-5.6-sol` 三个选项。
+- 模型切换。顶栏列表由 `GET /api/models` 从 `LLM_BASE_URL/models` 读取供应商支持的模型；接口不可用时回退到内置列表。
 - 中断当前请求、重试上一条、清空当前模式的历史。
 - 显示工具调用过程、人工确认、防护事件和 Token 用量。
 - 普通聊天和资料问答分别持久化历史。
@@ -365,6 +367,21 @@ Worker 由 `Promise.all` 并行执行。每个 Worker 只暴露自己的工具 s
   "baseUrl": "https://api.deepseek.com/v1"
 }
 ```
+
+### `GET /api/models`
+
+服务端带 Key 请求 `LLM_BASE_URL/models`，把供应商支持的模型转成前端下拉数据，并过滤掉 `image`、`dall-e`、`flux` 等图片模型。浏览器不会直接接触 API Key。
+
+```json
+{
+  "models": [
+    { "id": "deepseek-v4-flash", "label": "DeepSeek V4 Flash" }
+  ],
+  "source": "api"
+}
+```
+
+Mock 模式、上游不可达或响应不是可识别的模型列表时，返回内置兜底列表并把 `source` 标为 `fallback`。
 
 ### `POST /api/chat`
 
@@ -723,6 +740,8 @@ npm run predawn:rerank
 ## 相关文档
 
 - `docs/flows-index.md`：流程索引
+- `docs/structured-output.md`：Streaming 结构化输出阶段总结
+- `docs/structured-output-flow.svg`：Streaming 结构化输出全链路图
 - `docs/project-messages-flow.md`：消息组装与调用链
 - `docs/rag-query-enhance-notes.md`：RAG 查询增强
 - `docs/human-confirm-changelog.md`：人工确认设计记录

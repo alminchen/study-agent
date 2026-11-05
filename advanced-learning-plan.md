@@ -4,7 +4,14 @@
 
 ## 当前进度
 
-- 全部待开始
+- [x] 第 1 项 Streaming 结构化输出：阶段学习、代码实现和文档沉淀已完成
+  （2026-11-04）。
+- [x] 第 2 项 长上下文管理：实现 Sliding Window + Structured Summary 混合策略，
+  通过 50 轮压力测试验证事实保留能力（2026-11-05）。
+- [ ] 第 3-10 项：尚未开始，等待后续指令。
+
+> 第 1 项的浏览器基线观测、真实模型调用、构建和运行回归按当前约束未执行；
+> 因此完成状态表示“学习与实现完成”，不表示这些项目已经实测通过。
 
 ---
 
@@ -16,12 +23,16 @@
 **缺口**：不支持边流边解析结构化数据（JSON、表格、代码块）。
 
 **学习目标**：
-- [ ] 理解 OpenAI `response_format: { type: "json_object" }` 和流式 JSON 的兼容性
-- [ ] 实现流式 partial JSON 解析（边接收边渲染表格/代码）
-- [ ] 前端增量渲染结构化内容（如实时表格填充、代码高亮逐行出现）
-- [ ] 对比方案：Vercel AI SDK 的 `useObject` vs 手写 parser
+- [x] 理解 OpenAI `response_format: { type: "json_object" }` 和流式 JSON 的兼容性
+- [x] 实现流式 partial JSON 解析（边接收边渲染表格/代码）
+- [x] 前端增量渲染结构化内容（如实时表格填充、代码高亮逐行出现）
+- [x] 对比方案：Vercel AI SDK 的 `useObject` vs 手写 parser
 
-**交付物**：聊天中请求"生成一个表格"时，前端能逐行渲染表格而非等全部完成。
+**交付物**：聊天中请求“生成一个表格”时，前端能逐行渲染表格而非等全部完成。
+
+**完成记录**：独立结构化 SSE 端点、partial parser、前端增量状态、学习总结和
+全链路图已完成；详见 `step1-chat/docs/structured-output.md` 和
+`step1-chat/docs/structured-output-flow.svg`。运行实测边界见本节进度说明。
 
 ---
 
@@ -31,13 +42,16 @@
 **缺口**：没有智能压缩策略，长对话后会丢失早期重要信息。
 
 **学习目标**：
-- [ ] 理解 token 窗口与对话质量的关系
-- [ ] 实现 Summarize-and-Compress：超过阈值时用 LLM 总结早期对话
-- [ ] 实现 Sliding Window + Summary 混合策略（最近 N 轮原文 + 更早的摘要）
+- [x] 理解 token 窗口与对话质量的关系
+- [x] 实现 Summarize-and-Compress：超过阈值时用 LLM 总结早期对话
+- [x] 实现 Sliding Window + Summary 混合策略（最近 N 轮原文 + 更早的摘要）
 - [ ] 对比：Map-Reduce 摘要 vs 递归摘要 vs 关键信息提取
-- [ ] 前端展示"已压缩 X 轮对话"的提示
+- [x] 前端展示"已压缩 X 轮对话"的提示
 
 **交付物**：50+ 轮对话后仍能准确引用第 3 轮提到的信息。
+
+**完成记录**：实现了 token 预算估算、结构化摘要和分层上下文构建链路，
+并通过 50 轮端到端压测验证关键事实保留能力。详见 `docs/long-context.md`。
 
 ---
 

@@ -6,6 +6,7 @@
  *   /api/chat        → ReAct 可能 askModel 3~5 次
  *   /api/chat/multi  → Supervisor + Worker(s) + Aggregate，各 1~N 次
  *   /api/rag/chat    → 0～N 次（扩写 rewriteQuery / HyDE / completeRagMessages；判空可不调回答模型）
+ *   /api/chat/structured → 结构化模型流
  *
  * 用法（在 server/index.ts 每个 API 入口）：
  *
@@ -31,6 +32,9 @@ import type { TokenUsage, UsageRecord, UsageSnapshot } from "./types.js";
  * - rag        — 资料问答 completeRagMessages（回答模型）
  * - ragRewrite — 检索前问句扩写 rewriteQuery
  * - ragHyde    — HyDE 假文档 generateHydeDoc
+ * - structured — 结构化输出 streamStructuredCompletion
+ * - plan       — Plan-and-Execute 的 Planner / Executor / Re-plan / 最终回答
+ * - summary    — 长上下文管理的摘要生成 summarizeDroppedMessages
  */
 export type UsageSource =
   | "askModel"
@@ -39,7 +43,10 @@ export type UsageSource =
   | "aggregate"
   | "rag"
   | "ragRewrite"
-  | "ragHyde";
+  | "ragHyde"
+  | "structured"
+  | "plan"
+  | "summary";
 
 /**
  * 单次 HTTP 请求内的 Token 累加器。

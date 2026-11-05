@@ -31,7 +31,7 @@ export interface UsageRecord {
   /** 记录写入时间（Unix ms） */
   timestamp: number;
   /** 来自哪条 API 链路 */
-  endpoint: "chat" | "chat/multi" | "rag/chat";
+  endpoint: "chat" | "chat/multi" | "rag/chat" | "chat/structured" | "chat/plan";
   /** 主模型名（出现次数最多的 model；无调用时用请求默认值） */
   model: string;
   promptTokens: number;
@@ -50,7 +50,7 @@ export interface UsageSummary {
   totalCompletionTokens: number;
   totalTokens: number;
   totalCostUsd: number;
-  /** 按 endpoint 分组：chat / chat/multi / rag/chat 各多少次、多少 token */
+  /** 按 endpoint 分组：chat / chat/multi / rag/chat / chat/structured / chat/plan */
   byEndpoint: Record<string, { requests: number; totalTokens: number; costUsd: number }>;
   /** 按 model 分组：便于对比不同模型成本 */
   byModel: Record<string, { requests: number; totalTokens: number; costUsd: number }>;

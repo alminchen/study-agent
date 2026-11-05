@@ -1,4 +1,10 @@
 <script setup lang="ts">
+/**
+ * 工具调用过程面板。
+ *
+ * 这里只渲染工具轨迹（tool_call / tool_result / pending_confirm / 防护事件）。
+ * 计划步骤与 Re-plan 历史由 PlanTimeline 单独展示，两块面板互不混用数据源。
+ */
 import { computed } from "vue";
 import type { ToolTraceStep } from "../types";
 

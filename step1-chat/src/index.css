@@ -112,6 +112,8 @@ button {
 }
 
 .topbar-actions {
+  /* 顶栏操作区允许在窄屏收缩，避免固定宽度子项把页面撑出视口。 */
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -179,6 +181,8 @@ button {
 
 .model-select {
   height: 32px;
+  /* select 可收缩但保留可读宽度，空间不足时由媒体查询重新分配。 */
+  min-width: 0;
   padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -304,6 +308,8 @@ button {
 }
 
 .bubble {
+  /* 消息气泡不能被子内容的最小宽度反向撑大。 */
+  min-width: 0;
   max-width: min(720px, calc(100% - 40px));
   padding: 10px 14px;
   border-radius: var(--radius);
@@ -586,6 +592,8 @@ button {
   border-radius: var(--radius);
   background: var(--danger-soft);
   color: var(--danger);
+  /* 服务端错误可能包含长 URL/模型名，允许在气泡内换行。 */
+  overflow-wrap: anywhere;
 }
 
 .composer {
@@ -670,9 +678,37 @@ button {
   }
 }
 
-@media (max-width: 640px) {
+/* 平板宽度：顶栏允许换行，操作区占满第二行。 */
+@media (max-width: 720px) {
   .topbar {
-    padding: 0 12px;
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .model-select {
+    flex: 1 1 132px;
+    max-width: 190px;
+  }
+}
+
+/* 手机宽度：去掉应用左右边框，并压缩头像/气泡/输入区间距。 */
+@media (max-width: 640px) {
+  .app {
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .topbar {
+    padding: 8px 12px;
   }
 
   .topbar-actions {
@@ -687,16 +723,54 @@ button {
     padding: 16px 12px 8px;
   }
 
+  .message {
+    gap: 8px;
+  }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .bubble {
+    max-width: calc(100% - 36px);
+    padding: 9px 11px;
+  }
+
   .composer {
     padding: 10px 12px 12px;
+  }
+
+  .error-banner {
+    margin: 0 12px 8px;
   }
 
   .side-rail {
     padding: 8px 12px;
     max-height: 32vh;
   }
+}
 
-  .bubble {
-    max-width: calc(100% - 40px);
+/* 极窄屏：隐藏低优先级品牌文字和提示，给模型/输出选择器留空间。 */
+@media (max-width: 420px) {
+  .brand {
+    gap: 8px;
+  }
+
+  .brand > span:last-child {
+    display: none;
+  }
+
+  .model-select {
+    flex-basis: 118px;
+    max-width: 150px;
+  }
+
+  .composer-opts {
+    gap: 8px 12px;
+  }
+
+  .kb-hint {
+    display: none;
   }
 }

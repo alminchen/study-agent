@@ -1,5 +1,6 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import { normalizeKnowledgeAnswer } from "../answer-style/knowledgeAnswer.js";
+import { assertToolPairing } from "../context/assertToolPairing.js";
 import { detectLeakage } from "../guard/outputGuard.js";
 import { applyToolCalls } from "./applyToolCalls.js";
 import { requestCompletion } from "./complete.js";
@@ -142,6 +143,9 @@ function compileReactGraph(
       options.confirmSession,
       options.signal,
     );
+    // 工具回填完立刻断言一次：assistant.tool_calls 与 role:"tool" 必须严格配对。
+    // 少回填、多回填、顺序颠倒都会在这里被挡住，不会带着坏消息去问模型。
+    assertToolPairing(messages);
     console.log(`\n=== ${state.turn}) 回填后的 messages ===`);
     console.log(JSON.stringify(messages, null, 2));
     return { messages, turn: state.turn + 1 };
@@ -202,6 +206,9 @@ export async function runConversation(options: ReactLoopOptions, apiKey: string)
   const run = async () => {
     const failures = createConsecutiveFailureTracker();
     const messages: ProviderMessage[] = [...options.messages];
+    // 进图之前先断言一次：此刻还没有工具消息，结构检查应当直接通过。
+    // 它的价值是——将来有别的链路把带工具的 messages 传进来时，能第一时间发现配对问题。
+    assertToolPairing(messages);
     const prefetch = await prefetchSearchDocsIfEnabled(messages, options, failures);
     if (prefetch.empty) {
       const msg = prefetch.emptyMessage ?? "资料里没有相关内容";
