@@ -9,6 +9,8 @@
 - 独立 RAG 资料问答：本地 Embedding 检索、分数闸门、重排、提示词拼接和引用展示。
 - 工具调用、人工确认、MCP Server、LangSmith 跟踪、Token 用量统计和输入/工具/输出防护。
 - Streaming 结构化输出：表格/代码 partial snapshot、最终 Zod 校验、停止和错误终态。
+- Plan-and-Execute：规则路由后先规划再执行，支持受控 Re-plan、计划时间线和人工确认边界。
+- 长上下文管理：按 Token 预算保留近期原文，并用结构化摘要压缩更早对话，摘要失败自动降级。
 - 学习脚本与评测脚本：可以独立验证切分、Embedding、检索、重排、提示词和 Agent 路由。
 
 项目面向学习和本地验证，不是生产级平台。会话、确认状态、向量库和用量存储目前都采用单进程或本地文件实现。
@@ -33,20 +35,36 @@
 | 单 Agent ReAct | `server/react/` | LangGraph 图结构，最多 5 次模型询问 |
 | 多 Agent | `server/multi-agent/` | Supervisor、Worker、Aggregate 三段式编排 |
 | RAG 资料问答 | `server/rag/` | 独立于普通聊天的检索增强问答链路 |
-| SSE 流式传输 | `server/routes/` | 普通聊天、多 Agent、RAG 均使用 SSE 传输过程事件和文本 |
+| SSE 流式传输 | `server/routes/` | 普通聊天、Plan、Structured、多 Agent、RAG 均使用 SSE 传输过程事件和结果 |
 | 前端 SSE 解析 | `src/api/` | 使用 `fetch + ReadableStream`，不依赖 EventSource |
 | 工具调用 | `server/tools/` | 天气、时间、知识库检索、消息起草 |
-| 人工确认 | `server/react/confirmGate.ts` | 有后果的工具会暂停，等待前端 `allow` 或 `deny` |
-| 输入防护 | `server/guard/inputGuard.ts` | 检测 Prompt Injection，只标记不拦截 |
-| 工具防护 | `server/guard/toolCallGuard.ts` | 白名单、参数长度和 JSON 校验 |
-| 输出防护 | `server/guard/outputGuard.ts` | 检测系统提示词指纹并替换泄露内容 |
+| 人工确认 | `server/react/` | 有后果的工具会暂停，等待前端 `allow` 或 `deny` |
+| 输入防护 | `server/guard/` | 检测 Prompt Injection，只标记不拦截 |
+| 工具防护 | `server/guard/` | 白名单、参数长度和 JSON 校验 |
+| 输出防护 | `server/guard/` | 检测系统提示词指纹并替换泄露内容 |
 | Token 统计 | `server/usage/` | 请求级累加、SSE 推送、JSON 落盘和成本估算 |
-| LangSmith 跟踪 | `server/tracing/langsmith.ts` | 覆盖 chat、multi 和 RAG 请求 |
-| Streaming 结构化输出 | `server/routes/chatStructured.ts`、`server/structured/` | 独立 SSE 端点，支持表格/代码稳定快照与最终 schema 校验 |
+| LangSmith 跟踪 | `server/tracing/` | 覆盖 chat、multi 和 RAG 请求 |
+| Streaming 结构化输出 | `server/structured/` | 独立 SSE 端点，支持表格/代码稳定快照与最终 schema 校验 |
+| Plan-and-Execute | `server/plan-execute/` | 规则路由、Planner、顺序 Executor、受控 Re-plan 和计划时间线 |
+| 长上下文管理 | `server/context/`、`server/chat.ts` | Token 预算、结构化摘要、工具消息配对和摘要失败回退 |
 | MCP Server | `server/mcp/` | 通过 stdio 暴露天气、时间和知识库工具 |
 | 回归评测 | `evals/` | 分别评测单 Agent 和多 Agent |
 
-## 三条请求链路
+### 功能入口与 Mock 范围
+
+| 功能 | 端点 | 页面入口 | Mock | 持久化 |
+| --- | --- | --- | --- | --- |
+| 单 Agent ReAct | `/api/chat` | 关闭多 Agent，保持普通输出且不开启计划 | 支持 | 普通聊天历史、上下文摘要 |
+| Plan-and-Execute | `/api/chat/plan` | 开启计划开关，并选择 `auto`、`react` 或 `plan` | 支持 | 普通聊天历史；计划时间线不单独持久化 |
+| Streaming Structured | `/api/chat/structured` | 选择表格或代码；普通输出不选目标 | 支持 | 普通聊天历史中只保存完整结果 |
+| 多 Agent | `/api/chat/multi` | 保持多 Agent 开启，使用普通文本输出且不开启计划 | 不支持 | 普通聊天历史 |
+| RAG 资料问答 | `/api/rag/chat` | 切换到“资料问答” | 不支持 | 独立 RAG 历史 |
+
+Mock 指本地模拟模型流或回答，不等于真实模型验收。多 Agent 和 RAG 都必须有真实
+`LLM_API_KEY`，且 `MOCK_MODE != 1`。上表来自当前源码和文档的静态核对；本轮 README
+更新没有重新调用真实模型，也没有执行浏览器验收或 50 轮长会话压测。
+
+## 主要请求链路
 
 ```text
 浏览器
@@ -56,6 +74,12 @@
   |
   |-- POST /api/chat/multi ----> 多 Agent
   |     START -> supervisor -> workers(parallel) -> aggregate -> END
+  |
+  |-- POST /api/chat/plan -----> Plan-and-Execute
+  |     classify -> planner -> executor -> maybe_replan -> reply
+  |
+  |-- POST /api/chat/structured
+  |     provider stream -> partial parser -> stable snapshot -> final schema
   |
   `-- POST /api/rag/chat ------> RAG
         检索 -> 判空 -> 重排 -> RAG Prompt -> LLM -> Output Guard
@@ -69,7 +93,7 @@ Vite 开发服务器会把 `/api` 代理到 `http://127.0.0.1:8787`。前端页�
 
 - Node.js 20 或更高版本
 - npm
-- 单 Agent 普通聊天可以不配置模型 Key；多 Agent 和 RAG 需要可用的 API Key
+- 单 Agent 普通聊天、Plan 和 Structured 可以不配置模型 Key；多 Agent 和 RAG 需要可用的 API Key
 
 ### 安装与启动
 
@@ -94,7 +118,14 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 LLM_MODEL=deepseek-chat
 ```
 
-没有 `LLM_API_KEY`，或明确设置 `MOCK_MODE=1` 时，单 Agent 普通聊天（`POST /api/chat`）会进入 Mock 模式。Mock 仍会走完整的 SSE 请求链路，但回复是本地模拟文本，工具不会真正执行。
+没有 `LLM_API_KEY`，或明确设置 `MOCK_MODE=1` 时，以下端点会进入 Mock 模式：
+
+- `POST /api/chat`
+- `POST /api/chat/plan`
+- `POST /api/chat/structured`
+
+Mock 仍会走对应的 SSE 请求链路，但回复或结构化结果是本地模拟数据，不会产生真实模型用量。
+Plan Mock 只复述真实执行过的模拟步骤；Structured Mock 会模拟 partial JSON 和稳定快照。
 
 多 Agent 和 RAG 都没有 Mock 分支，必须有真实 `LLM_API_KEY`，并且 `MOCK_MODE` 不能为 `1`。页面默认开启多 Agent；想体验 Mock，需要先取消勾选“多 Agent”，改用单 Agent。
 
@@ -105,7 +136,14 @@ LLM_MODEL=deepseek-chat
 | `LLM_API_KEY` | 空 | OpenAI 兼容接口的 API Key |
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | 模型接口地址 |
 | `LLM_MODEL` | `deepseek-chat` | 默认模型名 |
-| `MOCK_MODE` | 未设置 | 设为 `1` 时强制单 Agent 普通聊天使用 Mock；不影响多 Agent 和 RAG 的真实调用要求 |
+| `MOCK_MODE` | 未设置 | 设为 `1` 时强制 chat、plan、structured 使用 Mock；多 Agent 和 RAG 仍要求真实调用 |
+| `LLM_CONTEXT_WINDOW_TOKENS` | `64000` | 上下文窗口估计值，用于计算 Token 预算 |
+| `LLM_CONTEXT_BUDGET_RATIO` | `0.5` | 预算占窗口比例，限制在有效范围内 |
+| `LLM_STRUCTURED_JSON_MODE` | 开启 | 设为 `0` 时 Structured 默认改用 prompt-only 约束 |
+| `LLM_STRUCTURED_INCLUDE_USAGE` | 开启 | 设为 `0` 时不向供应商请求流末尾 usage |
+| `LLM_STRUCTURED_CONNECT_TIMEOUT_MS` | `15000` | Structured 建立连接超时；`0` 表示关闭 |
+| `LLM_STRUCTURED_FIRST_CHUNK_TIMEOUT_MS` | `30000` | Structured 等待首个内容 chunk 的超时；`0` 表示关闭 |
+| `LLM_STRUCTURED_TOTAL_TIMEOUT_MS` | `180000` | Structured 整次流式请求超时；`0` 表示关闭 |
 | `PORT` | `8787` | API 端口 |
 | `HOST` | `127.0.0.1` | API 监听地址 |
 | `LLM_TOOL_TURN_THINKING` | `disabled` | 兼容分支可设为 `keep`、`on` 或 `enabled` 保留 thinking；当前单 Agent 标准路径显式关闭，详见“安全边界与限制” |
@@ -125,6 +163,9 @@ LLM_MODEL=deepseek-chat
 | `LANGCHAIN_API_KEY` | 空 | LangSmith API Key |
 | `LANGCHAIN_PROJECT` | 由 LangSmith SDK 决定 | LangSmith 项目名 |
 
+`LLM_CONTEXT_WINDOW_TOKENS` 和 Structured 超时变量只接受非负整数，非法值或负数回退默认值。
+`LLM_CONTEXT_BUDGET_RATIO` 必须大于 `0` 且不超过 `1`，否则也回退默认值。
+
 ## 页面使用
 
 ### 普通对话
@@ -138,6 +179,8 @@ LLM_MODEL=deepseek-chat
 - 中断当前请求、重试上一条、清空当前模式的历史。
 - 显示工具调用过程、人工确认、防护事件和 Token 用量。
 - 普通聊天和资料问答分别持久化历史。
+- Plan 模式路由、计划时间线、步骤状态、Re-plan 和回退原因。
+- Structured 的普通文本、表格、代码三种输出选择，以及稳定快照增量渲染。
 
 普通聊天历史保存在 `localStorage`：
 
@@ -149,6 +192,31 @@ LLM_MODEL=deepseek-chat
 | `step1-chat:rag-mode` | 是否处于资料问答模式 |
 | `step1-chat:search-kb` | 是否勾选知识库 |
 | `step1-chat:multi-agent` | 是否使用多 Agent，缺省为开启 |
+| `step1-chat:plan-enabled` | 是否使用 Plan-and-Execute 端点，缺省为关闭 |
+| `step1-chat:plan-mode` | Plan 路由模式，值为 `auto`、`react` 或 `plan` |
+| `step1-chat:context-summary` | 服务端压缩后回传的结构化上下文摘要 |
+
+### 计划模式
+
+普通聊天右上角可以开启计划开关，并选择：
+
+- `auto`：规则分类器根据任务是否包含顺序、研究后产出或多能力信号决定 ReAct 或 Plan。
+- `react`：跳过 Planner，直接走单 Agent ReAct。
+- `plan`：显式进入 Plan-and-Execute；计划不合法或规划失败时仍可回退 ReAct。
+
+计划生成后会先显示时间线，再逐步执行。停止请求时，已完成步骤保持完成，未执行或正在执行的
+步骤会标记为 `skipped`。Re-plan 最多一次；用户拒绝人工确认后，不会通过 Re-plan 绕过确认。
+计划开关与 Structured 目标互斥，Structured 模式下计划开关不可用。
+
+### Structured 输出
+
+普通聊天可选择三种输出：普通文本、表格、代码。
+
+- 表格和代码请求走 `/api/chat/structured`；普通文本仍走 ReAct、Plan 或多 Agent。
+- 服务端只把通过快照 Schema 的稳定结果作为 `structured_snapshot` 推送，前端按 revision 增量渲染。
+- 停止请求时保留最后一个稳定快照，但不会把它标记为最终完成结果。
+- 错误终态可以重试；重试会沿用原消息的 `target`，不会因为选择器切换而改跑另一种结构。
+- RAG 模式会隐藏 Structured 目标选择器；Structured 模式会禁用计划开关。
 
 ### 勾选“搜索知识库”
 
@@ -283,11 +351,26 @@ askModel 产出最终文本 -> reply -> END
 实现约束：
 
 - 最多询问模型 5 次，避免 ReAct 无限循环。
-- 上下文由 system prompt 加上最近 8 条消息组成。
+- `/api/chat` 使用 Token 预算上下文：system prompt、可选结构化摘要和最多 40 轮近期原文。
+- 最近 8 条消息的 legacy 默认路径仍用于 Plan 的 ReAct 回退和部分评测脚本，不再代表普通聊天主路径。
 - 模型 HTTP 调用内部是非流式的，外部仍通过 SSE 推送最终文本。
 - 同类工具连续失败达到上限后会停止继续执行，并把失败原因回填给模型。
 - `getWeather`、`getCurrentTime` 可直接执行。
 - `draft_message` 必须先经过人工确认。
+
+### 长上下文压缩
+
+`/api/chat` 的上下文管理按以下顺序执行：
+
+1. 估算消息 Token；CJK 字符按 1 Token、非 CJK 字符按 4 字符 1 Token 估算，并叠加消息开销。
+2. 用 `LLM_CONTEXT_WINDOW_TOKENS × LLM_CONTEXT_BUDGET_RATIO` 计算预算，再夹到 `[1024, 窗口]`。
+3. 比较预算时对估算值乘 `1.15` 安全系数，优先保留 system prompt、本轮用户消息和近期完整轮次。
+4. 只保留工具调用与其结果的完整配对，避免供应商因孤立 `tool_calls` 或 `tool` 消息返回 400。
+5. 当至少丢弃 2 条消息且被丢弃内容估算不少于 200 Token 时，才尝试生成结构化摘要。
+6. 摘要失败时仍发送 `context_compacted`，但 `degraded=true`、`summary=null`，并回退到近期原文窗口继续聊天。
+
+成功生成的摘要会由前端保存，并在后续请求的 `contextSummary` 中带回。服务端会忽略版本未知、
+字段损坏或内容不合法的摘要，不会因此阻断聊天。
 
 ## 多 Agent 实现
 
@@ -395,15 +478,93 @@ Mock 模式、上游不可达或响应不是可识别的模型列表时，返回
     { "role": "user", "content": "现在几点？" }
   ],
   "model": "deepseek-chat",
-  "searchDocs": false
+  "searchDocs": false,
+  "contextSummary": null
 }
 ```
+
+`contextSummary` 可选。首轮传 `null` 或不传；服务端发生压缩后会通过
+`context_compacted` 返回结构化摘要，客户端可在后续请求中带回，避免早期原文重复注入。
+摘要版本未知、字段损坏或内容不合法时，服务端按“无摘要”处理并继续聊天。
 
 ### `POST /api/chat/multi`
 
 多 Agent 聊天，响应类型为 `text/event-stream`。
 
 请求体与 `/api/chat` 相同。`searchDocs: true` 会强制路由中包含 `kb` Worker。
+
+### `POST /api/chat/plan`
+
+Plan-and-Execute 聊天，响应类型为 `text/event-stream`。`mode` 可取 `auto`、`react` 或 `plan`；
+省略时默认为 `auto`。简单任务可由规则分类器直接走 ReAct，复杂任务才进入 Planner。
+
+请求体：
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "先查资料，再写一份部署方案对比" }
+  ],
+  "model": "deepseek-chat",
+  "mode": "auto",
+  "searchDocs": true
+}
+```
+
+请求约束：
+
+- `model` 必填，并且 `messages` 必须包含至少一条 `user` 消息。
+- 消息角色只允许 `user` 和 `assistant`。
+- 计划最多 6 步；每步最多 3 个工具，工具必须在白名单内并去重。
+- 计划步骤 id 必须按 `step_1` 到 `step_6` 连续排列。
+- 整任务共享默认 15 次模型调用预算；预算耗尽后停止继续规划或执行。
+- 计划非法或规划失败时回退 ReAct；Re-plan 最多一次。
+- 用户拒绝人工确认后，不会通过 Re-plan 绕过确认。
+- 请求体非法时返回 HTTP 400 JSON，不会建立 SSE 流。
+
+工具过程事件仍复用通用 SSE 形状。Plan 的 ReAct 回退分支保留 legacy 近期上下文策略。
+
+### `POST /api/chat/structured`
+
+Streaming 结构化输出，响应类型为 `text/event-stream`。当前只支持 `table` 和 `code` 两种目标，
+浏览器只提交对话消息、模型名和目标类型。
+
+请求体：
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "生成一个三行对比表" }
+  ],
+  "model": "deepseek-chat",
+  "target": "table"
+}
+```
+
+请求约束：
+
+- `messages` 为 1 到 100 条，只允许 `user` 和 `assistant`，单条内容最多 20,000 字符。
+- `model` 最多 120 字符；`target` 只能是 `table` 或 `code`。
+- 请求对象和每个消息对象都是 strict Schema，不能携带额外字段；结果 `schemaVersion` 固定为 `1`。
+- 表格最多 8 列、50 行；列名最多 120 字符，单元格最多 2,000 字符。
+- 代码语言最多 32 字符，代码正文最多 20,000 字符。
+- 请求体非法时返回 HTTP 400 JSON，不会建立 SSE 流。
+
+服务端读取模型原生流，累积不完整 JSON，只把通过快照 Schema 的稳定结果作为
+`structured_snapshot` 发送；完整结果还必须通过 `StructuredResultSchema` 才能进入完成态。
+前端以 snapshot 作为增量渲染源，`structured_delta` 只报告接收进度，不暴露原始 JSON。
+
+| 结构化错误码 | 含义 |
+| --- | --- |
+| `model_request_failed` | 上游模型请求失败 |
+| `model_stream_interrupted` | 模型流在完成前中断 |
+| `partial_parse_failed` | 中间 JSON 解析失败 |
+| `invalid_final_json` | 最终内容不是合法 JSON |
+| `schema_validation_failed` | 最终 JSON 未通过完整 Schema |
+| `provider_json_mode_unsupported` | 供应商不支持请求的 JSON mode |
+
+默认请求供应商 JSON mode。若供应商明确不支持，服务端会自动改用 prompt-only 重试一次；
+可通过 `LLM_STRUCTURED_JSON_MODE=0` 直接关闭 JSON mode。
 
 ### `POST /api/rag/chat`
 
@@ -470,8 +631,32 @@ data: [DONE]
 | `output_leak_blocked` | 输出命中系统提示词泄露规则 |
 | `degradation` | 发生降级；当前由单 Agent Mock 模式和单 Agent prefetch 重排不可用触发 |
 | `searchDocs_empty` | 单 Agent prefetch 检索为空 |
+| `context_compacted` | 单 Agent 长上下文发生压缩，携带摘要和压缩前后 Token 估算 |
 
 > `react/types.ts` 仍声明了 `searchDocs_result`，但当前实现没有发射这个事件；单 Agent prefetch 的结果通过通用 `tool_result` 展示。
+
+Plan-and-Execute 额外事件：
+
+| `type` | 主要字段 | 说明 |
+| --- | --- | --- |
+| `plan_route` | `mode`、`reasonCode`、`signals` | 规则路由结果与原因 |
+| `plan_created` | `planId`、`revision`、`plan` | 计划已生成，第一步执行前可见 |
+| `plan_step_started` | `stepId`、`index`、`total` | 当前步骤开始 |
+| `plan_step_done` | `stepId`、`summary`、`toolsCalled` | 当前步骤完成 |
+| `plan_step_failed` | `stepId`、`code`、`retryable` | 当前步骤或计划级失败 |
+| `plan_replanned` | `previousRevision`、`revision`、`plan` | 受控 Re-plan 产生新计划 |
+| `plan_fallback` | `reasonCode`、`message` | 计划不合法或规划失败，回退 ReAct |
+| `plan_finished` | `status`、`completedSteps`、`totalSteps` | 计划终态 |
+
+Streaming 结构化输出额外事件：
+
+| `type` | 主要字段 | 说明 |
+| --- | --- | --- |
+| `structured_start` | `requestId`、`schemaVersion` | 进入结构化流 |
+| `structured_delta` | `sequence`、`receivedChars` | 只报告接收进度，不驱动业务渲染 |
+| `structured_snapshot` | `revision`、`snapshot` | 可安全展示的稳定中间态 |
+| `structured_done` | `revision`、`result` | 最终对象已通过完整 Schema |
+| `structured_error` | `code`、`retryable`、`lastRevision` | 可分类错误，并保留最后一个稳定快照 |
 
 多 Agent 额外事件：
 
@@ -527,6 +712,8 @@ npm run mcp:ping
 | --- | --- |
 | `/api/chat` | ReAct 的多次 `askModel` |
 | `/api/chat/multi` | Supervisor、多个 Worker、Aggregate |
+| `/api/chat/plan` | 分类、Planner、步骤执行、Re-plan 和最终回答 |
+| `/api/chat/structured` | 一次结构化模型流；摘要用量不计入此端点 |
 | `/api/rag/chat` | Query Rewrite、HyDE、最终回答 |
 | 检索判空 | 0 次回答模型调用 |
 
@@ -548,28 +735,59 @@ LANGCHAIN_PROJECT=step1-chat-dev
 
 ## 评测
 
-评测需要真实 `LLM_API_KEY`，并且 `MOCK_MODE` 不能为 `1`。
+评测分三类，前置条件不同。
 
-单 Agent：
+### Agent 评测
 
 ```bash
 npm run eval:chat
 npm run eval:chat -- --id time-now
-```
-
-多 Agent：
-
-```bash
 npm run eval:multi
 npm run eval:multi -- --id multi-weather-only
 ```
 
-数据集：
+这组评测调用真实模型，需要可用的 `LLM_API_KEY`，并且 `MOCK_MODE` 不能为 `1`。
 
 - `evals/dataset.json`
 - `evals/dataset-multi.json`
 
-评测会串行执行，单条请求可能需要数十秒。运行评测时建议关闭 LangSmith，减少额度消耗。
+### Plan 评测
+
+```bash
+npm run eval:plan
+npm run eval:plan -- --id plan-order-steps
+npm run eval:plan -- --verbose
+npm run eval:plan -- --compare
+```
+
+Plan 评测默认完全离线：使用 `evals/dataset-plan.json`、预置 Mock 剧本和规则判分，
+不请求真实模型，也不调用真实工具。`--id` 可筛选用例，`--verbose` 输出观测值；
+只有 `--compare` 会调用真实模型，对 ReAct 与 Plan 的模型调用数、工具调用数、
+首字延迟、总延迟、成功率和计划可见性做对比。
+
+### 长上下文验收
+
+```bash
+npm run test:long-context
+npm run test:long-context -- --mode=summary-broken
+npm run test:long-context -- --mode=summary-ok --backend=real
+```
+
+默认 `--backend=stub`，会拦截模型请求并模拟摘要成功、摘要失败和不生成摘要三条路径。
+它验证的是“裁剪 → 摘要 → 重新注入 → 继续回答”的链路，不代表真实模型质量。
+使用 `--backend=real` 才会连接 `LLM_BASE_URL`，此时需要真实 Key。
+
+常用参数：
+
+- `--mode=no-summary|summary-ok|summary-broken`
+- `--rounds=51`
+- `--max-rounds=40`
+- `--window-tokens=64000`
+- `--budget-ratio=0.5`
+- `--verbose`
+
+评测会串行执行，真实模型单条请求可能需要数十秒。运行真实评测时建议关闭 LangSmith，
+减少额度和跟踪噪声。
 
 ## npm scripts
 
@@ -631,6 +849,8 @@ npm run eval:multi -- --id multi-weather-only
 | `npm run mcp:ping` | 启动子进程、列出工具并调用示例 |
 | `npm run eval:chat` | 运行单 Agent 评测 |
 | `npm run eval:multi` | 运行多 Agent 评测 |
+| `npm run eval:plan` | 运行 Plan 离线 Mock 评测；加 `--compare` 切到真实模型对比 |
+| `npm run test:long-context` | 运行长上下文验收，默认 stub 后端 |
 
 带参数调用 npm script 时必须使用 `--`：
 
@@ -654,6 +874,9 @@ step1-chat/
 │   ├── react/               单 Agent ReAct / LangGraph
 │   ├── multi-agent/         Supervisor、Worker、Aggregate
 │   ├── rag/                 RAG 检索、重排、Prompt 和回答
+│   ├── context/             Token 预算、上下文裁剪和结构化摘要
+│   ├── structured/          Structured 协议、partial 解析和流式快照
+│   ├── plan-execute/        Plan 路由、Planner、Executor 和 Re-plan
 │   ├── guard/               输入、工具、输出防护
 │   ├── tools/               工具 Schema 和本地实现
 │   ├── mcp/                 MCP Server
@@ -740,16 +963,24 @@ npm run predawn:rerank
 ## 相关文档
 
 - `docs/flows-index.md`：流程索引
+- `docs/flows-index.html`：浏览器版流程索引
 - `docs/structured-output.md`：Streaming 结构化输出阶段总结
 - `docs/structured-output-flow.svg`：Streaming 结构化输出全链路图
+- `docs/plan-and-execute.md`：Plan-and-Execute 架构、事件、确认边界和验收状态
+- `docs/plan-and-execute-flow.svg`：Plan-and-Execute 全链路图
+- `docs/long-context.md`：长上下文预算、结构化摘要、降级和压缩提示
+- `docs/long-context-flow.svg`：长上下文管理全链路图
 - `docs/project-messages-flow.md`：消息组装与调用链
 - `docs/rag-query-enhance-notes.md`：RAG 查询增强
 - `docs/human-confirm-changelog.md`：人工确认设计记录
 - `docs/multi-agent-human-confirm-changelog.md`：多 Agent 确认流程
 - `docs/rag-input-output-guard-changelog.md`：RAG 防护改造
-- `server/routes/README.md`
-- `server/react/README.md`
-- `server/multi-agent/README.md`
-- `server/rag/README.md`
-- `server/usage/README.md`
-- `server/mcp/README.md`
+- `sequence-diagrams.md`：时序图与 Mermaid 源说明
+- `diagrams/index.html`：图表导航页
+- `docs/project-topology.html`：项目拓扑与模块总览
+- `routes/README.md`
+- `react/README.md`
+- `multi-agent/README.md`
+- `rag/README.md`
+- `usage/README.md`
+- `mcp/README.md`

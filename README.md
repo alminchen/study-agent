@@ -97,6 +97,9 @@ npm run dev
 | [step1-chat/sequence-diagrams.md](step1-chat/sequence-diagrams.md) | 各模块 Mermaid 时序图源码 |
 | [step1-chat/docs/flows-index.md](step1-chat/docs/flows-index.md) | 流程 SVG、HTML 和对应实现文档索引 |
 | [step1-chat/docs/project-messages-flow.md](step1-chat/docs/project-messages-flow.md) | 系统提示词、历史消息和三条请求链路的消息拼接 |
+| [step1-chat/docs/structured-output.md](step1-chat/docs/structured-output.md) | 流式结构化输出：稳定快照、最终 Schema、错误终态和前端渲染 |
+| [step1-chat/docs/plan-and-execute.md](step1-chat/docs/plan-and-execute.md) | Plan-and-Execute：规则路由、计划执行、受控 Re-plan 和人工确认边界 |
+| [step1-chat/docs/long-context.md](step1-chat/docs/long-context.md) | 长上下文管理：Token 预算、结构化摘要、降级和压缩提示 |
 | [step1-chat/docs/dynamic-tool-discovery.md](step1-chat/docs/dynamic-tool-discovery.md) | 工具静态注册与动态发现方案 |
 | [step1-chat/docs/resilience-failure-map.md](step1-chat/docs/resilience-failure-map.md) | 失败地图、恢复策略和降级行为 |
 | [step1-chat/docs/human-confirm-changelog.md](step1-chat/docs/human-confirm-changelog.md) | 单 Agent 人工确认的修改记录和回归表 |
