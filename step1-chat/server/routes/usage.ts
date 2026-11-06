@@ -3,7 +3,7 @@ import { clearUsageRecords, getUsageSummary } from "../usage/store.js";
 
 /** GET/DELETE /api/usage — Token 汇总与清空（demo） */
 export function registerUsageRoutes(app: Express): void {
-  /** 累计 token、按 endpoint/model 分组、最近记录（UsagePanel「累计」） */
+  /** 全部 / 当天两个口径的 token 汇总、按 endpoint/model 分组、最近记录（UsagePanel 两个统计模块） */
   app.get("/api/usage", (_req, res) => {
     res.json(getUsageSummary());
   });

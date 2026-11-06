@@ -35,7 +35,7 @@
 
 import { callLLM } from "../llm.js";
 import { runToolSafely } from "../runToolSafely.js";
-import { findTool } from "../../tools/index.js";
+import { toolsWithTags } from "../../tools/index.js";
 import type { WorkerContext, WorkerResult } from "./types.js";
 
 /**
@@ -86,9 +86,7 @@ export async function runKBWorker(ctx: WorkerContext): Promise<WorkerResult> {
    * 只暴露 searchDocs 的 schema 给模型。
    * 工具隔离：模型看不到 getWeather/getCurrentTime，不会误调。
    */
-  const toolSchemas = ["searchDocs"]
-    .map((name) => findTool(name)?.schema)
-    .filter(Boolean);
+  const toolSchemas = toolsWithTags(["kb"]).map((t) => t.schema);
 
   // === mini ReAct 循环 ===
   for (let turn = 0; turn < MAX_TURNS; turn++) {

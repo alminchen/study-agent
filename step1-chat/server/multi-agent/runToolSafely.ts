@@ -5,7 +5,7 @@
  */
 
 import { validateToolCall } from "../guard/toolCallGuard.js";
-import { isToolRequiringConfirm } from "../react/toolsRequiringConfirm.js";
+import { isToolRequiringConfirm } from "../tools/index.js";
 import type { ConfirmSession } from "../react/confirmGate.js";
 import type { ToolTraceHandler } from "../react/types.js";
 import { findTool } from "../tools/index.js";

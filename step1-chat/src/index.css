@@ -403,6 +403,10 @@ button {
   border-top: 1px dashed var(--line);
 }
 
+.usage-scope {
+  background: rgba(255, 255, 255, 0.55);
+}
+
 .usage-title {
   font-weight: 600;
   margin-bottom: 4px;

@@ -43,8 +43,11 @@ export interface UsageRecord {
   estimatedCostUsd: number;
 }
 
-/** GET /api/usage 返回的全局汇总结构 */
-export interface UsageSummary {
+/**
+ * 单个时间口径下的汇总（全部 / 当天 共用同一套字段）。
+ * 口径不同只是参与统计的记录集合不同，字段含义完全一致。
+ */
+export interface UsageScopeSummary {
   totalRequests: number;
   totalPromptTokens: number;
   totalCompletionTokens: number;
@@ -54,6 +57,12 @@ export interface UsageSummary {
   byEndpoint: Record<string, { requests: number; totalTokens: number; costUsd: number }>;
   /** 按 model 分组：便于对比不同模型成本 */
   byModel: Record<string, { requests: number; totalTokens: number; costUsd: number }>;
+}
+
+/** GET /api/usage 返回的全局汇总结构 */
+export interface UsageSummary extends UsageScopeSummary {
+  /** 当天口径的汇总（本地时区当天 00:00 起） */
+  today: UsageScopeSummary;
   /** 最近 N 条原始记录（默认 50），按时间倒序 */
   recent: UsageRecord[];
 }

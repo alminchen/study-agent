@@ -8,7 +8,7 @@ import type { ToolSchema } from "../types.js";
  * - 用「起草/发送消息」语义，最贴近「跑了就有后果」
  *
  * 真实外发（邮件/IM）本期不做；methods 里只模拟成功。
- * 对接聊天后：须进 toolsRequiringConfirm，且 system 写明何时调用。
+ * 对接聊天后：模块须声明 risk: "confirm"（由注册表判定），且 system 写明何时调用。
  */
 export const draftMessageTool: ToolSchema = {
   type: "function",

@@ -44,7 +44,7 @@
       <a href="#complete">complete.ts</a>
       <a href="#applyToolCalls">applyToolCalls.ts</a>
       <a href="#confirmGate">confirmGate.ts</a>
-      <a href="#toolsConfirm">toolsRequiringConfirm.ts</a>
+      <a href="#toolsConfirm">注册表 risk 判定</a>
       <a href="#toolFailure">toolFailure.ts</a>
       <a href="#prefetch">prefetchSearchDocs.ts</a>
       <a href="#bridge">桥接：createChatStream / clip / mock</a>
@@ -319,22 +319,22 @@
       </div>
     </div>
 
-    <!-- toolsRequiringConfirm -->
-    <h2 id="toolsConfirm"><span class="file-path">toolsRequiringConfirm.ts</span></h2>
+    <!-- 需确认判定（阶段 5 起由注册表派生） -->
+    <h2 id="toolsConfirm"><span class="file-path">tools/registry.ts · isToolRequiringConfirm</span></h2>
     <div class="card">
       <div class="method">
         <div class="name">isToolRequiringConfirm</div>
         <div class="sig">export function isToolRequiringConfirm(name: string): boolean</div>
-        <ol class="steps"><li>查集合 REQUIRES_CONFIRM（现仅 <code>draft_message</code>）。</li></ol>
+        <ol class="steps"><li>查注册表中模块元数据的 <code>risk === "confirm"</code>（现仅 <code>draft_message</code>）。</li></ol>
         <p class="flow"><strong>上游</strong>：applyToolCalls · <strong>下游</strong>：确认分支</p>
-        <div class="why">只读工具不进名单；有副作用才确认。增删只改这一处。</div>
+        <div class="why">只读工具不进名单；有副作用才确认。增删只改模块元数据一处，不再手抄名单。</div>
       </div>
       <div class="method">
-        <div class="name">listToolsRequiringConfirm</div>
-        <div class="sig">export function listToolsRequiringConfirm(): string[]</div>
-        <ol class="steps"><li>返回名单数组副本。</li></ol>
-        <p class="flow"><strong>上游</strong>：文档/调试 · <strong>下游</strong>：列举</p>
-        <div class="why">与 Set 内部实现解耦，对外稳定数组形态。</div>
+        <div class="name">阶段 5 变化</div>
+        <div class="sig">原 server/react/toolsRequiringConfirm.ts 已删除</div>
+        <ol class="steps"><li>确认名单不再单独维护，跟随工具模块元数据自动派生。</li></ol>
+        <p class="flow"><strong>上游</strong>：tools/modules/*/index.ts · <strong>下游</strong>：确认分支</p>
+        <div class="why">工具增删只需新建一个目录，不再跨文件同步名单。</div>
       </div>
     </div>
 

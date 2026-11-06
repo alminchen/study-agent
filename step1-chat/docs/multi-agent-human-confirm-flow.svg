@@ -170,12 +170,12 @@
     <line x1="1250" y1="228" x2="1250" y2="262" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
     <polygon points="1250,262 1360,300 1250,338 1140,300" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
     <text x="1250" y="296" text-anchor="middle" class="box">toolCallGuard</text>
-    <text x="1250" y="312" text-anchor="middle" class="box-sub">白名单含 draft_message</text>
+    <text x="1250" y="312" text-anchor="middle" class="box-sub">白名单 = listToolNames()（含 draft_message）</text>
 
     <line x1="1250" y1="338" x2="1250" y2="372" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
     <polygon points="1250,372 1380,412 1250,452 1120,412" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
     <text x="1250" y="406" text-anchor="middle" class="box">isToolRequiringConfirm?</text>
-    <text x="1250" y="424" text-anchor="middle" class="box-sub">toolsRequiringConfirm.ts</text>
+    <text x="1250" y="424" text-anchor="middle" class="box-sub">tools/registry.ts · risk === confirm</text>
 
     <line x1="1120" y1="412" x2="1040" y2="412" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
     <text x="1075" y="402" class="label">否</text>
@@ -282,7 +282,7 @@
   <g transform="translate(40, 2560)">
     <rect x="0" y="0" width="1400" height="200" rx="10" fill="#fff" stroke="#e2e8f0"/>
     <text x="24" y="32" class="phase">与单 Agent 确认的对照</text>
-    <text x="24" y="58" class="note">· 确认闸门 / confirm API / draft_message 工具：完全复用（confirmGate · chatConfirm · toolsRequiringConfirm）</text>
+    <text x="24" y="58" class="note">· 确认闸门 / confirm API / draft_message 工具：完全复用（confirmGate · chatConfirm · isToolRequiringConfirm）</text>
     <text x="24" y="80" class="note">· 差异 1：Session 在 chatMulti 创建，经 graph options → WorkerContext，而不是 runConversation → applyToolCalls</text>
     <text x="24" y="102" class="note">· 差异 2：闸门在 multi/runToolSafely，对齐 applyToolCalls 的 runWithOptionalConfirm 语义</text>
     <text x="24" y="124" class="note">· 差异 3：必须中途 SSE——若整图 invoke 完再推，wait 期间前端收不到 pending_confirm</text>

@@ -90,11 +90,11 @@
     <h2><span class="file-path">server/guard/toolCallGuard.ts</span></h2>
     <div class="card">
       <div class="method">
-        <div class="name">ALLOWED_TOOLS / MAX_ARGUMENTS_LENGTH</div>
-        <div class="sig">Set("getWeather","getCurrentTime","searchDocs","draft_message") · MAX_ARGUMENTS_LENGTH = 2048</div>
+        <div class="name">白名单（listToolNames()）/ MAX_ARGUMENTS_LENGTH</div>
+        <div class="sig">listToolNames() → ["draft_message","getCurrentTime","getWeather","searchDocs"] · MAX_ARGUMENTS_LENGTH = 2048</div>
         <p><strong>做什么：</strong>定义工具名白名单与参数字符串长度上限。模型幻觉出不存在的工具名、或注入超长 payload 时，在执行前被拒绝。</p>
         <ol class="steps">
-          <li>白名单与项目真实注册工具对齐；新增工具必须同步改此处。</li>
+          <li>白名单由注册表 <code>listToolNames()</code> 派生，与真实注册工具天然对齐；新增工具无需改此处。</li>
           <li>2048 字符上限针对 arguments 原始字符串（不是美化后的 JSON）。</li>
         </ol>
         <div class="why">工具执行有副作用（查天气、写草稿、检索）；执行前闸门比「跑起来再炸」更安全，也给模型一条可回填的 error 文案以改道。</div>
@@ -112,7 +112,7 @@
         <div class="sig">export function validateToolCall(name: string, rawArguments: string): ToolCallGuardResult</div>
         <p><strong>做什么：</strong>在真正执行工具之前，校验单个 tool_call：白名单 → 长度 → JSON 可解析。快速、无副作用。</p>
         <ol class="steps">
-          <li>若 name 不在 ALLOWED_TOOLS → <code>{ allowed:false, reason: 工具「x」不在白名单… }</code>。</li>
+          <li>若 name 不在白名单（listToolNames()）→ <code>{ allowed:false, reason: 工具「x」不在白名单… }</code>。</li>
           <li>若 rawArguments.length &gt; 2048 → 拒绝（疑似注入超长 payload）。</li>
           <li>尝试 JSON.parse(rawArguments)；失败 → 拒绝「不是合法 JSON」。</li>
           <li>全部通过 → <code>{ allowed:true }</code>（不返回解析后的对象，调用方自行再 parse）。</li>

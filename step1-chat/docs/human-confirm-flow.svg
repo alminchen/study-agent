@@ -142,7 +142,7 @@
     <line x1="945" y1="310" x2="945" y2="340" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
     <polygon points="945,340 1075,380 945,420 815,380" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
     <text x="945" y="376" text-anchor="middle" class="box">isToolRequiringConfirm?</text>
-    <text x="945" y="392" text-anchor="middle" class="box-sub">toolsRequiringConfirm.ts</text>
+    <text x="945" y="392" text-anchor="middle" class="box-sub">tools/registry.ts · risk === confirm</text>
 
     <line x1="815" y1="380" x2="720" y2="380" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
     <text x="760" y="370" class="label">否</text>

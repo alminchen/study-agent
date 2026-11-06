@@ -9,8 +9,7 @@
  * 设计原则：快速、无副作用、返回拒绝原因供 applyToolCalls 回填给模型。
  */
 
-const ALLOWED_TOOLS = new Set(["getWeather", "getCurrentTime", "searchDocs", "draft_message"]);
-
+import { listToolNames } from "../tools/index.js";
 
 const MAX_ARGUMENTS_LENGTH = 2048;
 
@@ -25,7 +24,7 @@ export interface ToolCallGuardResult {
  * @param rawArguments 模型返回的 arguments 字符串
  */
 export function validateToolCall(name: string, rawArguments: string): ToolCallGuardResult {
-  if (!ALLOWED_TOOLS.has(name)) {
+  if (!listToolNames().includes(name)) {
     return { allowed: false, reason: `工具「${name}」不在白名单中，拒绝执行` };
   }
 

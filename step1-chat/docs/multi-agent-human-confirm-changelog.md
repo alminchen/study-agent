@@ -38,7 +38,7 @@
 | `server/multi-agent/workers/realtimeWorker.ts` | **修改** `runToolSafely(...)` 传入 `toolCallId` / session / onTrace / signal |
 | `server/multi-agent/workers/kbWorker.ts` | 同上透传 |
 | `server/multi-agent/workers/index.ts` | **增加**注册 `action: runActionWorker` |
-| `server/multi-agent/supervisor.ts` | **增加** Worker 名 `action`；system / route enum / 白名单过滤；起草类路由规则 |
+| `server/multi-agent/supervisor.ts` | **增加** Worker 名 `action`；system / route enum / 白名单过滤（白名单来自 `server/tools/registry.ts` 的 `listToolNames()`，非手抄）；起草类路由规则 |
 
 未改（复用）：`confirmGate.ts`、`chatConfirm.ts`、`draftMessage` 工具、`toolCallGuard`（已有 `draft_message`）、`applyToolCalls.ts`。
 

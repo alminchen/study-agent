@@ -32,7 +32,7 @@
 
 import { callLLM } from "../llm.js";
 import { runToolSafely } from "../runToolSafely.js";
-import { findTool } from "../../tools/index.js";
+import { toolsWithTags } from "../../tools/index.js";
 import type { WorkerContext, WorkerResult } from "./types.js";
 
 /**
@@ -84,9 +84,7 @@ export async function runRealtimeWorker(ctx: WorkerContext): Promise<WorkerResul
    * 只暴露 getWeather 和 getCurrentTime 的 schema 给模型。
    * 这是"工具隔离"的关键：模型看不到 searchDocs，自然不会调用它。
    */
-  const toolSchemas = ["getWeather", "getCurrentTime"]
-    .map((name) => findTool(name)?.schema)
-    .filter(Boolean);
+  const toolSchemas = toolsWithTags(["realtime"]).map((t) => t.schema);
 
   // === mini ReAct 循环 ===
   for (let turn = 0; turn < MAX_TURNS; turn++) {

@@ -77,16 +77,20 @@ npx @modelcontextprotocol/inspector npx tsx server/mcp/stdio.ts
     "step1-chat": {
       "command": "/usr/local/bin/node",
       "args": [
-        "/Users/ahmin/Downloads/ower/LLM/step1-chat/node_modules/tsx/dist/cli.mjs",
-        "/Users/ahmin/Downloads/ower/LLM/step1-chat/server/mcp/stdio.ts"
+        "<项目根绝对路径>/node_modules/tsx/dist/cli.mjs",
+        "<项目根绝对路径>/server/mcp/stdio.ts"
       ],
-      "cwd": "/Users/ahmin/Downloads/ower/LLM/step1-chat"
+      "cwd": "<项目根绝对路径>"
     }
   }
 }
 ```
 
 连上后，Cursor 里的 Agent 也能调这组工具。这证明「工具不再只属于聊天页」。
+
+> 各客户端（Cursor / Claude Desktop / VS Code / Codex / Claude Code）的完整配置写法、
+> 暴露哪些工具、验证步骤与常见坑，见
+> [step1-chat/docs/mcp-usage.md](step1-chat/docs/mcp-usage.md)。
 
 ### 5. 明确先不做
 

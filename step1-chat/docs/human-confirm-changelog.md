@@ -13,7 +13,8 @@
 |------|------|------|----------|
 | done | `server/tools/schemas/draftMessage.ts` | schema | A |
 | done | `server/tools/methods/draftMessage.ts` | 假执行 | A |
-| done | `server/react/toolsRequiringConfirm.ts` | 需确认名单 | A |
+| done | `server/tools/modules/draft_message/index.ts` | 模块元数据（`risk: "confirm"`）+ schema + 假执行（阶段 5 目录化） | 阶段 5 |
+| 已删除 | `server/react/toolsRequiringConfirm.ts` | 需确认名单（阶段 5 起改由注册表 `risk === "confirm"` 判定，文件已删除） | A → 阶段 5 |
 | done | `server/react/confirmGate.ts` | ConfirmSession | A |
 | done | `server/routes/chatConfirm.ts` | confirm API | A |
 
@@ -88,3 +89,4 @@ ToolTracePanel + useChat   ← resolveToolConfirm
 | 2026-08-21 | 阶段 A 落地 |
 | 2026-08-21 | 阶段 A 补注释 |
 | 2026-08-21 | **阶段 B 落地**：聊天创建 session、暴露 draft_message、前端确认 UI |
+| 2026-11-06 | **阶段 5 动态发现同步**：`toolsRequiringConfirm.ts` 删除；需确认判定、Guard 白名单、MCP 注册全部改由 `server/tools/registry.ts` 派生 |

@@ -24,7 +24,7 @@
       <ul class="compact">
         <li>arguments 进 <code>run</code> 仍是字符串（接口原样），各工具自己 JSON.parse。</li>
         <li>失败一律 <code>{ error: string }</code>，不往外 throw——便于回填模型 / MCP isError。</li>
-        <li>新增工具：schemas/ → methods/ → toolList →（有后果）toolsRequiringConfirm + toolCallGuard 白名单。</li>
+        <li>新增工具：新建 <code>modules/&lt;name&gt;/index.ts</code> → 自动进注册表；Guard 白名单 / MCP 注册 / 确认名单均从注册表派生，无需改别处。</li>
       </ul>
       <div class="why">聊天、多 Agent、MCP、Evals 共用同一 run，避免三套天气逻辑漂移。</div>
     </div>
@@ -156,8 +156,8 @@
       <div class="method">
         <div class="name">createStep1McpServer()</div>
         <div class="sig">→ McpServer</div>
-        <p>注册 getWeather / getCurrentTime / searchDocs（zod inputSchema）；描述复用 schemas，执行复用 methods。<strong>不含</strong> draft_message（确认协议属聊天 SSE，非 MCP 本期范围）。</p>
-        <div class="why">SDK 用 registerTool 而非弃用的位置参数 tool()；业务校验不在 MCP 层重复。</div>
+        <p><code>for (const t of toolsWithMcp()) registerTool(t.name, …)</code>：工具集由注册表派生，描述复用 schemas，执行复用 methods。入参用 <code>tool.mcp.inputSchema</code>（zod shape，MCP 协议要这个，与给模型看的 JSON Schema 不是同一种格式），缺省补空 shape。<strong>不含</strong> draft_message（<code>mcp.expose: false</code>，确认协议属聊天 SSE）。</p>
+        <div class="why">SDK 用 registerTool 而非弃用的位置参数 tool()；业务校验不在 MCP 层重复；加工具不用改 MCP 代码。</div>
       </div>
     </div>
 
@@ -172,6 +172,16 @@
         </ol>
         <div class="flow">Cursor / Inspector spawn 本进程；与 Express HTTP 聊天并行存在。</div>
       </div>
+    </div>
+
+    <h2>接外部客户端</h2>
+    <div class="card">
+      <ul class="compact">
+        <li>客户端 spawn 本进程，用 <code>command</code> / <code>args</code> / <code>cwd</code> 三件套说清「跑什么、跑哪个脚本、在哪跑」。</li>
+        <li><code>cwd</code> 必须指向项目根：<code>stdio.ts</code> 用相对路径读 <code>.env</code> / <code>.env.local</code>。</li>
+        <li>对外工具 = <code>toolsWithMcp()</code> = getCurrentTime / getWeather / searchDocs。</li>
+      </ul>
+      <div class="why">各客户端（Cursor / Claude Desktop / VS Code / Codex）完整配置写法、验证步骤与五个坑 → <a href="../../docs/mcp-usage.md">docs/mcp-usage.md</a></div>
     </div>
 
     <footer class="note"><a href="../guide/crosscutting.html">下一篇：横切对照 →</a></footer>

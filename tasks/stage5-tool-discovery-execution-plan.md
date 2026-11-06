@@ -508,6 +508,57 @@ toolsWithMcp() -> 遍历 mcp.expose === true 的模块
 
 一张表，列出“文件 → 硬编码的名字 → 用途 → 迁移后从哪个 API 派生”。
 
+**盘点结果（2026-11-06）**：
+
+| 消费方 | 硬编码内容 | 当前用途 | 迁移后派生方式 |
+| --- | --- | --- | --- |
+| `tools/index.ts` | `getWeather`、`getCurrentTime`、`searchDocs`、`draft_message` | 建立 name 到 schema + run 的运行时注册表 | 注册表自身就是唯一事实源 |
+| `guard/toolCallGuard.ts` | 4 个工具名 | 执行前判断工具是否允许调用 | `listToolNames()` |
+| `react/toolsRequiringConfirm.ts` | `draft_message` | 判断需要人工确认的工具 | `toolsWithRisk("confirm")` |
+| `mcp/createServer.ts` | 3 个 MCP 工具 | 逐个 `registerTool`，对外暴露 MCP 能力 | `toolsWithMcp()` |
+| `workers/realtimeWorker.ts` | `getWeather`、`getCurrentTime` | Realtime Worker 可见工具集 | `toolsWithTags(["realtime"])` |
+| `workers/kbWorker.ts` | `searchDocs` | KB Worker 可见工具集 | `toolsWithTags(["kb"])` |
+| `workers/actionWorker.ts` | `draft_message` | Action Worker 可见工具集 | `toolsWithTags(["action"])` |
+
+除了直接注册与执行边界，还有一批**派生与展示位置**迁移后要评估是否改为同源：
+
+| 消费方 | 引用内容 | 当前用途 | 迁移后处理 |
+| --- | --- | --- | --- |
+| `plan-execute/types.ts` | `PLAN_TOOL_NAMES` | Plan-and-Execute 的计划工具名集合 | 先保留为策略常量；若确认它只是注册表子集，再改为派生 |
+| `plan-execute/prompts.ts` | 工具目录文案 | 给 Planner 展示可用工具 | 优先保留文案；可由注册表注入名称，不强行同源 |
+| `chat.ts` | system prompt 工具说明 | 引导模型选择工具 | 本轮不改 prompt 逻辑；后续按派生目录评估 |
+| `src/types.ts` | `PlanToolName` | 前端计划类型 | 本轮不改前端协议；保留现有类型 |
+| `tracing/langsmith.ts` | 工具名 | trace 或指标命名 | 只做观察用途，迁移后确认是否统一来源 |
+
+不迁移的数据级引用：
+
+| 位置 | 说明 |
+| --- | --- |
+| `evals/dataset*.json` | 测试剧本和数据期望是验收基线，不因注册机制变化而修改 |
+| `scripts/mcp-ping.ts` | 独立集成探测脚本，保留固定工具名更利于发现回归 |
+| `scripts/run-plan-evals.ts` | 评测执行脚本，工具名属于剧本与断言语义 |
+| README 和设计文档 | 记录当前行为，等代码迁移完成后统一更新 |
+
+**行为基线（改造前）**：
+
+| 场景 | 可见或允许的工具 |
+| --- | --- |
+| Guard | `getWeather`、`getCurrentTime`、`searchDocs`、`draft_message` |
+| Chat 默认 | `getWeather`、`getCurrentTime` |
+| Chat 勾选知识库 | 默认两个 + `searchDocs` |
+| Chat 启用确认工具 | 默认两个 + `draft_message` |
+| Chat 知识库 + 确认工具 | 4 个工具全部可见 |
+| MCP | `getWeather`、`getCurrentTime`、`searchDocs`，不含 `draft_message` |
+| Realtime Worker | `getWeather`、`getCurrentTime` |
+| KB Worker | `searchDocs` |
+| Action Worker | `draft_message` |
+
+**盘点结论**：
+
+- 代码运行链路里有 7 个直接硬编码消费方，是本次迁移要改的位置。
+- 派生与展示位置涉及 prompt、协议和 trace，不能盲目同源；后续按“行为等价”原则逐个判断。
+- 数据、剧本和文档引用不参与运行时注册，保持不动。
+
 **验收**：
 
 - 4 个工具名都能在表中找到所有消费方。
@@ -553,6 +604,18 @@ toolsWithMcp() -> 遍历 mcp.expose === true 的模块
 
 **建议**：这是第一个可独立提交的改动。先做完并验证，再进入下一阶段。
 
+**执行结果（2026-11-06）**：
+
+| 项 | 结果 |
+| --- | --- |
+| `listTools()` / `listToolNames()` | 已新增到注册表门面，返回现有 4 个工具 |
+| Guard 白名单 | 已改为读取 `listToolNames()`，文件内不再手写具体工具名 |
+| 专项测试 | 新增 4 条 Guard 测试，覆盖 4 个注册工具、未注册工具、超长参数、非法 JSON 和名单同源 |
+| 测试命令 | `node --import tsx --test server/guard/toolCallGuard.test.ts`，4/4 通过 |
+| 类型检查 | `npm run typecheck` 通过 |
+| 行为影响 | 工具定义、MCP、Worker、Chat schema 未改；Guard 允许集合仍为 4 个工具 |
+| 命令差异 | 沙箱内 `npx tsx --test` 因 IPC 管道受限失败；改用 Node loader 运行同一测试 |
+
 ---
 
 ### 步骤组 2：定义 `ToolModule`，逐个迁入模块目录
@@ -596,6 +659,19 @@ export const tool: ToolModule = {
 
 每迁一个，跑一次 typecheck 和相关回归。不要一次改完 4 个再看结果。
 
+**执行结果（2026-11-06）**：
+
+| 项 | 结果 |
+| --- | --- |
+| 元数据契约 | `tools/types.ts` 新增 `TOOL_TAGS`、`ToolTag`、`ToolRisk`、`ToolModuleMcp`、`ToolModule`；`ToolDefinition` 保持兼容 |
+| 工具模块 | 4 个工具已迁入 `tools/modules/<tool>/index.ts`，静态组合 schema 与 run |
+| 元数据映射 | 天气/时间：`realtime`、`read`、默认 Chat、MCP 暴露；检索：`kb`、`read`、显式勾选、MCP 暴露；草稿：`action`、`confirm`、可显式暴露、不进 MCP |
+| 注册表 | `tools/index.ts` 改为静态 import 4 个模块，仍不扫描目录；`findTool`、`toolSchemasForChat` 签名不变 |
+| 行为测试 | 新增注册表测试，验证顺序、schema 身份、Chat 四种组合和元数据映射 |
+| 测试命令 | `node --import tsx --test server/tools/toolRegistry.test.ts server/guard/toolCallGuard.test.ts`，7/7 通过 |
+| 类型检查 | `npm run typecheck` 通过 |
+| 外部影响 | MCP、Worker、确认名单、前端协议未改 |
+
 **验收**：
 
 - `findTool(name)?.schema` 与迁移前是同一个 schema。
@@ -609,6 +685,9 @@ export const tool: ToolModule = {
 
 - 模块目录里的 `index.ts` 不要 import `tools/index.ts`，否则会和注册表形成循环依赖。
 - 迁移期间不要同时改 schema 文案和 run 逻辑，否则回归失败时无法判断原因。
+
+> 2026-11-06：上述迁移已一次性完成，但用统一行为测试验证了迁移前后顺序、
+> schema 身份、四种 Chat 组合和元数据；未改 schema 文案与 run 逻辑。
 
 ---
 

@@ -20,6 +20,12 @@
 | [rag-query-enhance-flow.svg](./rag-query-enhance-flow.svg) | **检索前问句增强**：意图/扩写/路由/Multi-Query/HyDE + env 开关 + meta 面板 | [rag-query-enhance-notes.md](./rag-query-enhance-notes.md) · [计划](../../rag-query-intent-rewrite-learning-plan.md) · 拓扑 [§6b](./project-topology.html#rag-enhance) |
 | [messages-assembly-flow.svg](./messages-assembly-flow.svg) | messages 三层 × 三条链路总览 | [project-messages-flow.md](./project-messages-flow.md) |
 | [resilience-failure-flow.svg](./resilience-failure-flow.svg) | 失败地图与恢复策略 | [resilience-failure-map.md](./resilience-failure-map.md) |
-| [dynamic-tool-discovery-flow.svg](./dynamic-tool-discovery-flow.svg) | 工具静态注册 vs 动态发现 | [dynamic-tool-discovery.md](./dynamic-tool-discovery.md) |
+| [dynamic-tool-discovery-flow.svg](./dynamic-tool-discovery-flow.svg) | **工具动态发现（阶段 5 已落地）**：启动扫描 modules/* → discoverTools() 校验 → createRegistry() 派生唯一清单 → Guard / MCP / Chat / Worker 四路消费 | [dynamic-tool-discovery.md](./dynamic-tool-discovery.md) · 拓扑 [§7b](./project-topology.html#tools) |
 
 Markdown 索引与浏览器版 [flows-index.html](./flows-index.html) 一一对应，所有流程图资产均位于当前 `docs` 目录。
+
+## 配套文档（无流程图）
+
+| 文档 | 说明 |
+|------|------|
+| [mcp-usage.md](./mcp-usage.md) | **MCP 对外接入**：外部客户端配置写法（`command`/`args`/`cwd` 三件套）· 各客户端配置位置 · 暴露哪些工具 · 验证步骤 · 五个坑 |

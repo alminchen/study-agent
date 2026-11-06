@@ -15,7 +15,7 @@
 import { validateToolCall } from "../guard/toolCallGuard.js";
 import { runToolWithTracing } from "../tracing/langsmith.js";
 import type { ConfirmSession } from "./confirmGate.js";
-import { isToolRequiringConfirm } from "./toolsRequiringConfirm.js";
+import { isToolRequiringConfirm } from "../tools/index.js";
 import type { ConsecutiveFailureTracker } from "./toolFailure.js";
 import type { ProviderMessage, ProviderToolCall, ToolTraceHandler } from "./types.js";
 

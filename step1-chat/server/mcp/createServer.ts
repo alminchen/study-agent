@@ -1,11 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { runSearchDocs } from "../tools/methods/searchDocs.js";
-import { runGetCurrentTime } from "../tools/methods/time.js";
-import { runGetWeather } from "../tools/methods/weather.js";
-import { searchDocsTool } from "../tools/schemas/searchDocs.js";
-import { getCurrentTimeTool } from "../tools/schemas/time.js";
-import { getWeatherTool } from "../tools/schemas/weather.js";
+import { toolsWithMcp } from "../tools/index.js";
 
 /**
  * 把现有 run 的返回值包成 MCP 规定的 content。
@@ -27,34 +21,19 @@ async function mcpFromRun(
 export function createStep1McpServer() {
   const server = new McpServer({ name: "step1-chat", version: "0.1.0" });
 
-  // SDK 已弃用 server.tool() 的位置参数重载，统一用 registerTool(name, config, handler)。
-  server.registerTool(
-    "getWeather",
-    {
-      description: getWeatherTool.function.description,
-      inputSchema: {
-        city: z.string().describe("城市名称，例如深圳、北京、广州"),
+  // 遍历注册表派生的 MCP 工具集进行注册
+  for (const tool of toolsWithMcp()) {
+    server.registerTool(
+      tool.name,
+      {
+        description: tool.schema.function.description,
+        // 没声明入参的工具也要给空 shape：否则 SDK 认为它「无参数」，
+        // 回调第一个参数会变成 extra 而不是 args。
+        inputSchema: (tool.mcp?.inputSchema ?? {}) as any,
       },
-    },
-    async ({ city }) => mcpFromRun(runGetWeather, { city }),
-  );
-
-  server.registerTool(
-    "getCurrentTime",
-    { description: getCurrentTimeTool.function.description },
-    async () => mcpFromRun(runGetCurrentTime, {}),
-  );
-
-  server.registerTool(
-    "searchDocs",
-    {
-      description: searchDocsTool.function.description,
-      inputSchema: {
-        question: z.string().describe("知识库检索问句"),
-      },
-    },
-    async ({ question }) => mcpFromRun(runSearchDocs, { question }),
-  );
+      async (args: any) => mcpFromRun(tool.run, args),
+    );
+  }
 
   return server;
 }

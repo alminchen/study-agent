@@ -338,25 +338,45 @@
 
 ## 8. Tool 动态发现
 
-- [ ] 8.1 盘点所有硬编码工具名
-- [ ] 8.2 增加 `listToolNames()` 并让 Guard 读注册表
-- [ ] 8.3 定义 `ToolModule` 元数据
-- [ ] 8.4 把现有工具迁入固定 modules 目录
-- [ ] 8.5 实现 `discoverTools()` 与启动校验
-- [ ] 8.6 Chat schema、findTool、MCP 都读发现结果
-- [ ] 8.7 Worker 用 tag/显式策略过滤
-- [ ] 8.8 验证新增测试工具只加一个目录
-- [ ] 8.9 验证缺 run、重名、schema 不一致会启动失败
-- [ ] 8.10 回归 MCP ping、单 Agent、多 Agent 和人工确认
+- [x] 8.1 盘点所有硬编码工具名
+  - 2026-11-06：4 个工具名、7 个运行时消费方、5 个派生/展示位置、4 类数据级引用已盘点并记录。
+- [x] 8.2 增加 `listToolNames()` 并让 Guard 读注册表
+  - 2026-11-06：注册表新增 `listTools()` / `listToolNames()`；Guard 改为派生名单。
+  - Guard 专项测试 4/4 通过；`npm run typecheck` 通过。
+- [x] 8.3 定义 `ToolModule` 元数据
+  - 2026-11-06：新增 tags / risk / includeInDefaultChat / mcp 契约，`ToolDefinition` 保持兼容。
+- [x] 8.4 把现有工具迁入固定 modules 目录
+  - 2026-11-06：4 个工具迁入模块目录，注册表静态 import；注册表专项 7/7 通过，`npm run typecheck` 通过。
+- [x] 8.5 实现 `discoverTools()` 与启动校验
+  - 2026-11-06：tools/discover.ts 固定目录扫描 + 启动校验（缺 run、重名、name/schema 不一致、非法 tag 均失败）；tools/registry.ts createRegistry 派生 findTool/listTools/listToolNames/toolsWithTags/toolsWithMcp/toolSchemasForChat；tools/index.ts 顶层 await discoverTools() + createRegistry()，非测试环境打印发现日志（仅模块名/tags/risk/MCP，无绝对路径）。
+  - toolRegistry.test.ts 中 toolSchemas 身份断言已按字母顺序修正为 draft_message/getCurrentTime/getWeather/searchDocs。
+  - 验证：node --import tsx-loader --test server/tools/toolRegistry.test.ts server/guard/toolCallGuard.test.ts 8/8 通过；npm run typecheck 通过。
+  - 发现顺序：draft_message, getCurrentTime, getWeather, searchDocs（按目录名 localeCompare 字母顺序）。
+  - 2026-11-06 补充：`npm run build`、`npm run mcp:ping` 已跑通（见 8.10）。
+- [x] 8.6 Chat schema、findTool、MCP 都读发现结果
+  - 2026-11-06：Chat 用 `toolSchemasForChat`，`findTool` 来自注册表 Map，MCP 改为 `for (const t of toolsWithMcp()) registerTool(...)`。
+  - 补记（阶段 5 引入的回归，已修）：MCP 侧原本没有入参 schema，`run` 收到的是协议 extra 对象，表现为「缺少参数 city」。
+    改为模块声明 `mcp.inputSchema`（zod shape），注册时对无参工具补空 shape，并新增 `server/mcp/createServer.test.ts` 锁死行为。
+- [x] 8.7 Worker 用 tag/显式策略过滤
+  - 2026-11-06：realtime / kb / action 三个 Worker 改用 `toolsWithTags([...])`，隔离边界保持显式。
+- [x] 8.8 验证新增测试工具只加一个目录
+  - 2026-11-06：`server/tools/discovery.test.ts` 在临时目录里只建一个 module 目录即可被发现。
+  - 顺带修掉该文件本身的坏味道：原先所有子用例共用一个临时目录互相污染，且会往仓库里落 `temp_tools/`；现已改成每用例独立目录 + 系统临时目录。
+- [x] 8.9 验证缺 run、重名、schema 不一致会启动失败
+  - 2026-11-06：`discover.ts` 启动期校验覆盖缺 tool 导出 / 非法 risk / 工具重名，`name` 与 `schema.function.name` 不一致由 `assertConsistent` 拦截，均有反向测试。
+- [x] 8.10 回归 MCP ping、单 Agent、多 Agent 和人工确认
+  - 2026-11-06：MCP ping 通过——`toolsWithMcp()` 派生 3 个工具（`draft_message` 不暴露），`getCurrentTime` / `getWeather` 入参正常传达到 run。
+    （沙箱内 `tsx` CLI 的 IPC 套接字被拦，改用等价命令 `node --import tsx` 起 stdio server 验证。）
+  - 未实测：单 Agent / 多 Agent / 人工确认的端到端回归依赖真实模型调用，本轮环境模型服务返回「暂时不可用」，留待下次补。
 
 ### 检查点 8
 
-- [ ] 不再手抄 `ALLOWED_TOOLS`
-- [ ] 不再手工逐个注册 MCP 工具
-- [ ] Worker 仍保持隔离
-- [ ] `npm run typecheck`
-- [ ] `npm run build`
-- [ ] `npm run mcp:ping`
+- [x] 不再手抄 `ALLOWED_TOOLS`（Guard 读 `listToolNames()`，并有源码级断言守住）
+- [x] 不再手工逐个注册 MCP 工具（`toolsWithMcp()` 循环注册）
+- [x] Worker 仍保持隔离（`toolsWithTags` 显式策略）
+- [x] `npm run typecheck`（2026-11-06 通过）
+- [x] `npm run build`（2026-11-06 通过）
+- [x] `npm run mcp:ping`（2026-11-06 通过，等价命令；含工具清单与入参回归）
 
 ## 9. 前端 Agent 框架对比
 

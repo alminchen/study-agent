@@ -7,7 +7,7 @@
 
 import { callLLM } from "../llm.js";
 import { runToolSafely } from "../runToolSafely.js";
-import { findTool } from "../../tools/index.js";
+import { toolsWithTags } from "../../tools/index.js";
 import type { WorkerContext, WorkerResult } from "./types.js";
 
 const SYSTEM_PROMPT =
@@ -33,9 +33,7 @@ export async function runActionWorker(ctx: WorkerContext): Promise<WorkerResult>
     { role: "user", content: ctx.task },
   ];
 
-  const toolSchemas = ["draft_message"]
-    .map((name) => findTool(name)?.schema)
-    .filter(Boolean);
+  const toolSchemas = toolsWithTags(["action"]).map((t) => t.schema);
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const result = await callLLM({

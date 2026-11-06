@@ -17,7 +17,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { UsageRecord, UsageSummary } from "./types.js";
+import type { UsageRecord, UsageScopeSummary, UsageSummary } from "./types.js";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const LOG_FILE = path.join(DATA_DIR, "usage-log.json");
@@ -68,10 +68,18 @@ export function clearUsageRecords(): void {
 }
 
 /**
- * 计算全局汇总：总 token、总成本、按 endpoint/model 分组、最近记录。
- * 供 GET /api/usage 和前端 UsagePanel「累计」区块使用。
+ * 本地时区当天 00:00 的时间戳；用于切出「当天」口径的记录集合。
  */
-export function getUsageSummary(): UsageSummary {
+function startOfToday(now: number): number {
+  const date = new Date(now);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+/**
+ * 把一组记录汇总成口径级统计。
+ * 「全部」和「当天」共用这段逻辑，保证两个模块的口径完全一致。
+ */
+function summarize(scopeRecords: UsageRecord[]): UsageScopeSummary {
   const byEndpoint: UsageSummary["byEndpoint"] = {};
   const byModel: UsageSummary["byModel"] = {};
 
@@ -80,7 +88,7 @@ export function getUsageSummary(): UsageSummary {
   let totalTokens = 0;
   let totalCostUsd = 0;
 
-  for (const r of records) {
+  for (const r of scopeRecords) {
     totalPromptTokens += r.promptTokens;
     totalCompletionTokens += r.completionTokens;
     totalTokens += r.totalTokens;
@@ -102,13 +110,27 @@ export function getUsageSummary(): UsageSummary {
   }
 
   return {
-    totalRequests: records.length,
+    totalRequests: scopeRecords.length,
     totalPromptTokens,
     totalCompletionTokens,
     totalTokens,
     totalCostUsd,
     byEndpoint,
     byModel,
+  };
+}
+
+/**
+ * 计算全局汇总：全部 + 当天两个口径，外加最近记录。
+ * 供 GET /api/usage 和前端 UsagePanel 的两个统计模块使用。
+ */
+export function getUsageSummary(): UsageSummary {
+  const all = summarize(records);
+  const today = summarize(records.filter((r) => r.timestamp >= startOfToday(Date.now())));
+
+  return {
+    ...all,
+    today,
     recent: [...records].reverse().slice(0, MAX_RECENT),
   };
 }

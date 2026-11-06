@@ -40,6 +40,16 @@
     padding: 8px 16px 12px; font-size: 12.5px; color: #5c6b70;
     border-top: 1px solid #eef2f2; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
+  .docbox {
+    margin: 0 0 34px; background: #fff; border: 1px solid #d8e0e1; border-radius: 8px;
+    padding: 14px 16px 16px; box-shadow: 0 1px 2px rgba(16,24,26,.05), 0 6px 20px rgba(16,24,26,.05);
+  }
+  .docbox h2 { font-size: 15px; margin: 0 0 4px; }
+  .docbox .dnote { color: #5c6b70; font-size: 12.5px; margin: 0 0 10px; }
+  .docbox ul { margin: 0; padding-left: 20px; font-size: 13.5px; }
+  .docbox li { margin: 4px 0; }
+  .docbox a { color: #2563eb; text-decoration: none; }
+  .docbox a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -62,7 +72,8 @@
     <a href="#multi-human-confirm">4b 人工确认(多)</a>
     <a href="#messages">5 messages</a>
     <a href="#resilience">6 失败地图</a>
-    <a href="#tools">7 工具发现</a>
+    <a href="#tools">7 工具发现(已落地)</a>
+    <a href="#docs">8 配套文档</a>
   </nav>
 
   <figure id="crosscutting">
@@ -175,12 +186,20 @@
 
   <figure id="tools">
     <div class="fhead">
-      <span class="no">7 · 工具注册与发现</span>
-      <span class="doc-link">文档 <a href="./dynamic-tool-discovery.md">dynamic-tool-discovery.md</a></span>
+      <span class="no">7 · 工具注册与发现（阶段 5 已落地）</span>
+      <span class="doc-link">文档 <a href="./dynamic-tool-discovery.md">dynamic-tool-discovery.md</a> · 拓扑 <a href="./project-topology.html#tools">§7b</a></span>
     </div>
-    <img src="./dynamic-tool-discovery-flow.svg" alt="工具静态注册 vs 动态发现">
-    <figcaption>dynamic-tool-discovery-flow.svg — 静态 toolList 现状 vs discoverTools 目标形态</figcaption>
+    <img src="./dynamic-tool-discovery-flow.svg" alt="工具动态发现：启动扫描 modules 目录、启动期校验、派生唯一注册表并被 Guard / MCP / Chat / Worker 消费">
+    <figcaption>dynamic-tool-discovery-flow.svg — modules/* 目录扫描 · discoverTools() 启动期校验 · createRegistry() 派生唯一清单 · Guard 白名单 / MCP 注册 / Chat schema / Worker tag 可见集四路消费 · 加工具只加 1 个目录</figcaption>
   </figure>
+
+  <div class="docbox" id="docs">
+    <h2>8 · 配套文档（无流程图）</h2>
+    <p class="dnote">这几份文档没有配套 SVG，但同样属于本项目的正式记录。</p>
+    <ul>
+      <li><a href="./mcp-usage.md">mcp-usage.md</a> — <strong>MCP 对外接入</strong>：外部客户端配置写法（<code>command</code>/<code>args</code>/<code>cwd</code> 三件套）· 各客户端配置位置 · 暴露哪些工具 · 验证步骤 · 五个坑</li>
+    </ul>
+  </div>
 </div>
 </body>
 </html>

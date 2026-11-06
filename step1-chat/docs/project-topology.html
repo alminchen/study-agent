@@ -115,7 +115,7 @@
     <a href="#plan">6d 计划执行</a>
     <a href="#long-context">6e 长上下文</a>
     <a href="#cross">7 Token/Guard/Trace</a>
-    <a href="#tools">7b 工具表</a>
+    <a href="#tools">7b 工具注册表</a>
     <a href="#pending">8 未交付</a>
   </nav>
 
@@ -155,6 +155,12 @@
           <td><span class="badge done">已结</span></td>
           <td><code>server/context/</code> · <span class="fn">buildContext</span> · <span class="fn">summarizeDroppedMessages</span> · <span class="fn">resolveBudgetTokens</span> · <span class="fn">assertToolPairing</span> · <code>ContextCompactionNotice</code></td>
           <td><a href="./long-context.md">阶段总结</a> · <a href="./long-context-flow.svg">全链路 SVG</a> · <a href="#long-context">§6e</a></td>
+        </tr>
+        <tr>
+          <td>进阶学习第 5 项 · Tool 动态发现<br/><span style="font-size:12px;color:#64748b">唯一注册表 · 启动期扫描 · 清单派生</span></td>
+          <td><span class="badge done">已结</span></td>
+          <td><code>server/tools/</code> · <span class="fn">discoverTools</span> · <span class="fn">createRegistry</span> · <span class="fn">listToolNames</span> · <span class="fn">toolsWithTags</span> · <span class="fn">toolsWithMcp</span> · <span class="fn">isToolRequiringConfirm</span></td>
+          <td><a href="./dynamic-tool-discovery.md">阶段总结</a> · <a href="./dynamic-tool-discovery-flow.svg">全链路 SVG</a> · <a href="#tools">§7b</a></td>
         </tr>
         <tr>
           <td>2 Function Calling</td>
@@ -689,8 +695,8 @@ sequenceDiagram
   └─ finally <span class="m">confirmSession.dispose</span>()  <span class="c">// 未决项一律 deny；从 Map 注销</span>
 
 <span class="c">// B. 需确认工具名单（两端共用）</span>
-<span class="m">isToolRequiringConfirm</span>(name)  ← toolsRequiringConfirm.ts
-  └─ 当前仅 <span class="ok">draft_message</span>
+<span class="m">isToolRequiringConfirm</span>(name)  ← tools/registry.ts（risk === "confirm"）
+  └─ 当前仅 <span class="ok">draft_message</span>（模块声明 risk: "confirm"）
   └─ 有 ConfirmSession 时 <span class="m">toolSchemasForChat</span>(searchDocs, <span class="ok">true</span>) 才把 draft_message 暴露给模型
 
 <span class="c">// C. 长连接卡住路径 —— 单 Agent（applyToolCalls）</span>
@@ -757,20 +763,22 @@ GET /api/chat/confirm/:confirmId → <span class="m">session.listPending</span>(
     <h3>工具注册与暴露条件</h3>
     <div class="mermaid">
 flowchart LR
-  SCH["schemas/draftMessage.ts<br/>draftMessageTool"] --> REG["tools/index.ts toolList"]
-  METH["methods/draftMessage.ts<br/>runDraftMessage"] --> REG
+  SCH["schemas/draftMessage.ts<br/>draftMessageTool"] --> MOD["modules/draft_message/index.ts<br/>risk: confirm · tags: action"]
+  METH["methods/draftMessage.ts<br/>runDraftMessage"] --> MOD
+  MOD --> REG["tools/discover.ts → tools/registry.ts<br/>registry（唯一注册表）"]
   REG --> FIND["findTool('draft_message')"]
-  LIST["toolsRequiringConfirm<br/>REQUIRES_CONFIRM"] --> IRC["isToolRequiringConfirm"]
+  REG --> IRC["isToolRequiringConfirm<br/>risk === confirm"]
   IRC --> ATC["applyToolCalls / runToolSafely"]
-  GUARD["toolCallGuard ALLOWED_TOOLS"] --> VG["validateToolCall"]
+  GUARD["toolCallGuard 白名单<br/>= listToolNames()"] --> VG["validateToolCall"]
   REG --> TSC["toolSchemasForChat(searchDocs, includeConfirmTools)"]
   TSC -->|单 Agent·有 ConfirmSession| EXP["暴露给 requestCompletion"]
-  ACT["actionWorker 手写 tools 数组"] -->|多 Agent| EXP2["仅 draft_message 进 callLLM"]
+  ACT["actionWorker<br/>toolsWithTags([action])"] -->|多 Agent| EXP2["仅 draft_message 进 callLLM"]
     </div>
     <ul class="compact">
       <li>单 Agent：<code>registerChatRoutes</code> 总会 <span class="fn">new ConfirmSession</span> → <span class="fn">requestCompletion</span> 里 <span class="fn">toolSchemasForChat</span>(searchDocs, <strong>true</strong>) 才挂 schema</li>
       <li>多 Agent：只有 <span class="fn">runActionWorker</span> 挂 <code>draft_message</code>；realtime/kb/general Worker <strong>不</strong>暴露该工具</li>
       <li>MCP <span class="fn">createStep1McpServer</span> 本期<strong>不含</strong> draft_message（确认走聊天 SSE，非 MCP）</li>
+      <li>需确认判定来自模块元数据 <span class="fn">risk: "confirm"</span>（原独立的 <code>react/toolsRequiringConfirm.ts</code> 已删除）</li>
     </ul>
   </div>
 
@@ -1693,7 +1701,7 @@ flowchart TB
 
 <span class="e">[2 Tool]</span> <span class="m">validateToolCall</span>(name, rawArguments)
   挂载: <span class="m">applyToolCalls</span> · <span class="m">runToolSafely</span> · <span class="m">answerFromDocs</span>（searchDocs）
-  检查: 白名单 ALLOWED_TOOLS · 参数长度 · JSON 可解析
+  检查: 白名单（由注册表 listToolNames() 派生，非手抄）· 参数长度 · JSON 可解析
   拒绝: 回填 error / tool_result.error，不 run / 不 retrieve
 
 <span class="e">[3 Output]</span> <span class="m">detectLeakage</span>(text) → { leaked, matchedFingerprints, safeText }
@@ -1765,26 +1773,42 @@ flowchart LR
 
 
   <!-- ========== 7b tools ========== -->
-  <h2 id="tools">7b. 工具注册表（阶段 2 / 4 共用）</h2>
+  <h2 id="tools">7b. 工具注册表（阶段 2 / 4 共用 · 阶段 5 动态发现已落地）</h2>
   <div class="card">
     <div class="mermaid">
 flowchart LR
-  IDX["tools/index.ts toolList"] --> SCH["schemas/* 给模型的定义"]
-  IDX --> METH["methods/* run 实现"]
-  IDX --> FIND["findTool(name)"]
-  TSC["toolSchemasForChat(searchDocs, confirmSession?)"] --> REQ["requestCompletion tools 参数"]
-  subgraph names["已注册"]
-    W["getWeather"]
-    T["getCurrentTime"]
-    S["searchDocs → executeSearchDocs → retrieveForAnswer"]
-    D["draft_message · 需确认"]
-  end
+  MODS["tools/modules/*/index.ts<br/>4 个工具模块"] --> SCH["schemas/* 给模型的定义"]
+  MODS --> METH["methods/* run 实现"]
+  MODS --> DISC["tools/discover.ts<br/>discoverTools() 扫描 + 启动校验"]
+  DISC --> CREG["tools/registry.ts<br/>createRegistry() 派生唯一清单"]
+  CREG --> IDX["tools/index.ts<br/>对外 re-export，API 不变"]
+  CREG --> FIND["findTool(name)"]
+  CREG --> LIST["listTools() / listToolNames()"]
+  CREG --> TSC["toolSchemasForChat(searchDocs, confirm?)"]
+  CREG --> TAGS["toolsWithTags(tags) / toolsWithMcp()"]
+  CREG --> IRC["isToolRequiringConfirm(name)<br/>risk === confirm"]
+  LIST --> GUARD["toolCallGuard 白名单"]
+  TAGS --> WKR["realtime / kb / action Worker"]
+  TAGS --> MCPR["mcp/createServer registerTool"]
+  TSC --> REQ["requestCompletion tools 参数"]
   IDX --> names
+  subgraph names["已注册（发现顺序按目录名字母序）"]
+    D["draft_message · action · confirm · 需人工确认"]
+    T["getCurrentTime · realtime · read"]
+    W["getWeather · realtime · read"]
+    S["searchDocs → executeSearchDocs → retrieveForAnswer · kb · read"]
+  end
     </div>
     <ul class="compact">
+      <li><strong>唯一清单</strong>：<span class="fn">discoverTools()</span> 只扫 <code>server/tools/modules/</code> 固定根目录，动态 import 后做启动期校验（缺 <span class="fn">run</span> / 重名 / <span class="fn">name ≠ schema.function.name</span> / 非法 <span class="fn">risk</span> 或 <span class="fn">tag</span> 一律抛错，<strong>启动失败而非静默跳过</strong>）</li>
+      <li><strong>派生</strong>：<span class="fn">createRegistry()</span> 产出 <span class="fn">findTool</span> / <span class="fn">listTools</span> / <span class="fn">listToolNames</span> / <span class="fn">toolSchemas</span> / <span class="fn">toolSchemasForChat</span> / <span class="fn">toolsWithTags</span> / <span class="fn">toolsWithMcp</span> / <span class="fn">isToolRequiringConfirm</span>；对外 API 与改造前一致</li>
+      <li><strong>四路消费方</strong>：Guard 白名单 = <span class="fn">listToolNames()</span>（不再手抄 <code>ALLOWED_TOOLS</code>）；MCP = <span class="fn">for (const t of toolsWithMcp()) registerTool</span>；Chat = <span class="fn">toolSchemasForChat</span>；Worker = <span class="fn">toolsWithTags([...])</span></li>
+      <li><strong>MCP 对外接入</strong>：stdio 子进程 + JSON-RPC，外部客户端（Cursor / Claude Desktop / VS Code / Codex）用 <code>command</code>/<code>args</code>/<code>cwd</code> 三件套接入；配置写法与验证步骤见 <a href="./mcp-usage.md">mcp-usage.md</a></li>
       <li><span class="fn">searchDocs</span>：单 Agent <strong>语义 C</strong>——仅 prefetch 强制检索写 system，ReAct <strong>不</strong>再挂工具；多 Agent 勾选搜索 → forceKbSearch → kbWorker 调 searchDocs；MCP 仍可调</li>
-      <li><span class="fn">draft_message</span>：仅在有 <span class="fn">ConfirmSession</span> 时通过 <span class="fn">toolSchemasForChat</span> 暴露给模型；多 Agent 由 <span class="fn">actionWorker</span> 调用</li>
-      <li>RAG 专用路径不经过 toolList：内部用 <span class="fn">validateToolCall("searchDocs")</span> + <span class="fn">retrieveForAnswer</span>（语义对齐工具层）；<code>RERANK_BATCH_SIZE</code> / <code>RAG_WARMUP</code> 见 rag/</li>
+      <li><span class="fn">draft_message</span>：仅在有 <span class="fn">ConfirmSession</span> 时通过 <span class="fn">toolSchemasForChat</span> 暴露给模型；多 Agent 由 <span class="fn">actionWorker</span> 调用；需确认判定来自模块 <code>risk: "confirm"</code>，原 <code>react/toolsRequiringConfirm.ts</code> 已删除</li>
+      <li>RAG 专用路径不经过注册表：内部用 <span class="fn">validateToolCall("searchDocs")</span> + <span class="fn">retrieveForAnswer</span>（语义对齐工具层）；<code>RERANK_BATCH_SIZE</code> / <code>RAG_WARMUP</code> 见 rag/</li>
+      <li><strong>MCP 入参单独声明</strong>：<code>schema.function.parameters</code> 是给模型看的 JSON Schema，MCP 协议要 zod shape，所以模块用 <code>mcp.inputSchema</code> 声明；缺省视为无参数，注册时补空 shape</li>
+      <li><strong>已知边界</strong>：<code>plan-execute/types.ts</code> 的 <code>PLAN_TOOL_NAMES</code> 仍是独立手写白名单（计划执行有意限定 4 个工具），本阶段未并入注册表</li>
     </ul>
   </div>
 
@@ -1805,6 +1829,7 @@ flowchart LR
   <footer class="note">
     生成说明：本页按 <code>learning-plan.md</code>、study-chat <code>post-learning-optimization-changelog.md</code>、结构化输出阶段总结与现网代码对照整理（2026-10 同步）；方法名以 <code>export function/class</code> 为准。
     Plan-and-Execute 章节按 <code>server/plan-execute/</code> 与 <code>server/routes/chatPlan.ts</code> 同步整理（2026-11 同步）。
+    工具注册表章节（§5b / §7b）按阶段 5「Tool 动态发现」改造后的 <code>server/tools/</code> 同步整理（2026-11 同步）。
     协作红线：不允许私自删除代码注释。细泳道请打开 <a href="./flows-index.html">flows-index.html</a>。
   </footer>
 </div>

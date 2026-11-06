@@ -187,7 +187,8 @@ export interface UsageSnapshot {
   estimatedCostUsd: number;
 }
 
-export interface UsageSummary {
+/** 单个口径（全部 / 当天）的用量汇总；两个模块字段含义一致。 */
+export interface UsageScopeSummary {
   totalRequests: number;
   totalPromptTokens: number;
   totalCompletionTokens: number;
@@ -195,6 +196,11 @@ export interface UsageSummary {
   totalCostUsd: number;
   byEndpoint: Record<string, { requests: number; totalTokens: number; costUsd: number }>;
   byModel: Record<string, { requests: number; totalTokens: number; costUsd: number }>;
+}
+
+export interface UsageSummary extends UsageScopeSummary {
+  /** 当天口径的汇总（本地时区当天 00:00 起） */
+  today: UsageScopeSummary;
 }
 
 export interface ModelOption {

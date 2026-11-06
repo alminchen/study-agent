@@ -17,6 +17,18 @@
 | `accumulator.ts` | 请求级累加器（一次请求多次 LLM 调用） |
 | `store.ts` | 内存 + `data/usage-log.json` 持久化 |
 
+## 统计口径
+
+汇总数据按两个时间口径分模块输出，字段完全一致（`UsageScopeSummary`）：
+
+| 口径 | 含义 | API 位置 |
+|------|------|----------|
+| 全部 | 进程内所有记录 | `GET /api/usage` 顶层字段 |
+| 当天 | 本地时区当天 00:00 起的记录 | `GET /api/usage` 的 `today` 字段 |
+
+实现上 `store.ts` 的 `summarize()` 只认记录集合，
+`getUsageSummary()` 分别传入「全部记录」和「当天记录」两次调用，保证两个口径算法一致。
+
 ## 流程图（带方法名）
 
 SVG 图（浏览器直接打开）：[`diagrams/usage-token.svg`](../../diagrams/usage-token.svg)
@@ -78,7 +90,7 @@ flowchart TD
   STORE --> SSE["SSE type=usage（chat / multi / rag / structured）"]
   SSE --> FE["useChat.lastUsage<br/>UsagePanel 本轮"]
   STORE --> GET["GET /api/usage<br/>getUsageSummary()"]
-  GET --> FE2["UsagePanel 累计"]
+  GET --> FE2["UsagePanel 全部 / 当天 两个模块"]
 ```
 
 ### 单次 LLM 调用内部（解析层）
@@ -122,13 +134,13 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  GET["GET /api/usage"] --> SUM["getUsageSummary()"]
+  GET["GET /api/usage"] --> SUM["getUsageSummary()<br/>summarize(全部) + summarize(当天)"]
   DEL["DELETE /api/usage"] --> CLR["clearUsageRecords()"]
 ```
 
 ## API
 
-- `GET /api/usage` — 汇总 + 最近记录
+- `GET /api/usage` — 全部 / 当天两个口径的汇总 + 最近记录
 - `DELETE /api/usage` — 清空记录（demo）
 
 ## SSE 事件

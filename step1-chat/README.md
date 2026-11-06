@@ -597,7 +597,13 @@ Streaming 结构化输出，响应类型为 `text/event-stream`。当前只支�
 
 ### `GET /api/usage`
 
-返回累计 Token、按 endpoint 和 model 分组的统计，以及最近 50 条记录。
+返回按两个时间口径分开的统计：**全部** 和 **当天**（本地时区当天 00:00 起）。
+
+两个口径字段完全一致：`totalRequests`、`totalPromptTokens`、`totalCompletionTokens`、
+`totalTokens`、`totalCostUsd`，以及按 endpoint / model 分组的 `byEndpoint`、`byModel`。
+其中「全部」在响应顶层，「当天」在 `today` 字段下，另外还返回最近 50 条原始记录 `recent`。
+
+前端的 Token / 成本面板按这两个口径拆成「全部」「当天」两个独立模块展示。
 
 ### `DELETE /api/usage`
 
