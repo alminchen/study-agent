@@ -985,6 +985,7 @@ npm run predawn:rerank
 - `diagrams/index.html`：图表导航页
 - `docs/project-topology.html`：项目拓扑与模块总览
 - `routes/README.md`
+- `structured/README.md`
 - `react/README.md`
 - `multi-agent/README.md`
 - `rag/README.md`

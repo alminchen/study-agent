@@ -36,6 +36,12 @@ tools/
 └── toolRegistry.test.ts — 注册表派生行为测试
 ```
 
+三个子目录各有自己的说明：
+
+- [`schemas/README.md`](schemas/README.md) — 给模型看的 Function Calling 定义怎么写
+- [`methods/README.md`](methods/README.md) — 执行逻辑的 parse / execute / run 三件套约定
+- [`modules/README.md`](modules/README.md) — ToolModule 字段、启动期校验、新增工具步骤
+
 ## 新增工具步骤（当前：动态发现，只需 1 个目录）
 
 1. 新建 `modules/<name>/index.ts`，导出 `export const tool: ToolModule`

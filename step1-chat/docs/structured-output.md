@@ -235,6 +235,8 @@ partial parser 与 hook 状态设计。这个结论来自官方文档和静态�
 | `src/components/StructuredBlock.vue` | 把稳定 snapshot 或最终 result 渲染成表格/代码 | 不推断请求状态 |
 | `src/components/ChatMessageItem.vue` | 把内部状态映射成用户可见状态和重试入口 | 不改变协议事件 |
 
+模块级说明：[`server/structured/README.md`](../server/structured/README.md)（协议、状态机、数据流与错误码）。
+
 关键分层可以概括为：
 
 ```text

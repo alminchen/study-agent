@@ -12,6 +12,7 @@
 | `chat.ts` | `POST /api/chat` | SSE（单 Agent + ConfirmSession） |
 | `chatConfirm.ts` | `POST/GET /api/chat/confirm` | JSON（人工确认，单/多 Agent 共用） |
 | `chatMulti.ts` | `POST /api/chat/multi` | SSE（多 Agent + ConfirmSession；**invoke 中途**可写 pending_confirm） |
+| `chatStructured.ts` | `POST /api/chat/structured` | SSE（Streaming 结构化输出：稳定快照 + 最终 schema 校验） |
 | `sse.ts` | （工具）SSE 头、`writeUsageToStream` | — |
 | `index.ts` | `registerRoutes(app)` 汇总挂载 | — |
 
@@ -19,3 +20,5 @@
 
 人工确认：`chat.ts` / `chatMulti.ts` 各自 `new ConfirmSession()`，前端共用 `chatConfirm.ts`。  
 多 Agent 流程图：`docs/multi-agent-human-confirm-flow.svg`。
+
+结构化输出的协议与状态机在 `server/structured/`，详见该目录的 README。
