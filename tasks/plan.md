@@ -3,8 +3,9 @@
 > 范围：`advanced-learning-plan.md` 中的 10 个进阶方向。本文中“进阶学习计划”指这 10 项整体，
 > 不另设阶段编号，也不包含主线阶段 5、RAG 上传应用、Bug 分析作品集等未完成项。
 >
-> 当前状态：10 项中第 1 项“Streaming 结构化输出”的阶段学习、代码实现和文档
-> 沉淀已完成；运行实测仍待授权。其余 9 项尚未开始。
+> 当前状态：10 项中第 1 项“Streaming 结构化输出”与第 6 项“LLM-as-Judge”的
+> 阶段学习、代码实现和文档沉淀已完成；运行实测仍待授权。
+> 其余 8 项尚未开始。
 
 ## 怎么使用这份计划
 
@@ -474,6 +475,16 @@ npm run eval:chat
 ---
 
 ## 6. LLM-as-Judge
+
+> 状态：✅ 已完成（阶段学习、代码实现、文档沉淀均结束；运行实测待授权）。
+> 实现结论：三判定面（input / retrieval / output）+ off / shadow / enforce 三档
+> 模式，默认 off；70 条离线数据集（dev 40 / test 30）跑出 all precision 0.947 /
+> recall 0.581 / 误报 0 / error 20% / p95 8001ms，dev precision 1.000 / recall
+> 0.684 / error 15% / p95 6059ms；七条 enforce 准入阈值未全达标
+> （4/5/6 未过），停留 shadow，未开启 enforce。
+> 文档：`docs/llm-judge.md`、`docs/llm-judge-changelog.md`、
+> `docs/llm-judge-flow.svg`、`docs/flows-index.html#judge`、
+> `docs/project-topology.html#judge`。
 
 **学习目标**
 
