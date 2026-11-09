@@ -114,6 +114,7 @@
     <a href="#structured">6c 结构化输出</a>
     <a href="#plan">6d 计划执行</a>
     <a href="#long-context">6e 长上下文</a>
+    <a href="#judge">6f LLM-as-Judge</a>
     <a href="#cross">7 Token/Guard/Trace</a>
     <a href="#tools">7b 工具注册表</a>
     <a href="#pending">8 未交付</a>
@@ -251,6 +252,12 @@
           <td><span class="badge later">后置</span></td>
           <td>—</td>
           <td>learning-plan</td>
+        </tr>
+        <tr>
+          <td>6 LLM-as-Judge</td>
+          <td><span class="badge now">已实现 / 未准入</span></td>
+          <td>语义判定层：<code>server/guard/judge.ts</code> · <code>judgePolicy.ts</code> · <code>judgeRuntime.ts</code> · <code>judgeSchema.ts</code>；关键方法 <span class="fn">judgeInput</span> / <span class="fn">judgeOutput</span> / <span class="fn">decideInputAction</span> / <span class="fn">runInputJudge</span>；离线评测 <code>evals/judge-dataset.json</code> + <code>scripts/run-judge-evals.ts</code></td>
+          <td><a href="./llm-judge.md">阶段说明</a> · <a href="./llm-judge-changelog.md">变更记录</a> · <a href="#judge">§6f</a></td>
         </tr>
       </tbody>
     </table>
@@ -1531,6 +1538,215 @@ flowchart TB
     <p class="path">源码：server/context/{buildContext,summarize,tokenBudget,parseContextSummary,assertToolPairing}.ts · server/chat.ts · server/routes/chat.ts · server/react/runConversation.ts · src/composables/useChat.ts · src/api/chat.ts · src/components/ContextCompactionNotice.vue</p>
   </div>
 
+  <!-- ========== 6f ========== -->
+  <h2 id="judge">6f. LLM-as-Judge 语义判定（阶段 6 · 已实现 / enforce 未准入）</h2>
+  <p class="lede">在原有正则 Guard 之外加一层「模型当裁判」：把用户输入、检索片段、模型输出交给一个独立的判定模型，模型必须按固定 JSON Schema 结构化返回结论（是否违规 / 风险等级 / 置信度 / 理由），代码只做解析与决策，不让判定模型自由发挥。本阶段默认 <code>off</code>，跑通 <code>shadow</code>；真实模型评测未达 enforce 准入阈值，因此暂不拦截。细泳道：<a href="./llm-judge-flow.svg">llm-judge-flow.svg</a> · 阶段说明：<a href="./llm-judge.md">llm-judge.md</a> · 变更记录：<a href="./llm-judge-changelog.md">llm-judge-changelog.md</a> · 索引：<a href="./flows-index.html#judge">flows-index.html 0e</a></p>
+
+  <div class="card">
+    <h3>6f.1 总览图（判定面 → 运行时 → Schema → 决策 → trace）</h3>
+    <div class="mermaid">
+flowchart TB
+  subgraph surfaces["三个判定面"]
+    S1["input<br/>chat.ts · chatMulti.ts · ragChat.ts"]
+    S2["retrieval<br/>rag/answer.ts"]
+    S3["output<br/>react/runConversation.ts"]
+  end
+  RT["judgeRuntime<br/>runInputJudge / runOutputJudge"]
+  SCH["judgeSchema<br/>JudgeSchema · 成功/错误双分支"]
+  POL["judgePolicy<br/>decideInputAction / decideOutputAction"]
+  MODE{"JUDGE_MODE"}
+  S1 --> RT
+  S2 --> RT
+  S3 --> RT
+  RT --> SCH
+  SCH --> POL
+  POL --> MODE
+  MODE -->|off| SKIP["直接放行<br/>零额外调用"]
+  MODE -->|shadow| SH["onTrace(judge_shadow)<br/>主回答不变"]
+  MODE -->|enforce| EN["SAFE_BLOCK_TEXT<br/>+ onTrace(judge_enforced)"]
+  ERR["timeout / bad_json / api_error / schema_error"] --> FALL["降级放行<br/>记 warn，不拦"]
+  SCH -.失败.-> ERR
+  EVAL["evals：judge-dataset.json<br/>run-judge-evals.ts"] -.离线.-> POL
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6f.2 方法调用树（运行时 / 解析 / 决策 / 降级）</h3>
+    <div class="calltree"><span class="c">// A. 运行时（judgeRuntime.ts）</span>
+<span class="m">runInputJudge</span>({ text, surface, mode, … }) → JudgeResult
+  ├─ mode = <span class="ok">"off"</span> → 直接返回 { status: <span class="ok">"ok"</span>, skipped: true }，不发起任何模型调用
+  ├─ <span class="m">createJudgeModelCaller</span>(config) → 真实调用（baseUrl / model / apiKey）
+  │    └─ <span class="m">createMockJudgeCaller</span>() → 仅供单测与 mock 评测（不产出质量结论）
+  ├─ 超时预算：connect 2000ms / 首字 5000ms / 整体 8000ms（任一超时 → errorKind=timeout）
+  └─ trace：<span class="m">onTrace</span>(judge_shadow)，含完整 JudgeResult + meta（耗时 / 模型 / 重试次数）
+
+<span class="c">// B. 判定内核（judge.ts）</span>
+<span class="m">judgeInput</span>(text, caller, opts) → JudgeResult
+<span class="m">judgeOutput</span>(text, caller, opts) → JudgeResult
+  ├─ 裁剪：<span class="m">JUDGE_MAX_INPUT_CHARS</span> = 4000
+  ├─ 提示词：判定说明 + 输出标签 + 少量示例（few-shot）
+  ├─ 解析：JSON.parse → 校验字段与范围 → 归一化
+  └─ 失败分类：timeout / bad_json / api_error / schema_error（<span class="e">互斥且必填</span>）
+
+<span class="c">// C. 输出契约（judgeSchema.ts）</span>
+<span class="fn">JudgeSchema</span> 判别联合：
+  ├─ ok 分支：{ status: <span class="ok">"ok"</span>, verdict, riskLevel, confidence, reason, surface }
+  └─ error 分支：{ status: <span class="ok">"error"</span>, errorKind, retries, raw }
+  <span class="m">isJudgeOk</span> / <span class="m">isJudgeError</span> 做窄化判断；<span class="fn">JUDGE_LIMITS</span> 约束字段长度
+
+<span class="c">// D. 决策（judgePolicy.ts）</span>
+<span class="m">decideInputAction</span>(result, mode) → { action, label, reason, disagree }
+<span class="m">decideOutputAction</span>(result, mode) → 同上
+  ├─ off    → { action: <span class="ok">"allow"</span> }
+  ├─ shadow → { action: <span class="ok">"allow"</span>, label: judge_medium | judge_disagree | judge_error }，主回答不变
+  ├─ enforce→ high 且 confidence ≥ 0.6 → { action: <span class="ok">"block"</span> }，回填 SAFE_BLOCK_TEXT
+  ├─ enforce→ medium → 只打标不拦；error → 一律放行 + 记 warn
+  └─ 判定标签：guard_hit | judge_high_blocked | judge_medium | judge_disagree | judge_error
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6f.3 判定面与挂载位置</h3>
+    <table class="map">
+      <thead>
+        <tr><th>判定面</th><th>挂载位置</th><th>判定对象</th><th>失败时行为</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>input</td><td><code>server/chat.ts</code> · <code>server/routes/chatMulti.ts</code> · <code>server/routes/ragChat.ts</code></td><td>用户本轮输入（与正则 <span class="fn">detectInjection</span> 并行）</td><td>放行 + 记 warn</td></tr>
+        <tr><td>retrieval</td><td><code>server/rag/answer.ts</code></td><td>检索命中的知识片段（防间接注入）</td><td>放行 + 记 warn</td></tr>
+        <tr><td>output</td><td><code>server/react/runConversation.ts</code></td><td>模型整段缓冲后的回复（首片发出前）</td><td>放行 + 记 warn</td></tr>
+        <tr><td>计划链路</td><td><code>server/routes/chatPlan.ts</code></td><td>—</td><td>本阶段未接入</td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li><strong>先正则后 Judge</strong>：正则命中即 <span class="fn">guard_hit</span>，仍然先打标；两者结论不一致 → <span class="fn">judge_disagree</span>，便于观察正则的漏放</li>
+      <li><strong>输出判定必须在整段缓冲后</strong>：流式首片一旦发出就无法回收，所以输出判定只作用于首片发出前的缓冲文本</li>
+      <li><strong>配置单一来源</strong>：<code>server/runtimeConfig.ts</code> 新增独立 <code>judge</code> 配置块，不与其他 Guard 混用</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6f.4 三档模式与配置</h3>
+    <table class="map">
+      <thead>
+        <tr><th>模式</th><th>是否调模型</th><th>是否影响主回答</th><th>写 trace</th><th>当前状态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>off</code></td><td>否</td><td>否</td><td>否</td><td><span class="badge done">默认</span></td></tr>
+        <tr><td><code>shadow</code></td><td>是</td><td>否</td><td><code>judge_shadow</code></td><td><span class="badge now">已验证</span></td></tr>
+        <tr><td><code>enforce</code></td><td>是</td><td>是（high 且置信度达标才拦）</td><td><code>judge_enforced</code></td><td><span class="badge later">未准入</span></td></tr>
+      </tbody>
+    </table>
+    <table class="map">
+      <thead>
+        <tr><th>环境变量</th><th>默认值</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>JUDGE_MODE</code></td><td><code>off</code></td><td><code>off</code> / <code>shadow</code> / <code>enforce</code></td></tr>
+        <tr><td><code>JUDGE_MODEL</code></td><td>—</td><td>判定模型名</td></tr>
+        <tr><td><code>JUDGE_BASE_URL</code></td><td>—</td><td>判定模型网关地址</td></tr>
+        <tr><td><code>JUDGE_API_KEY</code></td><td>—</td><td>判定模型密钥</td></tr>
+        <tr><td><code>JUDGE_CONNECT_TIMEOUT_MS</code></td><td><code>2000</code></td><td>建连超时</td></tr>
+        <tr><td><code>JUDGE_FIRST_CHUNK_TIMEOUT_MS</code></td><td><code>5000</code></td><td>首字超时</td></tr>
+        <tr><td><code>JUDGE_TOTAL_TIMEOUT_MS</code></td><td><code>8000</code></td><td>整体超时</td></tr>
+        <tr><td><code>JUDGE_MAX_INPUT_CHARS</code></td><td><code>4000</code></td><td>送入判定的文本上限</td></tr>
+        <tr><td><code>JUDGE_CONFIDENCE_THRESHOLD</code></td><td><code>0.6</code></td><td>enforce 拦截的最低置信度</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>6f.5 异常与降级</h3>
+    <table class="map">
+      <thead>
+        <tr><th>场景</th><th>errorKind</th><th>降级行为</th><th>用户可见</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>连接 / 首字 / 整体超时</td><td><code>timeout</code></td><td>放行，记 warn</td><td>无</td></tr>
+        <tr><td>模型返回非 JSON</td><td><code>bad_json</code></td><td>放行，记 warn</td><td>无</td></tr>
+        <tr><td>网关报错 / 非 2xx</td><td><code>api_error</code></td><td>放行，记 warn</td><td>无</td></tr>
+        <tr><td>JSON 合法但字段缺失 / 类型不符</td><td><code>schema_error</code></td><td>放行，记 warn</td><td>无</td></tr>
+        <tr><td>判定为 high 但置信度 &lt; 0.6</td><td>—</td><td>不拦，降级为 <span class="fn">judge_medium</span></td><td>无</td></tr>
+        <tr><td>无 API Key / mock 模式</td><td>—</td><td>跳过判定（不产出质量结论）</td><td>无</td></tr>
+      </tbody>
+    </table>
+    <p class="path">原则：Judge 永远不能让主链路因它而失败——任何异常一律放行并留痕，而不是抛错中断。</p>
+  </div>
+
+  <div class="card">
+    <h3>6f.6 离线评测与 enforce 准入阈值</h3>
+    <p class="lede">数据集：<code>evals/judge-dataset.json</code> 共 70 条（dev 40 / test 30），9 类配额：prompt_injection 8 · indirect_injection 8 · jailbreak 6 · role_play 6 · system_leak 6 · harmless_query 12 · code_review 8 · unsafe_output 8 · safe_output 8。命令：<code>npm run judge:check</code>（体检）· <code>npm run eval:judge</code>（评测，支持 <code>--split/--limit/--out/--mock</code>）。</p>
+    <table class="map">
+      <thead>
+        <tr><th>切分</th><th>precision</th><th>recall</th><th>误报</th><th>error 率</th><th>均值</th><th>p95</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>all</td><td>0.947</td><td>0.581</td><td>0</td><td>20%</td><td>3327ms</td><td>8001ms</td></tr>
+        <tr><td>dev</td><td>1.000</td><td>0.684</td><td>0</td><td>15%</td><td>2894ms</td><td>6059ms</td></tr>
+      </tbody>
+    </table>
+    <table class="map">
+      <thead>
+        <tr><th>#</th><th>准入条件</th><th>目标</th><th>实测</th><th>结论</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>数据集体量与类别覆盖</td><td>dev ≥ 40，9 类配额齐</td><td>dev 40 / 70 条</td><td><span class="badge done">达标</span></td></tr>
+        <tr><td>2</td><td>precision（少误伤）</td><td>≥ 0.90</td><td>all 0.947 / dev 1.000</td><td><span class="badge done">达标</span></td></tr>
+        <tr><td>3</td><td>误报条数</td><td>0</td><td>0</td><td><span class="badge done">达标</span></td></tr>
+        <tr><td>4</td><td>recall（少漏放）</td><td>≥ 0.80</td><td>all 0.581 / dev 0.684</td><td><span class="badge later">未达标</span></td></tr>
+        <tr><td>5</td><td>error 率</td><td>≤ 5%</td><td>all 20% / dev 15%</td><td><span class="badge now">贴线未达标</span></td></tr>
+        <tr><td>6</td><td>延迟</td><td>p95 ≤ 3000ms</td><td>all 8001ms / dev 6059ms</td><td><span class="badge later">未达标</span></td></tr>
+        <tr><td>7</td><td>判别一致性（可重复）</td><td>同输入结论稳定</td><td>已验证</td><td><span class="badge done">达标</span></td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li><strong>结论</strong>：七条未全达标 → <code>enforce</code> 不准入，线上停留 <code>shadow</code>，默认仍为 <code>off</code></li>
+      <li><strong>mock 只验管线</strong>：mock 报告只证明「能跑通」，任何质量结论必须来自真实模型调用</li>
+      <li><strong>报告</strong>：<code>evals/judge-comparison-report.md</code>（真实）· <code>evals/judge-comparison-report.smoke.md</code>（mock 冒烟）</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6f.7 本阶段文件清单（新增 12 / 修改 15）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>分组</th><th>文件</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>新增</td><td><code>server/guard/judge.ts</code></td><td>判定内核：拼提示词 · 调模型 · 解析 · 构造 JudgeResult</td></tr>
+        <tr><td>新增</td><td><code>server/guard/judgePolicy.ts</code></td><td>决策层：动作决策 · 判定标签 · 拦截文案</td></tr>
+        <tr><td>新增</td><td><code>server/guard/judgeRuntime.ts</code></td><td>运行时：模式判断 · 真实/mock 调用器 · trace 事件</td></tr>
+        <tr><td>新增</td><td><code>server/guard/judgeSchema.ts</code></td><td>输出契约：判别联合 Schema · 字段上限 · 类型守卫</td></tr>
+        <tr><td>新增</td><td><code>server/guard/judge.test.ts</code></td><td>单测 11 条（解析 · 坏 JSON · 超时 · schema 错误 · 降级 · 模式回落）</td></tr>
+        <tr><td>新增</td><td><code>evals/judge-dataset.json</code></td><td>评测集 70 条（dev 40 / test 30 · 9 类）</td></tr>
+        <tr><td>新增</td><td><code>evals/judgeDataset.ts</code></td><td>数据集加载与校验（类别配额 · dev 下限）</td></tr>
+        <tr><td>新增</td><td><code>scripts/check-judge-dataset.ts</code></td><td>数据集体检 CLI（<code>npm run judge:check</code>）</td></tr>
+        <tr><td>新增</td><td><code>scripts/run-judge-evals.ts</code></td><td>评测 CLI（<code>npm run eval:judge</code>）</td></tr>
+        <tr><td>新增</td><td><code>evals/judge-comparison-report.md</code></td><td>真实模型评测报告</td></tr>
+        <tr><td>新增</td><td><code>evals/judge-comparison-report.smoke.md</code></td><td>mock 冒烟报告</td></tr>
+        <tr><td>新增</td><td><code>docs/llm-judge.md</code></td><td>阶段完整说明</td></tr>
+        <tr><td>新增</td><td><code>docs/llm-judge-changelog.md</code></td><td>阶段变更记录</td></tr>
+        <tr><td>新增</td><td><code>docs/llm-judge-flow.svg</code></td><td>阶段流程图（细泳道）</td></tr>
+        <tr><td>修改</td><td><code>server/runtimeConfig.ts</code></td><td>新增独立 <code>judge</code> 配置块</td></tr>
+        <tr><td>修改</td><td><code>server/chat.ts</code></td><td>输入面接入判定</td></tr>
+        <tr><td>修改</td><td><code>server/routes/chatMulti.ts</code></td><td>输入面接入判定</td></tr>
+        <tr><td>修改</td><td><code>server/routes/ragChat.ts</code></td><td>输入面接入判定</td></tr>
+        <tr><td>修改</td><td><code>server/rag/answer.ts</code></td><td>检索面接入判定</td></tr>
+        <tr><td>修改</td><td><code>server/react/runConversation.ts</code></td><td>输出面接入判定（整段缓冲后）</td></tr>
+        <tr><td>修改</td><td><code>server/guard/outputGuard.ts</code></td><td>导出统一拦截文案常量</td></tr>
+        <tr><td>修改</td><td><code>server/react/types.ts</code></td><td>补 judge trace 事件类型</td></tr>
+        <tr><td>修改</td><td><code>src/types.ts</code></td><td>前端补 judge trace 事件类型</td></tr>
+        <tr><td>修改</td><td><code>src/api/chat.ts</code></td><td>SSE 事件解析与透传</td></tr>
+        <tr><td>修改</td><td><code>src/api/rag.ts</code></td><td>SSE 事件解析与透传</td></tr>
+        <tr><td>修改</td><td><code>src/components/ToolTracePanel.vue</code></td><td>过程面板展示判定结果与分歧</td></tr>
+        <tr><td>修改</td><td><code>evals/types.ts</code></td><td>评测用例与结果类型</td></tr>
+        <tr><td>修改</td><td><code>package.json</code></td><td>新增 <code>eval:judge</code> / <code>judge:check</code></td></tr>
+        <tr><td>修改</td><td><code>tsconfig.server.json</code></td><td>纳入新增服务端与评测文件</td></tr>
+      </tbody>
+    </table>
+    <p class="path">仓库根：<code>tasks/llm-judge-plan.md</code>（阶段 6 计划与执行记录）。</p>
+  </div>
+
   <!-- ========== 7 ========== -->
   <h2 id="cross">7. 横切：Token 计费 · 安全 Guard · Trace（方法级）</h2>
   <p class="lede">Token、Guard、Trace 横切挂在普通聊天 / 多 Agent / RAG / 计划执行四条业务链上；结构化端点的 usage / LangSmith 单独见 <a href="#structured">§6c</a>。细泳道 SVG：<a href="./crosscutting-token-guard-trace-flow.svg">crosscutting-token-guard-trace-flow.svg</a></p>
@@ -1546,6 +1762,7 @@ flowchart TB
     C4["OutputGuard ✅"]
     C5["SSE onTrace ✅"]
     C6["LangSmith ✅ chat-request/chat-prefetch/chat-llm/tool"]
+    C7["Judge ⚠️ shadow（input + output）"]
   end
   subgraph multi["POST /api/chat/multi"]
     M1["Token ✅ supervisor/worker/aggregate"]
@@ -1554,6 +1771,7 @@ flowchart TB
     M4["OutputGuard ✅ aggregate"]
     M5["SSE onTrace ✅"]
     M6["LangSmith ✅ multi-request/supervisor/worker/llm/tool"]
+    M7["Judge ⚠️ shadow（input）"]
   end
   subgraph rag["POST /api/rag/chat"]
     R1["Token ✅ rag"]
@@ -1562,6 +1780,7 @@ flowchart TB
     R4["OutputGuard ✅ detectLeakage"]
     R5["SSE Trace ✅"]
     R6["LangSmith ✅ rag-request/retrieve/llm"]
+    R7["Judge ⚠️ shadow（input + retrieval）"]
   end
   subgraph plan["POST /api/chat/plan"]
     P1["Token ✅ 规划/单步/终答"]
@@ -1570,6 +1789,7 @@ flowchart TB
     P4["OutputGuard ✅ 复用"]
     P5["SSE Trace ✅ plan_* → PlanTimeline"]
     P6["LangSmith ✅ plan-request/plan-planner"]
+    P7["Judge ⛔ 未挂载"]
   end
     </div>
     <table class="map">
@@ -1604,6 +1824,13 @@ flowchart TB
           <td>aggregate → detectLeakage</td>
           <td>answerFromDocs → detectLeakage → SSE output_leak_blocked</td>
           <td>复用工具链路 Guard；计划失败按错误码终止</td>
+        </tr>
+        <tr>
+          <td>LLM Judge</td>
+          <td>runInputJudge（输入）→ runOutputJudge（整段缓冲后）→ judgePolicy</td>
+          <td>runInputJudge（输入）→ judgePolicy；输出面暂未单独接入</td>
+          <td>runInputJudge（输入）→ runInputJudge（检索片段）→ judgePolicy</td>
+          <td>本阶段未接入</td>
         </tr>
         <tr>
           <td>前端 Trace（SSE）</td>
@@ -1681,6 +1908,12 @@ flowchart TB
   IN -->|level≠none| MARK["onTrace / writeSse<br/>injection_detected<br/>不拦截"]
   IN --> CONT["继续业务"]
 
+  U --> IJ["runInputJudge<br/>judgeRuntime.ts"]
+  IJ -->|ok| ID["decideInputAction<br/>judgePolicy.ts"]
+  ID -->|enforce + high + conf≥0.6| IB["SAFE_BLOCK_TEXT<br/>+ judge_enforced"]
+  ID -->|shadow| IS["onTrace(judge_shadow)<br/>主回答不变"]
+  IJ -->|error| IF["放行 + 记 warn<br/>errorKind 留痕"]
+
   TC["模型 tool_calls"] --> VG["validateToolCall<br/>toolCallGuard.ts"]
   VG -->|拒绝| ERR["回填 {error: reason}<br/>不执行工具"]
   VG -->|通过| RUN["run / wait 确认"]
@@ -1688,6 +1921,10 @@ flowchart TB
   OUT["最终回复文本"] --> DL["detectLeakage<br/>outputGuard.ts"]
   DL -->|leaked| BLOCK["SSE output_leak_blocked<br/>+ safeText"]
   DL -->|ok| DELTA["onDelta / finalOutput / rag delta"]
+
+  DL -->|ok| OJ["runOutputJudge<br/>整段缓冲后判定"]
+  OJ -->|block| OB["SAFE_BLOCK_TEXT<br/>+ judge_enforced"]
+  OJ -->|shadow| OS["onTrace(judge_shadow)"]
 
   FAIL["工具业务失败"] --> TRACK["createConsecutiveFailureTracker"]
   TRACK -->|超限| STOP["停止再调同工具 / 回填"]
@@ -1712,6 +1949,17 @@ flowchart TB
 <span class="e">[降级]</span> <span class="m">createConsecutiveFailureTracker</span> / <span class="m">isToolErrorResult</span>
   挂载: applyToolCalls（同工具连续失败上限）
   Mock/无 Key: onTrace(<span class="ok">degradation</span>) → streamMock</div>
+    <div class="calltree"><span class="c">// [4] LLM-as-Judge 语义层（阶段 6 · 默认 off，当前 shadow）</span>
+
+<span class="e">[语义判定]</span> <span class="m">runInputJudge</span> / <span class="m">runOutputJudge</span>
+  挂载: <span class="m">createChatStream</span>(input) · <span class="m">chatMulti</span>(input) · <span class="m">ragChat</span>(input)
+        · <span class="m">answerFromDocs</span>(retrieval) · <span class="m">runConversation</span>(output，整段缓冲后)
+  判定: <span class="m">judgeInput</span> / <span class="m">judgeOutput</span> → <span class="m">JudgeSchema</span>（ok / error 双分支）
+  决策: <span class="m">decideInputAction</span> / <span class="m">decideOutputAction</span> → allow / block + 判定标签
+  模式: off(默认·不调模型) → shadow(只写 judge_shadow) → enforce(high 且 conf ≥ 0.6 才拦)
+  留痕: onTrace(<span class="ok">judge_shadow</span> / <span class="ok">judge_enforced</span>)，含 verdict / riskLevel / confidence / reason
+  降级: timeout / bad_json / api_error / schema_error → 一律放行 + 记 warn，绝不中断主链路
+  详见 <a href="#judge">§6f</a></div>
   </div>
 
   <div class="card">
@@ -1820,6 +2068,7 @@ flowchart LR
       <li><span class="badge done">已结</span> <strong>post-learning 优化</strong>（study-chat）：语义 C、关 thinking、chat-llm/prefetch、forceKbSearch、预热、rerank batch — 见 <a href="./post-learning-optimization-changelog.md">changelog</a></li>
       <li><span class="badge done">已结</span> 检索前意图/扩写/路由/Multi-Query/HyDE + 单元 8/9（见 <a href="#rag-enhance">§6b</a>）</li>
       <li><span class="badge now">已实现 / 未实测</span> <strong>Plan-and-Execute 计划执行</strong>：规则路由 → Planner → 顺序 Executor → 受控 Re-plan → 终态 + 观测（见 <a href="#plan">§6d</a> · <a href="./plan-and-execute.md">阶段总结</a>）；真实模型评测与浏览器点验未做</li>
+      <li><span class="badge later">后置</span> <strong>Judge enforce 准入</strong>：真实模型评测 recall 0.684、error 15%、p95 6059ms，七条阈值未全达标 → 线上停留 <code>shadow</code>、默认 <code>off</code>（见 <a href="#judge">§6f</a> · <a href="./llm-judge-changelog.md">变更记录</a>）</li>
       <li><span class="badge later">后置</span> 最终轮真流式 · MCP schema 单一来源 · UI 双入口收敛 · 关 KB 硬剥离历史</li>
       <li><span class="badge later">后置</span> RAG 上传文档完整应用（现 <code>rag:ingest</code> + 资料问答）</li>
       <li><span class="badge later">后置</span> FastAPI + Docker</li>
@@ -1830,6 +2079,7 @@ flowchart LR
     生成说明：本页按 <code>learning-plan.md</code>、study-chat <code>post-learning-optimization-changelog.md</code>、结构化输出阶段总结与现网代码对照整理（2026-10 同步）；方法名以 <code>export function/class</code> 为准。
     Plan-and-Execute 章节按 <code>server/plan-execute/</code> 与 <code>server/routes/chatPlan.ts</code> 同步整理（2026-11 同步）。
     工具注册表章节（§5b / §7b）按阶段 5「Tool 动态发现」改造后的 <code>server/tools/</code> 同步整理（2026-11 同步）。
+    LLM-as-Judge 章节（§6f）按 <code>server/guard/judge*.ts</code> 与 <code>evals/</code> 同步整理（2026-11 同步）。
     协作红线：不允许私自删除代码注释。细泳道请打开 <a href="./flows-index.html">flows-index.html</a>。
   </footer>
 </div>

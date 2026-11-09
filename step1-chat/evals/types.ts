@@ -164,3 +164,52 @@ export interface PlanEvalExample {
 
 /** dataset-plan.json 是一个数组，直接当数据集用。 */
 export type PlanEvalDataset = PlanEvalExample[];
+
+// ============================================================
+// LLM-as-Judge Evals 类型
+// ============================================================
+
+/** 被判定的一侧：用户输入 or 模型输出。 */
+export type JudgeSurface = "input" | "output";
+
+/** 人工标注的风险等级，与 server/guard/inputGuard.ts 的 RiskLevel 同口径。 */
+export type JudgeRisk = "none" | "medium" | "high";
+
+/** 数据集类别。 */
+export type JudgeCategory =
+  | "prompt_injection"
+  | "indirect_injection"
+  | "jailbreak"
+  | "role_play"
+  | "system_leak"
+  | "harmless_query"
+  | "code_review"
+  | "unsafe_output"
+  | "safe_output";
+
+/** 数据集划分：dev 为每次必跑的基准集，test 为定版验收用的 held-out 扩充集。 */
+export type JudgeSplit = "dev" | "test";
+
+/**
+ * 一条 Judge 评测样本。
+ *
+ * expectedRisk 只按语义危害人工标注，不看正则 Guard 是否命中——
+ * 否则数据集就变成了正则的镜像，评测会变成循环论证。
+ */
+export interface JudgeEvalExample {
+  id: string;
+  split: JudgeSplit;
+  /** 送 Judge 的原始文本：Input Judge 用用户输入，Output Judge 用模型输出。 */
+  input: string;
+  surface: JudgeSurface;
+  category: JudgeCategory;
+  expectedRisk: JudgeRisk;
+  /** 正则 Guard 预期命中的规则 ID，用于分析分歧来源。 */
+  expectedRuleHits?: string[];
+  /** 一句话标注理由，便于人工复核。 */
+  notes: string;
+}
+
+export interface JudgeEvalDataset {
+  examples: JudgeEvalExample[];
+}

@@ -31,6 +31,22 @@ function titleOf(step: ToolTraceStep): string {
   if (step.kind === "output_leak_blocked") {
     return "输出防护 · 已拦截 system/规则泄露";
   }
+  if (step.kind === "judge_shadow") {
+    const risk = step.judge.risk ?? "unknown";
+    const confidence =
+      typeof step.judge.confidence === "number" ? step.judge.confidence.toFixed(2) : "-";
+    if (step.judge.status === "error") {
+      return `LLM 判定 · 失败（${step.judge.errorKind ?? "unknown"}）`;
+    }
+    return `LLM 判定 · ${risk}（置信度 ${confidence}）`;
+  }
+  if (step.kind === "judge_enforced") {
+    const scope = step.surface === "retrieval" ? "检索片段" : "输入";
+    const action =
+      step.action === "block" ? "已拦截" : step.action === "flag" ? "已标记" : "已放行";
+    const risk = step.judge.risk ?? "unknown";
+    return `LLM 判定 · ${scope} ${action}（${risk}）`;
+  }
   if (step.kind === "pending_confirm") {
     if (step.status === "pending" || step.status === "resolving") {
       return `等待确认 · ${step.name}`;
@@ -45,6 +61,28 @@ function payloadOf(step: ToolTraceStep): unknown {
   if (step.kind === "tool_result") return step.result;
   if (step.kind === "injection_detected") return { level: step.level, rules: step.rules };
   if (step.kind === "output_leak_blocked") return { matchedFingerprints: step.matchedFingerprints };
+  if (step.kind === "judge_shadow") {
+    return {
+      mode: step.mode,
+      surface: step.surface,
+      regexGuard: step.guard,
+      judge: step.judge,
+      meta: step.meta,
+    };
+  }
+  if (step.kind === "judge_enforced") {
+    return {
+      mode: step.mode,
+      surface: step.surface,
+      action: step.action,
+      label: step.label,
+      reason: step.reason,
+      disagree: step.disagree,
+      regexGuard: step.guard,
+      judge: step.judge,
+      meta: step.meta,
+    };
+  }
   return { action: step.action };
 }
 

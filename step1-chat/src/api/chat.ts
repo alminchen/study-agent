@@ -394,6 +394,77 @@ export async function streamPlan({
             });
             continue;
           }
+
+          if (event.type === "judge_shadow") {
+            const guard = (event.guard ?? {}) as Record<string, unknown>;
+            const judge = (event.judge ?? {}) as Record<string, unknown>;
+            const meta = (event.meta ?? {}) as Record<string, unknown>;
+            onTrace?.({
+              kind: "judge_shadow",
+              mode: asString(event.mode) ?? "shadow",
+              surface: asString(event.surface) ?? "input",
+              guard: {
+                level: asString(guard.level) ?? "none",
+                rules: Array.isArray(guard.rules)
+                  ? guard.rules.filter((item): item is string => typeof item === "string")
+                  : [],
+              },
+              judge: {
+                status: asString(judge.status) ?? "error",
+                risk: asString(judge.risk) ?? undefined,
+                confidence:
+                  typeof judge.confidence === "number" ? judge.confidence : undefined,
+                categories: Array.isArray(judge.categories)
+                  ? judge.categories.filter((item): item is string => typeof item === "string")
+                  : [],
+                shortReason: asString(judge.shortReason) ?? undefined,
+                errorKind: asString(judge.errorKind) ?? undefined,
+              },
+              meta: {
+                durationMs:
+                  typeof meta.durationMs === "number" ? meta.durationMs : undefined,
+                truncated: meta.truncated === true,
+              },
+            });
+            continue;
+          }
+          if (event.type === "judge_enforced") {
+            const guard = (event.guard ?? {}) as Record<string, unknown>;
+            const judge = (event.judge ?? {}) as Record<string, unknown>;
+            const meta = (event.meta ?? {}) as Record<string, unknown>;
+            onTrace?.({
+              kind: "judge_enforced",
+              mode: asString(event.mode) ?? "enforce",
+              surface: asString(event.surface) ?? "input",
+              guard: {
+                level: asString(guard.level) ?? "none",
+                rules: Array.isArray(guard.rules)
+                  ? guard.rules.filter((item): item is string => typeof item === "string")
+                  : [],
+              },
+              judge: {
+                status: asString(judge.status) ?? "error",
+                risk: asString(judge.risk) ?? undefined,
+                confidence:
+                  typeof judge.confidence === "number" ? judge.confidence : undefined,
+                categories: Array.isArray(judge.categories)
+                  ? judge.categories.filter((item): item is string => typeof item === "string")
+                  : [],
+                shortReason: asString(judge.shortReason) ?? undefined,
+                errorKind: asString(judge.errorKind) ?? undefined,
+              },
+              action: asString(event.action) ?? "allow",
+              label: asString(event.label) ?? undefined,
+              reason: asString(event.reason) ?? undefined,
+              disagree: event.disagree === true,
+              meta: {
+                durationMs:
+                  typeof meta.durationMs === "number" ? meta.durationMs : undefined,
+                truncated: meta.truncated === true,
+              },
+            });
+            continue;
+          }
           if (event.type === "output_leak_blocked") {
             onTrace?.({
               kind: "output_leak_blocked",
@@ -519,10 +590,25 @@ export async function streamChat({
               result?: unknown;
               confirmId?: string;
               toolCallId?: string;
-              action?: "allow" | "deny";
+              action?: "allow" | "deny" | "block" | "flag";
+              label?: string;
+              reason?: string;
+              disagree?: boolean;
               level?: string;
               rules?: string[];
               matchedFingerprints?: string[];
+              mode?: string;
+              surface?: string;
+              guard?: { level?: string; rules?: string[] };
+              judge?: {
+                status?: string;
+                risk?: string;
+                confidence?: number;
+                categories?: string[];
+                shortReason?: string;
+                errorKind?: string;
+              };
+              meta?: { durationMs?: number; truncated?: boolean };
               totalTokens?: number;
               promptTokens?: number;
               completionTokens?: number;
@@ -557,6 +643,60 @@ export async function streamChat({
                 kind: "injection_detected",
                 level: event.level,
                 rules: Array.isArray(event.rules) ? event.rules : [],
+              });
+            }
+            if (event.type === "judge_shadow") {
+              onTrace?.({
+                kind: "judge_shadow",
+                mode: event.mode ?? "shadow",
+                surface: event.surface ?? "input",
+                guard: {
+                  level: event.guard?.level ?? "none",
+                  rules: Array.isArray(event.guard?.rules) ? event.guard.rules : [],
+                },
+                judge: {
+                  status: event.judge?.status ?? "error",
+                  risk: event.judge?.risk,
+                  confidence: event.judge?.confidence,
+                  categories: Array.isArray(event.judge?.categories)
+                    ? event.judge.categories
+                    : [],
+                  shortReason: event.judge?.shortReason,
+                  errorKind: event.judge?.errorKind,
+                },
+                meta: {
+                  durationMs: event.meta?.durationMs,
+                  truncated: event.meta?.truncated === true,
+                },
+              });
+            }
+            if (event.type === "judge_enforced") {
+              onTrace?.({
+                kind: "judge_enforced",
+                mode: event.mode ?? "enforce",
+                surface: event.surface ?? "input",
+                guard: {
+                  level: event.guard?.level ?? "none",
+                  rules: Array.isArray(event.guard?.rules) ? event.guard.rules : [],
+                },
+                judge: {
+                  status: event.judge?.status ?? "error",
+                  risk: event.judge?.risk,
+                  confidence: event.judge?.confidence,
+                  categories: Array.isArray(event.judge?.categories)
+                    ? event.judge.categories
+                    : [],
+                  shortReason: event.judge?.shortReason,
+                  errorKind: event.judge?.errorKind,
+                },
+                action: event.action ?? "allow",
+                label: event.label,
+                reason: event.reason,
+                disagree: event.disagree === true,
+                meta: {
+                  durationMs: event.meta?.durationMs,
+                  truncated: event.meta?.truncated === true,
+                },
               });
             }
             if (event.type === "output_leak_blocked") {

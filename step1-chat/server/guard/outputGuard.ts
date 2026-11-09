@@ -28,7 +28,8 @@ const FINGERPRINTS = [
 
 const LEAK_THRESHOLD = 2;
 
-const REPLACEMENT = "抱歉，我无法提供系统内部配置信息。有什么其他问题我可以帮你？";
+/** 命中泄露时的替换文案；导出给 Judge 决策层复用同一套口径。 */
+export const REPLACEMENT = "抱歉，我无法提供系统内部配置信息。有什么其他问题我可以帮你？";
 
 export interface OutputGuardResult {
   leaked: boolean;

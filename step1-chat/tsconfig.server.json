@@ -15,6 +15,7 @@
     "evals",
     "scripts/run-evals.ts",
     "scripts/run-plan-evals.ts",
+    "scripts/check-judge-dataset.ts",
     "scripts/test-long-context.ts"
   ]
 }

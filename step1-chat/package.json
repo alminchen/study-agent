@@ -34,6 +34,8 @@
         "eval:chat": "tsx scripts/run-evals.ts",
         "eval:multi": "tsx scripts/run-evals-multi.ts",
         "eval:plan": "tsx scripts/run-plan-evals.ts",
+        "eval:judge": "tsx scripts/run-judge-evals.ts",
+        "judge:check": "tsx scripts/check-judge-dataset.ts",
         "test:long-context": "tsx scripts/test-long-context.ts"
     },
     "dependencies": {

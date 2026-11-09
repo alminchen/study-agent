@@ -174,6 +174,44 @@ export type ToolTraceStep =
       action: "allow" | "deny";
     }
   | { kind: "injection_detected"; level?: string; rules: string[] }
+  | {
+      kind: "judge_shadow";
+      mode: string;
+      surface: string;
+      guard: { level: string; rules: string[] };
+      judge: {
+        status: string;
+        risk?: string;
+        confidence?: number;
+        categories?: string[];
+        shortReason?: string;
+        errorKind?: string;
+      };
+      meta?: { durationMs?: number; truncated?: boolean };
+    }
+  | {
+      kind: "judge_enforced";
+      mode: string;
+      surface: string;
+      guard: { level: string; rules: string[] };
+      judge: {
+        status: string;
+        risk?: string;
+        confidence?: number;
+        categories?: string[];
+        shortReason?: string;
+        errorKind?: string;
+      };
+      /** 最终动作：allow 放行 / block 拦截 / flag 标记 */
+      action: string;
+      /** 决策分支标签 */
+      label?: string;
+      /** 人可读原因 */
+      reason?: string;
+      /** Judge 与正则结论是否不一致 */
+      disagree: boolean;
+      meta?: { durationMs?: number; truncated?: boolean };
+    }
   | { kind: "output_leak_blocked"; matchedFingerprints: string[] };
 
 /** 单次请求的 token 用量摘要（来自 SSE usage 事件） */

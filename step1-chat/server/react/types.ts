@@ -42,6 +42,68 @@ export type ProviderMessage =
     }
   | { role: "tool"; tool_call_id: string; content: string };
 
+import type { JudgeResult } from "../guard/judgeSchema.js";
+
+/**
+ * Judge 影子判定事件。
+ *
+ * 同一条 trace 里同时带正则 Guard 结果与 Judge 结果，离线即可算分歧率。
+ * 前端只展示，不参与任何判定。
+ */
+export type JudgeShadowTraceEvent = {
+  type: "judge_shadow";
+  mode: "shadow" | "enforce";
+  /** 判定对象：用户输入 / 进入 prompt 的检索片段 / 模型输出。 */
+  surface: "input" | "retrieval" | "output";
+  guard: { level: string; rules: string[] };
+  judge: JudgeResult;
+  meta: {
+    durationMs: number;
+    truncated: boolean;
+    originalChars: number;
+    sentChars: number;
+    attempts: number;
+  };
+};
+
+/**
+ * Judge enforce 决策事件。
+ *
+ * 与 judge_shadow 的区别：多了 action / label / disagree，
+ * 表示这一轮「按决策表最终做了什么」——放行、拦截，还是只打标。
+ * 前端只展示，不参与任何判定。
+ */
+export type JudgeEnforcedTraceEvent = {
+  type: "judge_enforced";
+  mode: "enforce";
+  /** 判定对象：用户输入 / 进入 prompt 的检索片段 / 模型输出。 */
+  surface: "input" | "retrieval" | "output";
+  guard: { level: string; rules: string[] };
+  judge: {
+    status: string;
+    risk?: string;
+    confidence?: number;
+    categories?: string[];
+    shortReason?: string;
+    errorKind?: string;
+  };
+  /** 最终动作：allow 放行 / block 拦截输入 / flag 建议按泄露处理。 */
+  action: "allow" | "block" | "flag";
+  /** 决策分支标签，便于统计各分支命中量。 */
+  label?: string;
+  /** 人可读的原因。 */
+  reason?: string;
+  /** Judge 结论与正则结论是否不一致。 */
+  disagree: boolean;
+  meta: {
+    durationMs: number;
+    truncated: boolean;
+    originalChars: number;
+    sentChars: number;
+    attempts: number;
+  };
+};
+
 /** 过程面板事件（SSE onTrace → 前端 ToolTrace）。
  *
  * 普通工具：tool_call → tool_result
@@ -71,6 +133,8 @@ export type ToolTraceHandler = (
     | { type: "degradation"; reason: string; message: string }
     | { type: "injection_detected"; level?: string; rules: string[] }
     | { type: "output_leak_blocked"; matchedFingerprints: string[] }
+    | JudgeShadowTraceEvent
+    | JudgeEnforcedTraceEvent
     | ContextCompactionEvent,
 ) => void;
 

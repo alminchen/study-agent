@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { detectInjection } from "../guard/inputGuard.js";
+import { SAFE_BLOCK_TEXT } from "../guard/judgePolicy.js";
+import { runInputJudge } from "../guard/judgeRuntime.js";
 import { answerFromDocs } from "../rag/answer.js";
 import type { RagMessage } from "../rag/prompt.js";
 import { getRuntimeConfig } from "../runtimeConfig.js";
@@ -80,11 +82,27 @@ export function registerRagChatRoutes(app: Express): void {
         });
       }
 
-      // ---- Token：本请求一个累加器；扩写 / HyDE / 回答各记一笔（source 区分）----
+      // ---- Token：本请求一个累加器（先建好，Judge 拦截时也能写一份 0 用量）----
       const accumulator = new UsageAccumulator();
       const onUsage = bindUsageCallback(accumulator, "rag", defaultModel);
       const onRewriteUsage = bindUsageCallback(accumulator, "ragRewrite", defaultModel);
       const onHydeUsage = bindUsageCallback(accumulator, "ragHyde", defaultModel);
+
+      // ---- LLM-as-Judge：默认 off 不调用 ----
+      // - shadow：只写 judge_shadow 事件，主回答不变
+      // - enforce：命中拦截策略时直接回安全文案，不检索也不调模型
+      const judgeOutcome = await runInputJudge({
+        text: trimmedQuestion,
+        guard: { level: injection.level, rules: injection.matchedRules },
+        emit: (event) => writeSse(event as unknown as Record<string, unknown>),
+      });
+      if (judgeOutcome.action === "block") {
+        writeSse({ delta: judgeOutcome.safeText ?? SAFE_BLOCK_TEXT });
+        writeUsageToStream(res, accumulator, "rag/chat", defaultModel);
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
 
       const runAnswer = async () => {
         const result = await answerFromDocs(
@@ -108,6 +126,7 @@ export function registerRagChatRoutes(app: Express): void {
           outputLeakBlocked: result.outputLeakBlocked,
           matchedFingerprints: result.matchedFingerprints,
           toolGuardBlocked: result.toolGuardBlocked,
+          judgeBlocked: result.judgeBlocked,
           rewriteMeta: result.rewriteMeta,
           kbRouteMeta: result.kbRouteMeta,
           multiQueryMeta: result.multiQueryMeta,

@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { detectInjection } from "../guard/inputGuard.js";
+import { SAFE_BLOCK_TEXT } from "../guard/judgePolicy.js";
+import { runInputJudge } from "../guard/judgeRuntime.js";
 import { compileMultiAgentGraph } from "../multi-agent/graph.js";
 import { ConfirmSession } from "../react/confirmGate.js";
 import type { ToolTraceHandler } from "../react/types.js";
@@ -103,11 +105,28 @@ export function registerChatMultiRoutes(app: Express): void {
         });
       }
 
-      // ---- 步骤 3：创建 Token 累加器，graph 编译时注入 ----
-      // graph 内每次 callLLM → parseUsage → onUsage(source) → accumulator.record()
-      // 可能：Supervisor 1 次 + Worker 各 1~N 次 + Aggregate 0~1 次
+      // ---- Token 累加器（先建好，Judge 拦截时也能写一份 0 用量）----
       const accumulator = new UsageAccumulator();
 
+      // ---- LLM-as-Judge：默认 off 不调用 ----
+      // - shadow：只写 judge_shadow 事件，主回答不变
+      // - enforce：命中拦截策略时直接回安全文案，不进 graph
+      const judgeOutcome = await runInputJudge({
+        text: userText,
+        guard: { level: injection.level, rules: injection.matchedRules },
+        emit: (event) => writeSse(event as unknown as Record<string, unknown>),
+      });
+      if (judgeOutcome.action === "block") {
+        writeSse({ delta: judgeOutcome.safeText ?? SAFE_BLOCK_TEXT });
+        writeUsageToStream(res, accumulator, "chat/multi", defaultModel);
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
+
+      // ---- 步骤 3：累加器在 Judge 之前已建好，这里注入 graph ----
+      // graph 内每次 callLLM → parseUsage → onUsage(source) → accumulator.record()
+      // 可能：Supervisor 1 次 + Worker 各 1~N 次 + Aggregate 0~1 次
       // ---- 步骤 4：编译并执行 LangGraph（LangSmith 根 span：multi-request）----
       // 注意：Supervisor / Worker 过程事件在 invoke **进行中**经 writeSse/onTrace 写出；
       // 不能再「整图跑完才推 route/done」，否则确认 wait 时前端收不到 pending_confirm。

@@ -7,7 +7,9 @@ import {
   resolveBudgetTokens,
 } from "./context/tokenBudget.js";
 import type { ContextBuildResult, ContextSummary } from "./context/types.js";
-import { detectInjection } from "./guard/inputGuard.js";
+import { detectInjection, type RiskLevel } from "./guard/inputGuard.js";
+import { SAFE_BLOCK_TEXT } from "./guard/judgePolicy.js";
+import { runInputJudge } from "./guard/judgeRuntime.js";
 import { streamMock } from "./mock/streamMock.js";
 import { getRuntimeConfig } from "./runtimeConfig.js";
 import type { ConfirmSession } from "./react/confirmGate.js";
@@ -117,18 +119,28 @@ export interface CreateChatStreamOptions {
 
 /**
  * Prompt Injection 检测：只标记不拦截，通过 trace event 告知前端。
+ *
+ * 返回最后一条用户消息与正则结果，供 Judge 影子判定复用，避免重复取文本。
  */
-function reportInjectionIfAny(messages: TextMessage[], onTrace?: ToolTraceHandler): void {
+function reportInjectionIfAny(
+  messages: TextMessage[],
+  onTrace?: ToolTraceHandler,
+): { text: string; guard: { level: RiskLevel; rules: string[] } } | null {
   const lastUserMsg = [...messages].reverse().find((message) => message.role === "user");
-  if (!lastUserMsg) return;
+  if (!lastUserMsg) return null;
   const guard = detectInjection(lastUserMsg.content);
-  if (guard.level === "none") return;
-  console.warn(`[InputGuard] level=${guard.level} rules=${guard.matchedRules.join(",")}`);
-  onTrace?.({
-    type: "injection_detected",
-    level: guard.level,
-    rules: guard.matchedRules,
-  });
+  if (guard.level !== "none") {
+    console.warn(`[InputGuard] level=${guard.level} rules=${guard.matchedRules.join(",")}`);
+    onTrace?.({
+      type: "injection_detected",
+      level: guard.level,
+      rules: guard.matchedRules,
+    });
+  }
+  return {
+    text: lastUserMsg.content,
+    guard: { level: guard.level, rules: guard.matchedRules },
+  };
 }
 
 /**
@@ -221,7 +233,22 @@ export async function createChatStream(options: CreateChatStreamOptions) {
     options.baseUrl ?? process.env.LLM_BASE_URL ?? "https://api.deepseek.com/v1";
 
   // Prompt Injection 检测：只标记不拦截，通过 trace event 告知前端
-  reportInjectionIfAny(options.messages, options.onTrace);
+  const guardInfo = reportInjectionIfAny(options.messages, options.onTrace);
+
+  // LLM-as-Judge：默认 off，链路零改动
+  // - shadow：只写 judge_shadow 事件，主回答不变
+  // - enforce：命中拦截策略时不调模型，直接回安全文案
+  if (guardInfo) {
+    const outcome = await runInputJudge({
+      text: guardInfo.text,
+      guard: guardInfo.guard,
+      emit: (event) => options.onTrace?.(event),
+    });
+    if (outcome.action === "block") {
+      options.onDelta(outcome.safeText ?? SAFE_BLOCK_TEXT);
+      return;
+    }
+  }
 
   const deps = { apiKey, forceMock, searchDocs, baseUrl };
 

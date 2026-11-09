@@ -1,4 +1,7 @@
 import { normalizeKnowledgeAnswer } from "../answer-style/knowledgeAnswer.js";
+import { detectInjection } from "../guard/inputGuard.js";
+import { SAFE_BLOCK_TEXT } from "../guard/judgePolicy.js";
+import { runInputJudge, type InputJudgeOutcome } from "../guard/judgeRuntime.js";
 import { detectLeakage } from "../guard/outputGuard.js";
 import { validateToolCall } from "../guard/toolCallGuard.js";
 import type { ToolTraceHandler } from "../react/types.js";
@@ -44,6 +47,8 @@ export interface RagAnswer {
   matchedFingerprints?: string[];
   /** toolGuard 拒绝检索时为 true */
   toolGuardBlocked?: boolean;
+  /** Judge 在 enforce 模式拦下检索片段（间接注入）时为 true */
+  judgeBlocked?: boolean;
   /**
    * 检索前问句增强（单元 4）。
    * question 字段仍是用户原句；真正 embed 用的是 rewriteMeta.queryUsed。
@@ -198,6 +203,27 @@ export async function answerFromDocs(
   }
 
   const resolvedModel = model || process.env.LLM_MODEL || "deepseek-chat";
+
+  // ---- LLM-as-Judge（enforce）：对进入 prompt 的检索片段做一次判定 ----
+  // 检索片段是间接注入的主要入口：知识库文档里写着「忽略之前的指令」，
+  // 模型会照做。这条链路此前没有任何保护，所以命中即拦；off/shadow 链路零变化。
+  const chunkOutcome = await judgeRetrievedChunks(judgment.hits, onTrace);
+  if (chunkOutcome?.action === "block") {
+    return {
+      empty: false,
+      answer: chunkOutcome.safeText ?? SAFE_BLOCK_TEXT,
+      calledModel: false,
+      topScore: judgment.topScore,
+      question: trimmed,
+      hits,
+      judgeBlocked: true,
+      rewriteMeta: judgment.rewriteMeta,
+      kbRouteMeta: judgment.kbRouteMeta,
+      multiQueryMeta: judgment.multiQueryMeta,
+      hydeMeta: judgment.hydeMeta,
+    };
+  }
+
   const { content } = await runRagLlmWithTracing(prompt.messages.length, resolvedModel, () =>
     completeRagMessages(prompt.messages, signal, model, onUsage),
   );
@@ -227,4 +253,29 @@ export async function answerFromDocs(
     multiQueryMeta: judgment.multiQueryMeta,
     hydeMeta: judgment.hydeMeta,
   };
+}
+
+/**
+ * 对即将进入 prompt 的检索片段跑一次判定。
+ *
+ * 与用户输入的差别：用户输入那条链路本来就有正则「只标记不拦截」，
+ * 规则优先是为了维持现状；检索片段此前完全裸奔，高危命中直接拦。
+ *
+ * off 模式下 runInputJudge 直接返回（不调模型），shadow 只写 trace 不改答案。
+ */
+async function judgeRetrievedChunks(
+  hits: { chunk: { text: string } }[],
+  onTrace?: ToolTraceHandler,
+): Promise<InputJudgeOutcome | null> {
+  const chunkText = hits.map((hit) => hit.chunk.text).join("\n");
+  if (!chunkText.trim()) return null;
+
+  const guard = detectInjection(chunkText);
+  return runInputJudge({
+    text: chunkText,
+    guard: { level: guard.level, rules: guard.matchedRules },
+    surface: "retrieval",
+    subject: "检索到的资料片段",
+    emit: (event) => onTrace?.(event),
+  });
 }

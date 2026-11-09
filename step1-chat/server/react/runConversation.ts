@@ -2,6 +2,7 @@ import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import { normalizeKnowledgeAnswer } from "../answer-style/knowledgeAnswer.js";
 import { assertToolPairing } from "../context/assertToolPairing.js";
 import { detectLeakage } from "../guard/outputGuard.js";
+import { runOutputJudge } from "../guard/judgeRuntime.js";
 import { applyToolCalls } from "./applyToolCalls.js";
 import { requestCompletion } from "./complete.js";
 import {
@@ -154,6 +155,7 @@ function compileReactGraph(
   /** 把 askModel 写下的 finalText 交给页面。
    * - searchDocs 打开时，先裁掉来源清单/检索元信息，避免像直接打印原文
    * - 然后再做系统提示词泄露检测
+   * - 最后跑一次 LLM-as-Judge 输出侧判定（正则指纹 + 语义确认）
    */
   const reply = async (state: ReactStateType) => {
     const raw = state.finalText ?? "";
@@ -163,6 +165,29 @@ function compileReactGraph(
       console.warn(`[OutputGuard] 检测到 system prompt 泄露，已替换。命中: ${guard.matchedFingerprints.join(", ")}`);
       options.onTrace?.({ type: "output_leak_blocked", matchedFingerprints: guard.matchedFingerprints });
     }
+
+    // LLM-as-Judge 输出侧：与正则指纹检测互补，正则管快、语义管准。
+    //
+    // 时机安全：这里拿到的是完整答案，且下面只调用一次 onDelta 整段发出，
+    // 所以判定一定发生在任何字节发出之前，不存在「先发出去再判定要拦」。
+    // 真流式路径（增量输出）传 buffered: false，运行时会自动降级为 shadow。
+    //
+    // 按计划 Output Judge 只给建议、不改写主回答：命中也只是 flag，
+    // 回答仍然按 OutputGuard 的结果发出。
+    const outputJudge = await runOutputJudge({
+      text: normalized,
+      regexLeaked: guard.leaked,
+      matchedFingerprints: guard.matchedFingerprints,
+      regexSafeText: guard.safeText,
+      buffered: true,
+      emit: (event) => options.onTrace?.(event),
+    });
+    if (outputJudge.action === "flag" && outputJudge.leaked) {
+      console.warn(
+        `[Judge] 输出侧判定疑似泄露（仅提示，不改写回答）：${outputJudge.reason ?? "unknown"}`,
+      );
+    }
+
     options.onDelta(guard.safeText);
     return {};
   };

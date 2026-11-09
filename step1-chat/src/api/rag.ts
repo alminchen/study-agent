@@ -19,7 +19,13 @@ export interface AskRagParams {
   onDelta: (delta: string) => void;
   onTrace?: (step: ToolTraceStep) => void;
   onUsage?: (usage: UsageSnapshot) => void;
-  onRagMeta?: (meta: RagMeta & { outputLeakBlocked?: boolean; toolGuardBlocked?: boolean }) => void;
+  onRagMeta?: (
+    meta: RagMeta & {
+      outputLeakBlocked?: boolean;
+      toolGuardBlocked?: boolean;
+      judgeBlocked?: boolean;
+    },
+  ) => void;
   onError: (error: string) => void;
 }
 
@@ -179,6 +185,18 @@ export async function askRag({
               level?: string;
               rules?: string[];
               matchedFingerprints?: string[];
+              mode?: string;
+              surface?: string;
+              guard?: { level?: string; rules?: string[] };
+              judge?: {
+                status?: string;
+                risk?: string;
+                confidence?: number;
+                categories?: string[];
+                shortReason?: string;
+                errorKind?: string;
+              };
+              meta?: { durationMs?: number; truncated?: boolean };
               empty?: boolean;
               calledModel?: boolean;
               topScore?: number | null;
@@ -186,6 +204,11 @@ export async function askRag({
               hits?: unknown;
               outputLeakBlocked?: boolean;
               toolGuardBlocked?: boolean;
+              judgeBlocked?: boolean;
+              action?: string;
+              label?: string;
+              reason?: string;
+              disagree?: boolean;
               totalTokens?: number;
               promptTokens?: number;
               completionTokens?: number;
@@ -222,6 +245,60 @@ export async function askRag({
                 rules: Array.isArray(event.rules) ? event.rules : [],
               });
             }
+            if (event.type === "judge_shadow") {
+              onTrace?.({
+                kind: "judge_shadow",
+                mode: event.mode ?? "shadow",
+                surface: event.surface ?? "input",
+                guard: {
+                  level: event.guard?.level ?? "none",
+                  rules: Array.isArray(event.guard?.rules) ? event.guard.rules : [],
+                },
+                judge: {
+                  status: event.judge?.status ?? "error",
+                  risk: event.judge?.risk,
+                  confidence: event.judge?.confidence,
+                  categories: Array.isArray(event.judge?.categories)
+                    ? event.judge.categories
+                    : [],
+                  shortReason: event.judge?.shortReason,
+                  errorKind: event.judge?.errorKind,
+                },
+                meta: {
+                  durationMs: event.meta?.durationMs,
+                  truncated: event.meta?.truncated === true,
+                },
+              });
+            }
+            if (event.type === "judge_enforced") {
+              onTrace?.({
+                kind: "judge_enforced",
+                mode: event.mode ?? "enforce",
+                surface: event.surface ?? "input",
+                guard: {
+                  level: event.guard?.level ?? "none",
+                  rules: Array.isArray(event.guard?.rules) ? event.guard.rules : [],
+                },
+                judge: {
+                  status: event.judge?.status ?? "error",
+                  risk: event.judge?.risk,
+                  confidence: event.judge?.confidence,
+                  categories: Array.isArray(event.judge?.categories)
+                    ? event.judge.categories
+                    : [],
+                  shortReason: event.judge?.shortReason,
+                  errorKind: event.judge?.errorKind,
+                },
+                action: event.action ?? "allow",
+                label: event.label,
+                reason: event.reason,
+                disagree: event.disagree === true,
+                meta: {
+                  durationMs: event.meta?.durationMs,
+                  truncated: event.meta?.truncated === true,
+                },
+              });
+            }
             if (event.type === "output_leak_blocked") {
               onTrace?.({
                 kind: "output_leak_blocked",
@@ -240,6 +317,7 @@ export async function askRag({
                 hits: parseHits(event.hits),
                 outputLeakBlocked: event.outputLeakBlocked,
                 toolGuardBlocked: event.toolGuardBlocked,
+                judgeBlocked: event.judgeBlocked,
                 rewriteMeta: parseRewriteMeta(row.rewriteMeta),
                 kbRouteMeta: parseKbRouteMeta(row.kbRouteMeta),
                 multiQueryMeta: parseMultiQueryMeta(row.multiQueryMeta),

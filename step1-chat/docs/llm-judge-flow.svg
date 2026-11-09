@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 1680" width="1480" height="1680" role="img" aria-label="LLM-as-Judge Flow">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #475569; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+    ]]></style>
+  </defs>
+  <rect width="1480" height="1680" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">LLM-as-Judge 语义判定（阶段 6）</text>
+  <text x="40" y="66" class="subtitle">正则 Guard 只标记不拦截 → Judge 出结构化判定 → 三档模式决定动作 → 异常一律回退放行</text>
+
+  <!-- ========== 1 判定面 ========== -->
+  <g transform="translate(40, 110)">
+    <text x="0" y="0" class="phase">① 三个判定面（接入点）</text>
+    <rect x="20" y="20" width="430" height="120" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="235" y="50" text-anchor="middle" class="box">输入面 · input</text>
+    <text x="235" y="74" text-anchor="middle" class="file">chat.ts · chatMulti.ts · ragChat.ts</text>
+    <text x="235" y="96" text-anchor="middle" class="box-sub">对象：用户原始文本</text>
+    <text x="235" y="118" text-anchor="middle" class="box-sub">判定：是否越界 / 提示注入</text>
+
+    <rect x="505" y="20" width="430" height="120" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="720" y="50" text-anchor="middle" class="box">检索面 · retrieval</text>
+    <text x="720" y="74" text-anchor="middle" class="file">rag/answer.ts</text>
+    <text x="720" y="96" text-anchor="middle" class="box-sub">对象：改写后的检索问题</text>
+    <text x="720" y="118" text-anchor="middle" class="box-sub">判定：检索词是否被投毒（此前无保护）</text>
+
+    <rect x="990" y="20" width="430" height="120" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="1205" y="50" text-anchor="middle" class="box">输出面 · output</text>
+    <text x="1205" y="74" text-anchor="middle" class="file">react/runConversation.ts（reply）</text>
+    <text x="1205" y="96" text-anchor="middle" class="box-sub">对象：缓冲后的整段回答</text>
+    <text x="1205" y="118" text-anchor="middle" class="box-sub">判定：是否泄露系统提示</text>
+  </g>
+
+  <!-- 总线：三个判定面 → Judge 判定层 -->
+  <path d="M275,250 L275,290" stroke="#334155" stroke-width="1.6" fill="none"/>
+  <path d="M760,250 L760,290" stroke="#334155" stroke-width="1.6" fill="none"/>
+  <path d="M1245,250 L1245,290" stroke="#334155" stroke-width="1.6" fill="none"/>
+  <path d="M275,290 L1245,290" stroke="#334155" stroke-width="1.6" fill="none"/>
+  <path d="M760,290 L760,336" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 2 双层防线 ========== -->
+  <g transform="translate(40, 320)">
+    <text x="0" y="0" class="phase">② 双层防线：正则先筛 · Judge 再判</text>
+    <rect x="20" y="20" width="430" height="170" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="235" y="50" text-anchor="middle" class="box">正则 Guard（阶段 5 已有）</text>
+    <text x="235" y="76" text-anchor="middle" class="file">guard/inputGuard.ts · detectInjection</text>
+    <text x="235" y="98" text-anchor="middle" class="file">guard/outputGuard.ts · detectLeakage</text>
+    <text x="235" y="124" text-anchor="middle" class="label">产出：level / matchedRules / leaked</text>
+    <text x="235" y="148" text-anchor="middle" class="note">只标记 · 不拦截 —— 行为不变</text>
+    <text x="235" y="170" text-anchor="middle" class="note">指纹命中仍复用同一套文案</text>
+
+    <rect x="505" y="20" width="430" height="170" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="720" y="50" text-anchor="middle" class="box">Judge 判定（阶段 6 新增）</text>
+    <text x="720" y="76" text-anchor="middle" class="file">judgeRuntime.runInputJudge / runOutputJudge</text>
+    <text x="720" y="98" text-anchor="middle" class="file">judge.judgeInput / judgeOutput</text>
+    <text x="720" y="120" text-anchor="middle" class="file">judgeSchema.JudgeSchema.parse</text>
+    <text x="720" y="146" text-anchor="middle" class="label">产出：JudgeResult{status: ok | error}</text>
+    <text x="720" y="170" text-anchor="middle" class="note">risk · confidence · categories · reason</text>
+
+    <rect x="990" y="20" width="430" height="170" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1205" y="50" text-anchor="middle" class="box">错误分支（与成功分支分离）</text>
+    <text x="1205" y="76" text-anchor="middle" class="file">errorKind: timeout | bad_json</text>
+    <text x="1205" y="98" text-anchor="middle" class="file">          api_error | schema_error</text>
+    <text x="1205" y="124" text-anchor="middle" class="label">retries · raw(≤500) · message</text>
+    <text x="1205" y="148" text-anchor="middle" class="note">error 分支没有 risk 字段</text>
+    <text x="1205" y="170" text-anchor="middle" class="warn">错误一律不拦截 → 回退正则决策</text>
+
+    <path d="M490,425 L540,425" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+    <path d="M975,425 L1025,425" stroke="#dc2626" stroke-width="1.6" fill="none" marker-end="url(#arrowRed)"/>
+    <text x="517" y="410" text-anchor="middle" class="label-em">文本</text>
+    <text x="1002" y="410" text-anchor="middle" class="warn">超时/非法</text>
+  </g>
+
+  <!-- ========== 3 决策层 ========== -->
+  <path d="M760,510 L760,556" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <g transform="translate(40, 540)">
+    <text x="0" y="0" class="phase">③ 决策层：判定结果 → 动作</text>
+    <rect x="20" y="20" width="1400" height="56" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="720" y="44" text-anchor="middle" class="box">judgePolicy.decideInputAction / decideOutputAction（JudgeResult → 动作）</text>
+    <text x="720" y="64" text-anchor="middle" class="note">唯一开关 JUDGE_MODE；未单独配置模型时沿用主模型</text>
+
+    <rect x="20" y="100" width="430" height="150" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="235" y="130" text-anchor="middle" class="box">模式 off（当前默认）</text>
+    <text x="235" y="156" text-anchor="middle" class="box-sub">不调用 Judge 模型</text>
+    <text x="235" y="182" text-anchor="middle" class="box-sub">链路行为与今天完全一致</text>
+    <text x="235" y="210" text-anchor="middle" class="note">零风险上线的默认档</text>
+
+    <rect x="505" y="100" width="430" height="150" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="720" y="130" text-anchor="middle" class="box">模式 shadow（推荐先跑）</text>
+    <text x="720" y="156" text-anchor="middle" class="box-sub">只写 trace 事件 judge_shadow</text>
+    <text x="720" y="182" text-anchor="middle" class="box-sub">主回答不变 · 不拦截</text>
+    <text x="720" y="210" text-anchor="middle" class="note">用于积累真实分歧率数据</text>
+
+    <rect x="990" y="100" width="430" height="150" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1205" y="130" text-anchor="middle" class="box">模式 enforce</text>
+    <text x="1205" y="156" text-anchor="middle" class="box-sub">high 且 confidence ≥ 0.6 → 拦截</text>
+    <text x="1205" y="182" text-anchor="middle" class="box-sub">medium → 只打标 · error → 放行 + warn</text>
+    <text x="1205" y="210" text-anchor="middle" class="warn">当前未准入（见第 ⑤ 块阈值）</text>
+
+    <path d="M760,616 L760,636" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+    <rect x="20" y="270" width="700" height="90" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="370" y="298" text-anchor="middle" class="label">非法 JUDGE_MODE → 回落 off + 告警一次（不抛错）</text>
+    <text x="370" y="322" text-anchor="middle" class="label">判定标签：guard_hit · judge_high_blocked · judge_medium</text>
+    <text x="370" y="344" text-anchor="middle" class="label">           judge_disagree · judge_error</text>
+
+    <rect x="760" y="270" width="660" height="90" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="1090" y="298" text-anchor="middle" class="label">SAFE_BLOCK_TEXT：拦截时统一回填的文案</text>
+    <text x="1090" y="322" text-anchor="middle" class="note">与 outputGuard 的 REPLACEMENT 同一口径</text>
+    <text x="1090" y="344" text-anchor="middle" class="note">由 judgePolicy 统一导出</text>
+  </g>
+
+  <!-- ========== 4 trace 与前端 ========== -->
+  <path d="M760,900 L760,956" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <g transform="translate(40, 940)">
+    <text x="0" y="0" class="phase">④ 结果落地：trace 事件 → 前端面板</text>
+    <rect x="20" y="20" width="430" height="140" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="235" y="50" text-anchor="middle" class="box">judge_shadow</text>
+    <text x="235" y="76" text-anchor="middle" class="file">judgeRuntime.JudgeTraceEvent</text>
+    <text x="235" y="100" text-anchor="middle" class="box-sub">含完整 JudgeResult + meta</text>
+    <text x="235" y="124" text-anchor="middle" class="box-sub">surface：input | retrieval | output</text>
+
+    <rect x="505" y="20" width="430" height="140" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="720" y="50" text-anchor="middle" class="box">judge_enforced</text>
+    <text x="720" y="76" text-anchor="middle" class="file">react/types.ts · TraceEvent</text>
+    <text x="720" y="100" text-anchor="middle" class="box-sub">action · label · reason · disagree</text>
+    <text x="720" y="124" text-anchor="middle" class="box-sub">只在 enforce 触发时写</text>
+
+    <rect x="990" y="20" width="430" height="140" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="1205" y="50" text-anchor="middle" class="box">前端渲染</text>
+    <text x="1205" y="76" text-anchor="middle" class="file">src/types.ts · src/api/chat.ts</text>
+    <text x="1205" y="98" text-anchor="middle" class="file">src/api/rag.ts · ToolTracePanel.vue</text>
+    <text x="1205" y="124" text-anchor="middle" class="box-sub">SSE 事件 → 过程面板</text>
+
+    <rect x="20" y="190" width="1400" height="80" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="720" y="218" text-anchor="middle" class="label">流式时机：runConversation 的 reply 节点整段缓冲后一次 onDelta → enforce 安全</text>
+    <text x="720" y="242" text-anchor="middle" class="note">真流式（逐字下发）链路最多 shadow；buffered:false 时 enforce 自动降级为 shadow + warn</text>
+  </g>
+
+  <!-- ========== 5 离线评测 ========== -->
+  <path d="M760,1210 L760,1266" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <g transform="translate(40, 1250)">
+    <text x="0" y="0" class="phase">⑤ 离线评测：结构化判定必须有数据支撑</text>
+    <rect x="20" y="20" width="430" height="170" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="235" y="50" text-anchor="middle" class="box">数据集</text>
+    <text x="235" y="76" text-anchor="middle" class="file">evals/judge-dataset.json</text>
+    <text x="235" y="100" text-anchor="middle" class="box-sub">70 条：dev 40 / test 30</text>
+    <text x="235" y="124" text-anchor="middle" class="box-sub">9 类配额 + dev ≥ 40 校验</text>
+    <text x="235" y="152" text-anchor="middle" class="note">新增样本先进 test 扩充集</text>
+
+    <rect x="505" y="20" width="430" height="170" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="720" y="50" text-anchor="middle" class="box">加载与校验</text>
+    <text x="720" y="76" text-anchor="middle" class="file">evals/judgeDataset.ts</text>
+    <text x="720" y="98" text-anchor="middle" class="file">scripts/check-judge-dataset.ts</text>
+    <text x="720" y="124" text-anchor="middle" class="label">loadJudgeDataset / validateJudgeDataset</text>
+    <text x="720" y="152" text-anchor="middle" class="file">npm run judge:check</text>
+
+    <rect x="990" y="20" width="430" height="170" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="1205" y="50" text-anchor="middle" class="box">评测 CLI</text>
+    <text x="1205" y="76" text-anchor="middle" class="file">scripts/run-judge-evals.ts</text>
+    <text x="1205" y="100" text-anchor="middle" class="label">npm run eval:judge</text>
+    <text x="1205" y="124" text-anchor="middle" class="file">--split dev|test|all --limit N</text>
+    <text x="1205" y="146" text-anchor="middle" class="file">--out path · --mock</text>
+    <text x="1205" y="170" text-anchor="middle" class="note">mock 仅验证管线，不产出质量结论</text>
+
+    <rect x="20" y="220" width="1400" height="110" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="720" y="250" text-anchor="middle" class="label">报告：evals/judge-comparison-report.md（真实模型） · evals/judge-comparison-report.smoke.md（mock）</text>
+    <text x="720" y="276" text-anchor="middle" class="label">指标：precision · recall · 误报率 · error 率 · 均值/p95 延迟 → 对照七条 enforce 准入阈值</text>
+    <text x="720" y="302" text-anchor="middle" class="warn">当前：recall 0.684 / error 15% 未达标 → 停留 shadow，JUDGE_MODE 默认 off</text>
+  </g>
+
+  <!-- ========== 图例 ========== -->
+  <g transform="translate(40, 1610)">
+    <text x="0" y="0" class="legend">图例</text>
+    <rect x="50" y="-14" width="18" height="14" rx="3" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="76" y="-2" class="legend">正则 / 既有</text>
+    <rect x="200" y="-14" width="18" height="14" rx="3" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="226" y="-2" class="legend">输入面 / 新增</text>
+    <rect x="360" y="-14" width="18" height="14" rx="3" fill="#fef3c7" stroke="#d97706"/>
+    <text x="386" y="-2" class="legend">判定 / 决策</text>
+    <rect x="520" y="-14" width="18" height="14" rx="3" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="546" y="-2" class="legend">拦截 / 错误</text>
+    <rect x="660" y="-14" width="18" height="14" rx="3" fill="#d1fae5" stroke="#059669"/>
+    <text x="686" y="-2" class="legend">输出 / 评测</text>
+    <rect x="800" y="-14" width="18" height="14" rx="3" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="826" y="-2" class="legend">决策入口</text>
+    <text x="40" y="26" class="note">配套文档：docs/llm-judge.md · docs/llm-judge-changelog.md · 拓扑 §6f</text>
+  </g>
+</svg>
