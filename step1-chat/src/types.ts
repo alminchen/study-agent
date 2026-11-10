@@ -155,6 +155,64 @@ export interface RagMeta {
   hydeMeta?: RagHydeMetaView | null;
 }
 
+/** 自我评估的四维分数（relevance / completeness / groundedness / clarity）。 */
+export interface ReflectionScores {
+  relevance: number;
+  completeness: number;
+  groundedness: number;
+  clarity: number;
+}
+
+/** 一条具体问题；dimension 指明属于哪一维。 */
+export interface ReflectionIssue {
+  dimension: string;
+  detail: string;
+}
+
+/**
+ * 记忆来源分类；与服务端 memory/types.ts 的 MemorySource 逐值对应。
+ */
+export type MemorySource =
+  | "user_explicit_preference"
+  | "user_correction"
+  | "project_fact"
+  | "tool_learned_fact";
+
+/**
+ * 落盘的一条长期记忆；字段与服务端 MemoryFact 同名同义。
+ *
+ * 前端多一个约束：字段必须与后端对齐，不能自己另发明一套命名，
+ * 否则「面板里改的」和「服务端存着的」会对不上。
+ */
+export interface MemoryFact {
+  /** 唯一 id，格式 mem_{timestamp}_{random}。 */
+  id: string;
+  /** 归属的匿名用户。 */
+  userId: string;
+  /** 语义键，例如 language / framework。 */
+  key: string;
+  /** 事实值，例如 中文 / Vue 3。 */
+  value: string;
+  /** 来源分类。 */
+  source: MemorySource;
+  /** 置信度，落在 [0.6, 1]。 */
+  confidence: number;
+  /** 创建时间（Unix ms）。 */
+  createdAt: number;
+  /** 最近更新时间（Unix ms）。 */
+  updatedAt: number;
+  /** 过期时间（Unix ms）；null 表示永久有效。 */
+  expiresAt: number | null;
+  /** 同 key 出现了不同值 —— 标记冲突，等待用户在面板里裁决。 */
+  conflict?: boolean;
+  /** 冲突时保留的候选值（面板里的「用新值」按钮要用它）。 */
+  conflictingValue?: string;
+  /** 软删除时间（Unix ms）；有值表示这条已被删除，但记录保留以备审计。 */
+  deletedAt?: number;
+  /** value 的 embedding 缓存；前端不用，保留字段是为了与服务端逐字段对齐。 */
+  embedding?: number[];
+}
+
 export type ToolTraceStep =
   | { kind: "tool_call"; name: string; arguments: unknown }
   | { kind: "tool_result"; name: string; result: unknown }
@@ -212,11 +270,61 @@ export type ToolTraceStep =
       disagree: boolean;
       meta?: { durationMs?: number; truncated?: boolean };
     }
-  | { kind: "output_leak_blocked"; matchedFingerprints: string[] };
+  | { kind: "output_leak_blocked"; matchedFingerprints: string[] }
+  | {
+      kind: "reflection_scored";
+      /** initial = 初评；revised = 对修订稿的重评。 */
+      stage: "initial" | "revised";
+      scores: ReflectionScores;
+      average: number;
+      issues: ReflectionIssue[];
+      /** 按阈值算出来的「是否值得重写」，不是模型自说自话。 */
+      shouldRewrite: boolean;
+      reason: string;
+      meta?: { durationMs?: number; attempts?: number; truncated?: boolean };
+    }
+  | {
+      kind: "reflection_revised";
+      /** 是否把修订稿作为最终正文；影子模式下恒为 false。 */
+      adopted: boolean;
+      /** 修订稿均分是否高于初版。 */
+      improved: boolean;
+      beforeAverage: number;
+      afterAverage: number;
+      reason: string;
+    }
+  | {
+      kind: "reflection_skipped";
+      /** 跳过原因；面板用它解释「为什么没有评分 / 为什么没改」。 */
+      reason: string;
+      detail: string;
+    }
+  | {
+      kind: "memory_injected";
+      /** 本轮注入了几条长期记忆。 */
+      count: number;
+      /** 记忆层占用的估算 token。 */
+      tokens: number;
+      /** 注入明细（预算裁剪后真正留下的那几条）。 */
+      items: Array<{ id: string; key: string; value: string; similarity: number }>;
+    }
+  | {
+      kind: "memory_extracted";
+      /** 模型给出的候选条数。 */
+      candidates: number;
+      /** 真正落盘（或更新）的条目。 */
+      stored: Array<{ id: string; key: string; value: string }>;
+    };
 
 /** 单次请求的 token 用量摘要（来自 SSE usage 事件） */
 export interface UsageSnapshot {
-  endpoint?: "chat" | "chat/multi" | "rag/chat" | "chat/structured" | "chat/plan";
+  endpoint?:
+    | "chat"
+    | "chat/multi"
+    | "rag/chat"
+    | "chat/structured"
+    | "chat/plan"
+    | "chat/reflection";
   model: string;
   promptTokens: number;
   completionTokens: number;

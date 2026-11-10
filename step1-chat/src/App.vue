@@ -7,6 +7,7 @@ import { computed, ref, watch } from "vue";
 import { Bot, Eraser, RotateCcw, Send, Square } from "@lucide/vue";
 import ChatMessageItem from "./components/ChatMessageItem.vue";
 import ContextCompactionNotice from "./components/ContextCompactionNotice.vue";
+import MemoryPanel from "./components/MemoryPanel.vue";
 import PlanTimeline from "./components/PlanTimeline.vue";
 import RagHitPanel from "./components/RagHitPanel.vue";
 import ToolTracePanel from "./components/ToolTracePanel.vue";
@@ -62,6 +63,7 @@ const {
   planEnabled,
   planMode,
   planState,
+  reflectionEnabled,
   isStreaming,
   error,
   toolTrace,
@@ -69,6 +71,11 @@ const {
   usageSummary,
   serverMode,
   contextCompaction,
+  memoryUserId,
+  allowMemory,
+  memoryFacts,
+  memoryLoading,
+  memoryError,
   send,
   sendStructured,
   retry,
@@ -80,11 +87,25 @@ const {
   setMultiAgent,
   setPlanEnabled,
   setPlanMode,
+  refreshMemoryFacts,
+  setAllowMemory,
+  resetMemoryUserId,
+  updateMemory,
+  removeMemory,
+  clearMemories,
   resolveToolConfirm,
 } = useChat();
 // 输入框和滚动容器是纯视图 ref，不进入 useChat 的持久化状态。
 const input = ref("");
 const chatRef = ref<HTMLElement | null>(null);
+// 记忆管理浮层的开关；纯视图状态，面板本身的状态在 useChat 里。
+const memoryOpen = ref(false);
+
+/** 打开记忆面板时顺手刷新一次列表：可能刚刚在聊天里存了新记忆。 */
+function openMemoryPanel() {
+  memoryOpen.value = true;
+  void refreshMemoryFacts();
+}
 // text 保持原有普通聊天；table/code 切换到独立结构化协议。
 const structuredTarget = ref<StructuredTarget | "text">("text");
 
@@ -139,6 +160,20 @@ const emptyTitle = computed(() =>
       : structuredTarget.value === "code"
         ? "生成一段结构化代码"
         : "开始你的第一段对话",
+);
+
+/**
+ * 记忆注入目前只在单 Agent 普通对话链路（/api/chat）上接通了。
+ * 其余链路（RAG / 结构化 / 计划 / Reflection / 多 Agent）本阶段没接，
+ * 面板必须如实说明，否则会出现「记住了但没生效」的错觉。
+ */
+const memoryInjectionSupported = computed(
+  () =>
+    !ragMode.value &&
+    !isStructuredMode.value &&
+    !planEnabled.value &&
+    !reflectionEnabled.value &&
+    !multiAgent.value,
 );
 
 /** 最近一次资料问答的命中（挂在助手消息上），给面板用。 */
@@ -294,6 +329,15 @@ function togglePlanEnabled() {
             {{ option.label }}
           </option>
         </select>
+        <!-- 记忆管理入口：顶栏常驻，随时能看到「记忆开没开」。 -->
+        <button
+          class="mode-toggle memory-toggle"
+          :class="{ on: allowMemory }"
+          :title="allowMemory ? '长期记忆已开启，点击管理' : '长期记忆已关闭，点击管理'"
+          @click="openMemoryPanel"
+        >
+          记忆{{ allowMemory ? "开" : "关" }}
+        </button>
         <button
           class="icon-button"
           :disabled="isStreaming || messages.length === 0"
@@ -451,6 +495,7 @@ function togglePlanEnabled() {
           v-if="!ragMode"
           :steps="toolTrace"
           :confirm-enabled="isStreaming"
+          :memory-enabled="allowMemory"
           @confirm="resolveToolConfirm"
         />
         <UsagePanel
@@ -460,6 +505,36 @@ function togglePlanEnabled() {
           :compaction="contextCompaction"
         />
       </aside>
+    </div>
+
+    <!-- 记忆管理浮层：点遮罩关闭，内容超出时面板内部滚动。 -->
+    <div v-if="memoryOpen" class="memory-overlay" @click.self="memoryOpen = false">
+      <div class="memory-dialog" role="dialog" aria-label="记忆管理">
+        <header class="dialog-head">
+          <strong>记忆管理</strong>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="关闭记忆管理"
+            @click="memoryOpen = false"
+          >
+            ×
+          </button>
+        </header>
+        <MemoryPanel
+          :facts="memoryFacts"
+          :allow-memory="allowMemory"
+          :user-id="memoryUserId"
+          :loading="memoryLoading"
+          :error="memoryError"
+          :injection-supported="memoryInjectionSupported"
+          @update:allow-memory="setAllowMemory"
+          @update-fact="(payload) => updateMemory(payload.id, payload.patch)"
+          @delete-fact="(id) => removeMemory(id)"
+          @clear-all="clearMemories"
+          @reset-identity="resetMemoryUserId"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -471,5 +546,39 @@ function togglePlanEnabled() {
   height: 26px;
   font-size: 12px;
   color: var(--muted);
+}
+/* 记忆入口紧跟模式按钮，用状态色区分「开着」还是「关着」。 */
+.memory-toggle.on {
+  color: #065f46;
+  background: #d1fae5;
+  border-color: #6ee7b7;
+}
+.memory-toggle:not(.on) {
+  color: var(--muted);
+}
+.memory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.35);
+}
+.memory-dialog {
+  width: min(560px, 100%);
+  max-height: min(82vh, 720px);
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+}
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
 }
 </style>

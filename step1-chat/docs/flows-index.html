@@ -65,6 +65,8 @@
     <a href="#plan-execute">0c 计划执行</a>
     <a href="#long-context">0d 长上下文</a>
     <a href="#judge">0e LLM-as-Judge</a>
+    <a href="#reflection">0f Reflection</a>
+    <a href="#memory">0g Memory</a>
     <a href="#chat-react">1 单 Agent</a>
     <a href="#chat-multi">2 多 Agent</a>
     <a href="#rag-chat">3 资料问答</a>
@@ -120,6 +122,24 @@
     </div>
     <img src="./llm-judge-flow.svg" alt="LLM-as-Judge 语义判定：三个判定面到双层防线、决策层、trace 与离线评测的完整流程">
     <figcaption>llm-judge-flow.svg — 判定面(input/retrieval/output) · 正则与 Judge 双层防线 · JudgeSchema 成功/错误双分支 · off/shadow/enforce 三档 · judge_shadow / judge_enforced trace · 70 条离线评测与七条 enforce 准入阈值</figcaption>
+  </figure>
+
+  <figure id="reflection">
+    <div class="fhead">
+      <span class="no">0f · Reflection 自我评估与重写（阶段 7 · 已实现 / enforce 未准入）</span>
+      <span class="doc-link">文档 <a href="./reflection.md">reflection.md</a> · 变更记录 <a href="./reflection-changelog.md">reflection-changelog.md</a> · 拓扑 <a href="./project-topology.html#reflection">§6g</a></span>
+    </div>
+    <img src="./reflection-flow.svg" alt="Reflection 自我评估与重写：独立端点与三档模式、Critic 四维评分与失败分支、阈值裁决、重写与事实守卫、重评回退与 trace 事件、与 Judge 的分层、离线评测准入">
+    <figcaption>reflection-flow.svg — 独立端点 POST /api/chat/reflection · off/shadow/enforce 三档 · CritiqueSchema ok/error 双分支 · 阈值 shouldRewriteByThreshold(=3) · 重写受限上下文 + 事实守卫 · 重评不更优回退初版 · reflection_scored / reflection_revised / reflection_skipped trace · 与 Judge 分层 · 8 条 mock 评测</figcaption>
+  </figure>
+
+  <figure id="memory">
+    <div class="fhead">
+      <span class="no">0g · 跨会话记忆 Memory（阶段 8 · 已实现 / 四链路未接入）</span>
+      <span class="doc-link">文档 <a href="./memory.md">memory.md</a> · 变更记录 <a href="./memory-changelog.md">memory-changelog.md</a> · 模块说明 <a href="../server/memory/README.md">memory/README.md</a> · 拓扑 <a href="./project-topology.html#memory">§6h</a></span>
+    </div>
+    <img src="./memory-flow.svg" alt="跨会话记忆 Memory：前端开关与匿名 userId、检索阈值 0.45 与 Top-5 注入、预算裁剪与资料口径渲染、旁路抽取与敏感信息两道闸、去重合并与原子落盘、记忆管理接口与面板、trace 事件、四链路接入现状">
+    <figcaption>memory-flow.svg — 开关与匿名 userId + 服务端入口校验 · 检索内核 retrieveRelevantFacts 与阈值 0.45 / Top-5 · renderMemoryBlock + 预算裁剪（200 token / 10%）· 旁路抽取 + 两道敏感信息闸 · mergeIncomingFact（冲突不自动覆盖）+ 原子落盘 · /api/memory 与前端面板 · memory_injected / memory_extracted / memory_failed · 四链路（multi/plan/rag/structured）未接入现状</figcaption>
   </figure>
 
   <figure id="chat-react">
@@ -208,6 +228,8 @@
     <p class="dnote">这几份文档没有配套 SVG，但同样属于本项目的正式记录。</p>
     <ul>
       <li><a href="./mcp-usage.md">mcp-usage.md</a> — <strong>MCP 对外接入</strong>：外部客户端配置写法（<code>command</code>/<code>args</code>/<code>cwd</code> 三件套）· 各客户端配置位置 · 暴露哪些工具 · 验证步骤 · 五个坑</li>
+      <li><a href="./reflection.md">reflection.md</a> — <strong>阶段 7 Reflection</strong>：自我评估偏差 · 与 Judge 分层 · 默认不启用条件 · <a href="./reflection-changelog.md">reflection-changelog.md</a> 变更记录 · <a href="../server/reflection/README.md">reflection/README.md</a> 模块说明</li>
+      <li><a href="./memory.md">memory.md</a> — <strong>阶段 8 Memory</strong>：跨会话记忆 · 事实记忆 vs 语义记忆选型对比 · 隐私设计 · <a href="./memory-changelog.md">memory-changelog.md</a> 变更记录 · <a href="../server/memory/README.md">memory/README.md</a> 模块说明 · <a href="./project-topology.html#memory">拓扑 §6h</a></li>
     </ul>
   </div>
 
@@ -244,6 +266,104 @@
           <li><code>evals/types.ts</code> — 评测用例与结果类型</li>
           <li><code>package.json</code> — 新增 eval:judge / judge:check</li>
           <li><code>tsconfig.server.json</code> — 纳入新增服务端与评测文件</li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="docbox" id="reflection-files">
+    <h2>10 · 阶段 7 文件清单（Reflection · 已实现 / enforce 未准入）</h2>
+    <p class="dnote">
+      本阶段涉及的每一个文件都在这里；逐项改动说明见 <a href="./reflection-changelog.md">reflection-changelog.md</a>，
+      内核模块说明见 <a href="../server/reflection/README.md">reflection/README.md</a>，
+      方法级拓扑见 <a href="./project-topology.html#reflection">project-topology.html §6g</a>，
+      细泳道流程图见 <a href="./reflection-flow.svg">reflection-flow.svg</a>。
+      路径中的 <code>reflection/</code> 指服务端 reflection 目录，<code>routes/</code> 指服务端路由目录。
+    </p>
+    <ul>
+      <li><strong>新增（16）</strong>
+        <ul>
+          <li><code>reflection/types.ts</code> — 评分契约：判别联合 <span class="fn">CritiqueSchema</span> · <code>schemaVersion</code> · 字段上限 <code>REFLECTION_LIMITS</code> · 构造与截断工具</li>
+          <li><code>reflection/text.ts</code> — 共用小工具：<span class="fn">truncateMiddle</span> · <span class="fn">stripCodeFence</span></li>
+          <li><code>reflection/critic.ts</code> — Critic：拼提示词 · 调模型 · 结构化解析 · 失败不伪造分数 · 阈值规则 <span class="fn">shouldRewriteByThreshold</span></li>
+          <li><code>reflection/revise.ts</code> — 重写：只拿问题 / 工具事实 / draft / 修订指令（请求中无 tools 字段）· 事实守卫 <span class="fn">detectUnsupportedFacts</span></li>
+          <li><code>reflection/README.md</code> — 模块说明：职责边界 · 关键契约 · 失败路径 · 扩展指引</li>
+          <li><code>reflection/types.test.ts</code> · <code>reflection/critic.test.ts</code> · <code>reflection/revise.test.ts</code> — 契约 / Critic / 重写单测</li>
+          <li><code>routes/chatReflection.ts</code> — 端点 <code>POST /api/chat/reflection</code>：校验 → draft → 评分 → 可选重写 → SSE → dispose</li>
+          <li><code>routes/chatReflection.test.ts</code> — 端点单测：事件顺序 · skip 原因 · 模式回落</li>
+          <li><code>evals/dataset-reflection.json</code> · <code>evals/reflectionDataset.ts</code> — A/B 数据集与校验</li>
+          <li><code>scripts/run-reflection-evals.ts</code> — A/B 评测 CLI（质量分 / 延迟 / token / 成本 四列对比）</li>
+          <li><code>evals/reflection-comparison-report.md</code> — 评测报告（当前为 mock 数据）</li>
+          <li><code>docs/reflection.md</code> · <code>docs/reflection-changelog.md</code> — 阶段说明与变更记录</li>
+          <li><code>docs/reflection-flow.svg</code> — 阶段 7 细泳道流程图（索引页 0f 引用）</li>
+        </ul>
+      </li>
+      <li><strong>修改（11）</strong>
+        <ul>
+          <li><code>routes/index.ts</code> — 注册 <code>/api/chat/reflection</code></li>
+          <li><code>runtimeConfig.ts</code> — 新增 <code>reflection.mode</code>（off / shadow / enforce，默认 off）</li>
+          <li><code>usage/accumulator.ts</code> · <code>usage/types.ts</code> — 用量来源新增 <code>critic</code> / <code>revise</code></li>
+          <li><code>src/types.ts</code> — <code>ToolTraceStep</code> 新增 <code>reflection_scored</code> / <code>reflection_revised</code> / <code>reflection_skipped</code></li>
+          <li><code>api/chat.ts</code> — 新增 <span class="fn">streamReflection</span>（SSE 解析）</li>
+          <li><code>composables/useChat.ts</code> — <code>onTrace</code> push 反思事件</li>
+          <li><code>ToolTracePanel.vue</code> — 三种 kind 渲染分支（rubric 只在调试面板，不入正文）</li>
+          <li><code>tsconfig.server.json</code> — 纳入新增服务端、评测与脚本文件</li>
+          <li><code>docs/flows-index.html</code> — 本页：新增 0f Reflection 入口与阶段 7 文件清单</li>
+          <li><code>docs/project-topology.html</code> — 拓扑页：新增 §6g Reflection</li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="docbox" id="memory-files">
+    <h2>11 · 阶段 8 文件清单（Memory · 已实现 / 四链路未接入）</h2>
+    <p class="dnote">
+      本阶段涉及的每一个文件都在这里；逐项改动说明见 <a href="./memory-changelog.md">memory-changelog.md</a>，
+      内核模块说明见 <a href="../server/memory/README.md">memory/README.md</a>，
+      方法级拓扑见 <a href="./project-topology.html#memory">project-topology.html §6h</a>，
+      细泳道流程图见 <a href="./memory-flow.svg">memory-flow.svg</a>。
+      路径中的 <code>memory/</code> 指服务端记忆目录，<code>routes/</code> 指服务端路由目录，
+      <code>api/</code>、<code>components/</code>、<code>composables/</code> 指前端对应目录。
+    </p>
+    <ul>
+      <li><strong>新增（18）</strong>
+        <ul>
+          <li><code>memory/types.ts</code> — 线协议：<span class="fn">MemoryFact</span> · <span class="fn">MemoryExtractResult</span> · 阈值常量 · userId 规则 · <span class="fn">MemoryTraceEvent</span></li>
+          <li><code>memory/store.ts</code> — 存储：路径解析 · 用户级锁 · 临时文件 + 原子 rename · 软删除 · embedding 回写 · 损坏自愈</li>
+          <li><code>memory/extract.ts</code> — 抽取器：脱敏 · 提示词 · 结构化解析 · <span class="fn">createMemoryModelCaller</span></li>
+          <li><code>memory/merge.ts</code> — 去重合并：<span class="fn">mergeFactByKey</span> · 冲突标记 · 语义合并 · 补向量</li>
+          <li><code>memory/retrieve.ts</code> — 检索：<span class="fn">retrieveRelevantFacts</span> · 阈值 0.45 · Top-5 · 缺向量补算</li>
+          <li><code>memory/context.ts</code> — 渲染：<span class="fn">renderMemoryBlock</span> · <span class="fn">MEMORY_BLOCK_HEADER</span>（资料口径）</li>
+          <li><code>memory/pipeline.ts</code> — 编排：<span class="fn">extractAndStoreFacts</span>（抽取 -&gt; 合并 -&gt; 落盘）</li>
+          <li><code>memory/embedder.ts</code> — 向量化：<span class="fn">defaultMemoryEmbedder</span> · <span class="fn">cosineSimilarity</span> · <span class="fn">tryEmbed</span></li>
+          <li><code>memory/README.md</code> — 模块说明：职责边界 · 关键契约 · 失败路径 · 扩展指引</li>
+          <li><code>routes/memory.ts</code> — <code>/api/memory</code>：列表 / 新增 / 修改 / 删除 / 清空</li>
+          <li><code>api/memory.ts</code> — 前端记忆接口封装</li>
+          <li><code>components/MemoryPanel.vue</code> — 前端记忆面板：列出 / 改 / 删 / 清空 / 冲突裁决</li>
+          <li><code>scripts/test-memory.ts</code> — 跨会话 / 语义 spike / 并发与损坏自愈（<code>npm run test:memory</code>）</li>
+          <li><code>scripts/test-chat-chains.ts</code> — 五链路 + 记忆接口回归（<code>npm run test:chains</code>）</li>
+          <li><code>scripts/check-memory-recall.ts</code> — 检索阈值标定 CLI（相关对 / 无关对相似度分布）</li>
+          <li><code>docs/memory.md</code> · <code>docs/memory-changelog.md</code> — 阶段说明与变更记录</li>
+          <li><code>docs/memory-flow.svg</code> — 阶段 8 细泳道流程图（索引页 0g 引用）</li>
+        </ul>
+      </li>
+      <li><strong>修改（15）</strong>
+        <ul>
+          <li><code>chat.ts</code> — <span class="fn">retrieveMemoryBlock</span> · <span class="fn">scheduleMemoryExtraction</span> · <code>MEMORY_INJECT_LIMIT</code> · <code>MEMORY_EXTRACT_TIMEOUT_MS</code></li>
+          <li><code>routes/chat.ts</code> — 透传 <code>userId</code> / <code>allowMemory</code> 到单 Agent 链路</li>
+          <li><code>routes/index.ts</code> — 注册 <code>/api/memory</code></li>
+          <li><code>context/buildContext.ts</code> — 记忆块预算裁剪（<code>MEMORY_CONTEXT_TOKEN_CAP</code> / <code>MEMORY_CONTEXT_BUDGET_RATIO</code>）</li>
+          <li><code>context/types.ts</code> — <code>ContextMemoryBlock</code> / <code>ContextMemoryItem</code> · 记忆 id 与 token 统计</li>
+          <li><code>usage/accumulator.ts</code> — 用量来源新增 <code>memory</code></li>
+          <li><code>api/chat.ts</code> — 请求体带 <code>userId</code> / <code>allowMemory</code> · SSE 解析三个记忆事件</li>
+          <li><code>composables/useChat.ts</code> — <code>memoryUserId</code> / <code>allowMemory</code> / <code>memoryFacts</code> 状态与增删改清空</li>
+          <li><code>App.vue</code> — 顶栏记忆开关 · 记忆管理浮层 · <code>memoryInjectionSupported</code> 口径</li>
+          <li><code>components/ToolTracePanel.vue</code> — 三个记忆事件的渲染分支（注入明细含相似度）</li>
+          <li><code>types.ts</code> — 前端补三个记忆 trace 事件类型</li>
+          <li><code>package.json</code> — 新增 <code>test:memory</code> / <code>test:chains</code></li>
+          <li><code>tsconfig.server.json</code> — 纳入新增服务端与脚本文件</li>
+          <li><code>docs/flows-index.html</code> — 本页：新增 0g Memory 入口与阶段 8 文件清单</li>
+          <li><code>docs/project-topology.html</code> — 拓扑页：新增 §6h Memory</li>
         </ul>
       </li>
     </ul>

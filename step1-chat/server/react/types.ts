@@ -1,4 +1,5 @@
 import type { ContextCompactionEvent } from "../context/types.js";
+import type { MemoryTraceEvent } from "../memory/types.js";
 
 /** ReAct 循环里发给模型的普通对话句（不含 tool 回填）。 */
 export interface TextMessage {
@@ -135,7 +136,8 @@ export type ToolTraceHandler = (
     | { type: "output_leak_blocked"; matchedFingerprints: string[] }
     | JudgeShadowTraceEvent
     | JudgeEnforcedTraceEvent
-    | ContextCompactionEvent,
+    | ContextCompactionEvent
+    | MemoryTraceEvent,
 ) => void;
 
 /** ReAct 循环需要的最小选项，不绑死 chat.ts。 */

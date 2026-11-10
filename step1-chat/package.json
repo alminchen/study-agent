@@ -36,7 +36,9 @@
         "eval:plan": "tsx scripts/run-plan-evals.ts",
         "eval:judge": "tsx scripts/run-judge-evals.ts",
         "judge:check": "tsx scripts/check-judge-dataset.ts",
-        "test:long-context": "tsx scripts/test-long-context.ts"
+    "test:long-context": "tsx scripts/test-long-context.ts",
+    "test:memory": "tsx scripts/test-memory.ts",
+    "test:chains": "tsx scripts/test-chat-chains.ts"
     },
     "dependencies": {
         "@huggingface/transformers": "^4.2.0",

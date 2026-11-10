@@ -35,6 +35,9 @@ import type { TokenUsage, UsageRecord, UsageSnapshot } from "./types.js";
  * - structured — 结构化输出 streamStructuredCompletion
  * - plan       — Plan-and-Execute 的 Planner / Executor / Re-plan / 最终回答
  * - summary    — 长上下文管理的摘要生成 summarizeDroppedMessages
+ * - critic     — Reflection 的质量评分 critique
+ * - revise     — Reflection 的重写 revise
+ * - memory     — Memory 的事实抽取 extractMemoryFacts
  */
 export type UsageSource =
   | "askModel"
@@ -46,7 +49,10 @@ export type UsageSource =
   | "ragHyde"
   | "structured"
   | "plan"
-  | "summary";
+  | "summary"
+  | "critic"
+  | "revise"
+  | "memory";
 
 /**
  * 单次 HTTP 请求内的 Token 累加器。

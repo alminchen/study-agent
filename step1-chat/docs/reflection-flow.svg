@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 2040" width="1480" height="2040" role="img" aria-label="Reflection Flow">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #475569; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+    ]]></style>
+  </defs>
+  <rect width="1480" height="2040" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">Reflection 自我评估与重写（阶段 7）</text>
+  <text x="40" y="66" class="subtitle">Critic 打四维分 → 代码按固定阈值裁决要不要重写 → 事实守卫 → 重评不更优就回退初版</text>
+
+  <!-- ========== 1 接入面与模式 ========== -->
+  <g transform="translate(40, 110)">
+    <text x="0" y="0" class="phase">① 接入面：独立端点 + 三档模式</text>
+    <rect x="20" y="20" width="690" height="180" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="365" y="50" text-anchor="middle" class="box">端点 · POST /api/chat/reflection</text>
+    <text x="365" y="74" text-anchor="middle" class="file">routes/chatReflection.ts · registerChatReflectionRoutes</text>
+    <text x="365" y="96" text-anchor="middle" class="file">reflection/types.ts · ReflectionChatRequestSchema</text>
+    <text x="365" y="124" text-anchor="middle" class="label">输入：question / toolFacts / draft</text>
+    <text x="365" y="146" text-anchor="middle" class="note">校验失败 → 400；正文一次性推完（可能被整体替换）</text>
+    <text x="365" y="170" text-anchor="middle" class="note">模式由服务端决定，请求只能往下调</text>
+
+    <rect x="760" y="20" width="660" height="180" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="1090" y="50" text-anchor="middle" class="box">模式 REFLECTION_MODE（runtimeConfig · reflection.mode）</text>
+    <text x="1090" y="78" text-anchor="middle" class="label">off（默认）：不调模型 · 零额外开销</text>
+    <text x="1090" y="102" text-anchor="middle" class="label">shadow：跑完整管线 · 只报告不改正文</text>
+    <text x="1090" y="126" text-anchor="middle" class="label">enforce：触发阈值且重写通过时采用修订稿</text>
+    <text x="1090" y="152" text-anchor="middle" class="warn">非法模式一律回落 off</text>
+    <text x="1090" y="176" text-anchor="middle" class="note">与 Judge 的 judge.mode 互不影响</text>
+  </g>
+
+  <path d="M405,310 L405,376" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 2 Critic 评分 ========== -->
+  <g transform="translate(40, 360)">
+    <text x="0" y="0" class="phase">② Critic 评分：四维打分，失败不伪造分数</text>
+    <rect x="20" y="20" width="430" height="180" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="235" y="50" text-anchor="middle" class="box">评分内核 · critique()</text>
+    <text x="235" y="74" text-anchor="middle" class="file">reflection/critic.ts</text>
+    <text x="235" y="96" text-anchor="middle" class="file">reflection/text.ts · truncateMiddle</text>
+    <text x="235" y="124" text-anchor="middle" class="label">四维：相关性 / 完整性 / 事实依据 / 清晰度</text>
+    <text x="235" y="146" text-anchor="middle" class="label">各取 1~5 整数 · 缺项即失败</text>
+    <text x="235" y="170" text-anchor="middle" class="note">模型调用注入式（无 fetch）· 超时重试 2 次</text>
+
+    <rect x="505" y="20" width="430" height="180" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="720" y="50" text-anchor="middle" class="box">输出契约 · CritiqueSchema（判别联合）</text>
+    <text x="720" y="74" text-anchor="middle" class="file">status ok → scores / issues / reason</text>
+    <text x="720" y="96" text-anchor="middle" class="file">status error → errorKind / retries / raw</text>
+    <text x="720" y="124" text-anchor="middle" class="label">schemaVersion = reflection.v1</text>
+    <text x="720" y="146" text-anchor="middle" class="label">LIMITS：issues≤10 · issue≤200 · 指令≤2000</text>
+    <text x="720" y="170" text-anchor="middle" class="note">error 分支不含任何分数字段</text>
+
+    <rect x="990" y="20" width="430" height="180" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1205" y="50" text-anchor="middle" class="box">失败路径（互斥四类）</text>
+    <text x="1205" y="74" text-anchor="middle" class="file">timeout | bad_json | api_error | schema_error</text>
+    <text x="1205" y="96" text-anchor="middle" class="file">重试 2 次仍失败 → status = error</text>
+    <text x="1205" y="124" text-anchor="middle" class="label">raw(≤500) 截断保留</text>
+    <text x="1205" y="146" text-anchor="middle" class="warn">评分失败 ≠ 答案有问题</text>
+    <text x="1205" y="170" text-anchor="middle" class="warn">失败 → 不重写 · 直接返回初版</text>
+
+    <path d="M450,110 L505,110" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+    <text x="477" y="100" text-anchor="middle" class="label-em">结构化解析</text>
+    <path d="M935,110 L990,110" stroke="#dc2626" stroke-width="1.6" fill="none" marker-end="url(#arrowRed)"/>
+    <text x="962" y="100" text-anchor="middle" class="warn">超时/非法</text>
+  </g>
+
+  <path d="M760,560 L760,616" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 3 阈值裁决 ========== -->
+  <g transform="translate(40, 640)">
+    <text x="0" y="0" class="phase">③ 阈值裁决：代码说了算，模型自评不越权</text>
+    <rect x="20" y="20" width="1400" height="96" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="720" y="48" text-anchor="middle" class="box">shouldRewriteByThreshold(scores, issues) · REFLECTION_REWRITE_THRESHOLD = 3</text>
+    <text x="720" y="72" text-anchor="middle" class="label">任一维 ≤ 3 → 触发重写    ·    存在 groundedness 问题 → 触发重写</text>
+    <text x="720" y="96" text-anchor="middle" class="warn">模型给的 shouldRewrite 只作参考：既不能越过阈值自己触发，也不能阻止阈值触发</text>
+
+    <rect x="20" y="140" width="690" height="90" rx="8" fill="#fff7ed" stroke="#ea580c"/>
+    <text x="365" y="170" text-anchor="middle" class="box">触发 → 进入重写</text>
+    <text x="365" y="194" text-anchor="middle" class="label">四维分偏低 或 事实依据有硬伤</text>
+    <text x="365" y="216" text-anchor="middle" class="note">revisionInstructions 必填（Schema 强校验）</text>
+
+    <rect x="760" y="140" width="660" height="90" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="1090" y="170" text-anchor="middle" class="box">不触发 → 沿用初版 draft</text>
+    <text x="1090" y="194" text-anchor="middle" class="label">reflection_skipped(no_rewrite_needed)</text>
+    <text x="1090" y="216" text-anchor="middle" class="note">不调用重写模型</text>
+  </g>
+
+  <path d="M405,870 L405,896 L275,896 L275,916" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 4 重写 ========== -->
+  <g transform="translate(40, 900)">
+    <text x="0" y="0" class="phase">④ 重写：受限上下文 + 事实守卫</text>
+    <rect x="20" y="20" width="430" height="190" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="235" y="50" text-anchor="middle" class="box">重写内核 · revise()</text>
+    <text x="235" y="74" text-anchor="middle" class="file">reflection/revise.ts</text>
+    <text x="235" y="96" text-anchor="middle" class="file">输入只有四项：question / toolFacts / draft / instructions</text>
+    <text x="235" y="124" text-anchor="middle" class="label">请求中无 tools 字段</text>
+    <text x="235" y="146" text-anchor="middle" class="label">→ 结构上不可能调用工具</text>
+    <text x="235" y="170" text-anchor="middle" class="note">输出为纯文本（无结构化字段）</text>
+    <text x="235" y="194" text-anchor="middle" class="warn">模型调用注入式 · 超时重试 2 次</text>
+
+    <rect x="505" y="20" width="430" height="190" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="720" y="50" text-anchor="middle" class="box">事实守卫</text>
+    <text x="720" y="74" text-anchor="middle" class="file">detectUnsupportedFacts(text, sources)</text>
+    <text x="720" y="96" text-anchor="middle" class="file">extractFactTokens(text)</text>
+    <text x="720" y="124" text-anchor="middle" class="label">新出现的事实型 token 必须在工具事实</text>
+    <text x="720" y="146" text-anchor="middle" class="label">或原答案中找得到，否则判定编造</text>
+    <text x="720" y="170" text-anchor="middle" class="note">只比事实，不比文风</text>
+    <text x="720" y="194" text-anchor="middle" class="warn">命中即作废重写</text>
+
+    <rect x="990" y="20" width="430" height="190" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1205" y="50" text-anchor="middle" class="box">重写结果四态</text>
+    <text x="1205" y="74" text-anchor="middle" class="file">ok / no_change / rejected / error</text>
+    <text x="1205" y="96" text-anchor="middle" class="file">ok → 进入重评</text>
+    <text x="1205" y="118" text-anchor="middle" class="file">no_change → 回退初版</text>
+    <text x="1205" y="140" text-anchor="middle" class="file">rejected → 事实守卫命中，回退初版</text>
+    <text x="1205" y="162" text-anchor="middle" class="file">error → 调用失败，回退初版</text>
+    <text x="1205" y="186" text-anchor="middle" class="warn">非 ok 一律回退初版</text>
+
+    <path d="M450,115 L505,115" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+    <text x="477" y="105" text-anchor="middle" class="label-em">修订稿</text>
+    <path d="M935,115 L990,115" stroke="#dc2626" stroke-width="1.6" fill="none" marker-end="url(#arrowRed)"/>
+    <text x="962" y="105" text-anchor="middle" class="warn">越界/失败</text>
+  </g>
+
+  <path d="M1245,1110 L1245,1146 L405,1146 L405,1176" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 5 重评与回退 ========== -->
+  <g transform="translate(40, 1160)">
+    <text x="0" y="0" class="phase">⑤ 重评 · 回退 · trace 事件</text>
+    <rect x="20" y="20" width="690" height="150" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="365" y="50" text-anchor="middle" class="box">重评：第二次 critique</text>
+    <text x="365" y="74" text-anchor="middle" class="file">reflection_scored(stage = revised)</text>
+    <text x="365" y="96" text-anchor="middle" class="label">用 averageScore 与初评比较</text>
+    <text x="365" y="118" text-anchor="middle" class="warn">不优于初版 → 回退初版（no_improvement）</text>
+    <text x="365" y="142" text-anchor="middle" class="note">评分失败 → rescore_failed，同样回退初版</text>
+
+    <rect x="760" y="20" width="660" height="150" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="1090" y="50" text-anchor="middle" class="box">trace 事件（调试面板可见）</text>
+    <text x="1090" y="74" text-anchor="middle" class="file">reflection_scored / reflection_revised / reflection_skipped</text>
+    <text x="1090" y="96" text-anchor="middle" class="label">revised 带 adopted · improved 字段</text>
+    <text x="1090" y="118" text-anchor="middle" class="label">rubric 只在面板，不入正文</text>
+    <text x="1090" y="142" text-anchor="middle" class="note">用量来源：critic / revise 独立计费</text>
+
+    <rect x="20" y="190" width="1400" height="86" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="720" y="216" text-anchor="middle" class="box">reflection_skipped 的 10 种 reason</text>
+    <text x="720" y="240" text-anchor="middle" class="file">off · mock_mode · critique_failed · no_rewrite_needed · revise_failed</text>
+    <text x="720" y="262" text-anchor="middle" class="file">revise_rejected · revise_no_change · rescore_failed · no_improvement · shadow_mode</text>
+
+    <path d="M405,370 L760,370" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+    <rect x="760" y="330" width="660" height="80" rx="8" fill="#f8fafc" stroke="#334155"/>
+    <text x="1090" y="358" text-anchor="middle" class="box">最终正文（SSE 一次性推完）</text>
+    <text x="1090" y="382" text-anchor="middle" class="note">采用修订稿，或沿用初版 —— 失败一律沿用初版</text>
+  </g>
+
+  <!-- ========== 6 与 Judge 分层 ========== -->
+  <g transform="translate(40, 1580)">
+    <text x="0" y="0" class="phase">⑥ 与 Judge 的分层：降级方向相反</text>
+    <rect x="20" y="20" width="690" height="140" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="365" y="50" text-anchor="middle" class="box">Judge（阶段 6）</text>
+    <text x="365" y="74" text-anchor="middle" class="label">决定「要不要拦」</text>
+    <text x="365" y="96" text-anchor="middle" class="label">失败降级 → 更严（正则 Guard 兜底）</text>
+    <text x="365" y="118" text-anchor="middle" class="label">作用对象：输入 / 检索片段 / 输出</text>
+    <text x="365" y="140" text-anchor="middle" class="label">配置 judge.mode</text>
+
+    <rect x="760" y="20" width="660" height="140" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="1090" y="50" text-anchor="middle" class="box">Reflection（阶段 7）</text>
+    <text x="1090" y="74" text-anchor="middle" class="label">决定「要不要改」</text>
+    <text x="1090" y="96" text-anchor="middle" class="label">失败降级 → 更弱（返回初版 draft）</text>
+    <text x="1090" y="118" text-anchor="middle" class="label">作用对象：已生成的初版答案</text>
+    <text x="1090" y="140" text-anchor="middle" class="label">配置 reflection.mode</text>
+
+    <text x="720" y="188" text-anchor="middle" class="note">两套 schema、两套提示词、两套阈值、两套 trace 事件，全部独立不复用</text>
+  </g>
+
+  <!-- ========== 7 评测与准入 ========== -->
+  <g transform="translate(40, 1830)">
+    <rect x="20" y="20" width="1400" height="120" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="720" y="48" text-anchor="middle" class="box">离线评测：evals/dataset-reflection.json · scripts/run-reflection-evals.ts</text>
+    <text x="720" y="72" text-anchor="middle" class="label">8 条（当前 mock）：触发重写 6/8 · 采纳 6/8 · 预期一致 75%</text>
+    <text x="720" y="96" text-anchor="middle" class="warn">mock 只证明管线跑通，不构成质量结论 → enforce 未准入，默认仍为 off</text>
+    <text x="720" y="118" text-anchor="middle" class="file">报告：evals/reflection-comparison-report.md</text>
+    <text x="40" y="178" class="file">阶段计划与执行记录：tasks/reflection-plan.md</text>
+  </g>
+</svg>

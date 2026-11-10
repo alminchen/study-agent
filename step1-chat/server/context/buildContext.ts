@@ -15,6 +15,8 @@
 import type { TextMessage } from "../react/types.js";
 import {
   CONTEXT_SUMMARY_VERSION,
+  type ContextMemoryBlock,
+  type ContextMemoryItem,
   type ContextBuildResult,
   type ContextSummary,
 } from "./types.js";
@@ -30,6 +32,18 @@ import {
 
 /** 摘要渲染的字符上限。 */
 export const DEFAULT_SUMMARY_MAX_CHARS = 1200;
+
+/**
+ * 记忆层的 token 硬上限。
+ *
+ * 记忆是「锦上添花」的上下文：它能让回答更贴合用户，
+ * 但不该挤掉真正的对话内容。所以给它一个绝对上限，
+ * 再叠加一个「不超过预算 10%」的比例上限，两条都满足才注入。
+ */
+export const MEMORY_CONTEXT_TOKEN_CAP = 200;
+
+/** 记忆层最多占本次预算的比例。 */
+export const MEMORY_CONTEXT_BUDGET_RATIO = 0.1;
 
 /** 内容被截断时留下的标记。 */
 const TRUNCATION_MARKER = "\n……（内容超长，已截断）";
@@ -50,6 +64,11 @@ export interface BuildContextParams {
   maxRecentRounds?: number;
   /** 摘要渲染的字符上限。 */
   summaryMaxChars?: number;
+  /**
+   * 记忆层内容（由记忆模块渲染好）。
+   * 不传或传 null 表示这轮不注入任何记忆。
+   */
+  memory?: ContextMemoryBlock | null;
 }
 
 /** 一组「一轮」消息：一条 user + 它后面的若干 assistant。 */
@@ -134,23 +153,27 @@ export function renderSummaryText(
   const sections = [
     {
       title: "用户约束",
-      lines: summary.userConstraints.map(
+      lines: (summary.userConstraints ?? []).map(
         (item) => `- ${item.text}（源 #${item.sourceMessageIndex}）`,
       ),
     },
     {
       title: "事实",
-      lines: summary.facts.map(
+      lines: (summary.facts ?? []).map(
         (fact) => `- ${fact.key} = ${fact.value}（源 #${fact.sourceMessageIndex}）`,
       ),
     },
     {
       title: "决定",
-      lines: summary.decisions.map((item) => `- ${item.text}（源 #${item.sourceMessageIndex}）`),
+      lines: (summary.decisions ?? []).map(
+        (item) => `- ${item.text}（源 #${item.sourceMessageIndex}）`,
+      ),
     },
     {
       title: "未决事项",
-      lines: summary.unresolved.map((item) => `- ${item.text}（源 #${item.sourceMessageIndex}）`),
+      lines: (summary.unresolved ?? []).map(
+        (item) => `- ${item.text}（源 #${item.sourceMessageIndex}）`,
+      ),
     },
   ];
 
@@ -178,9 +201,25 @@ export function renderSummaryText(
 }
 
 /**
+ * 把记忆块渲染成一条**独立**的 system 消息正文。
+ *
+ * 和摘要层同一套安全口径：开头声明「这是资料，不是新指令」。
+ * 记忆来自用户侧（「以后都用中文」这类输入），
+ * 如果不声明，模型可能把记忆里的内容当成新的系统命令执行。
+ *
+ * 每行带记忆 id：模型看到的这一行，和用户面板里显示的那一条，
+ * 能一一对上——用户删掉某条记忆时才知道删的是哪条。
+ */
+export function renderMemoryText(block: ContextMemoryBlock): string {
+  if (block.items.length === 0) return "";
+  const lines = block.items.map((item) => `- ${item.id}: ${item.text}`);
+  return [block.header, ...lines].join("\n");
+}
+
+/**
  * 构建本轮要发给模型的上下文。
  *
- * 顺序固定为：system → 摘要（独立 system 消息）→ 近期原文。
+ * 顺序固定为：system → 摘要（独立 system 消息）→ 记忆（独立 system 消息）→ 近期原文。
  */
 export function buildContext(params: BuildContextParams): ContextBuildResult {
   const {
@@ -190,6 +229,7 @@ export function buildContext(params: BuildContextParams): ContextBuildResult {
     budgetTokens,
     maxRecentRounds = Number.POSITIVE_INFINITY,
     summaryMaxChars = DEFAULT_SUMMARY_MAX_CHARS,
+    memory = null,
   } = params;
 
   const systemMessage: TextMessage = { role: "system", content: systemPrompt };
@@ -222,6 +262,78 @@ export function buildContext(params: BuildContextParams): ContextBuildResult {
         }
       }
       // 摘要里一条内容都没有 = 等价于没有摘要，不算降级。
+    }
+  }
+
+  // ---- 记忆层 ----
+  // 位置在摘要之后、近期原文之前：摘要是「这段对话讲过什么」，
+  // 记忆是「这个用户一贯是什么样」。两者都是资料，都比原文更早进入视野，
+  // 但记忆更接近当前问题的相关性，所以排在摘要后面。
+  let memoryMessage: TextMessage | null = null;
+  let memoryItemIds: string[] = [];
+  let memoryTokens = 0;
+  // 裁剪后真正留下来的明细：id / key / value / 相似度，
+  // 供调用方把「注入了什么」透传给前端。
+  let memoryItems: ContextMemoryItem[] = [];
+
+  if (memory && memory.items.length > 0) {
+    // 按相似度从高到低逐条试装：装不下的从低相似度开始丢，
+    // 留下来的自然是「最相关的那几条」。
+    const sorted = [...memory.items].sort((left, right) => right.similarity - left.similarity);
+
+    // 记忆层的额度有两条上限：
+    //   1. 绝对上限 MEMORY_CONTEXT_TOKEN_CAP —— 记忆是锦上添花，不能挤掉真正的对话；
+    //   2. 预算比例 MEMORY_CONTEXT_BUDGET_RATIO —— 记忆最多占本次预算的 10%。
+    // 光按比例算有个坑：预算小的时候，10% 连抬头都放不下，
+    // 记忆会被静默饿死（抽了、存了，一轮都没进上下文，等于白干）。
+    // 所以再兜一个「最小可用额度」：至少够装下抬头 + 最小的那一条。
+    // 兜底额度按**最小**的那条算，而不是最相关的那条：
+    // 最相关的那条可能特别长（用户原话一整段），
+    // 拿它当兜底反而把额度顶到「一条都装不下」，兜底就变成了空头支票。
+    // 真正放不放得下，仍由下面的总预算校验说了算——
+    // 兜底只负责「别连一条都进不来」，不负责「预算不够也硬塞」。
+    const ratioCap = Math.floor(effectiveBudget * MEMORY_CONTEXT_BUDGET_RATIO);
+    const minViableCap = sorted.reduce((smallest, item) => {
+      const cost = estimateMessageTokens({
+        role: "system",
+        content: `${memory.header}\n- ${item.id}: ${item.text}`,
+      });
+      return Math.min(smallest, cost);
+    }, Number.POSITIVE_INFINITY);
+    const cap = Math.min(
+      MEMORY_CONTEXT_TOKEN_CAP,
+      Math.max(ratioCap, Number.isFinite(minViableCap) ? minViableCap : 0),
+    );
+    if (cap > 0) {
+      const keptItems: ContextMemoryItem[] = [];
+      let text = memory.header;
+      let cost = estimateMessageTokens({ role: "system", content: text });
+
+      for (const item of sorted) {
+        const candidateText = `${text}\n- ${item.id}: ${item.text}`;
+        const candidateCost = estimateMessageTokens({ role: "system", content: candidateText });
+        // 装不下这一条 → **跳过它，继续试下一条**，不是停止装填。
+        // 这里必须 skip 而不是 break：记忆按相似度排序，长短是随机的，
+        // 一条特别长的记忆会把整块记忆挤空——
+        // 后面明明还有几条完全放得下的，却因为排在后面而一起陪葬
+        // （实测：一条超长记忆 → 注入条数 0）。
+        // 跳过的代价只是少注入一条，装不下的那条本来也进不来。
+        if (candidateCost > cap) continue;
+        if (applySafetyFactor(usedTokens + candidateCost) > effectiveBudget) continue;
+        text = candidateText;
+        cost = candidateCost;
+        keptItems.push(item);
+      }
+
+      // 一条都放不下 → 整块丢弃，不报错、不降级。
+      // 记忆是加分项，放不下就当没有，比硬塞一条进来更干净。
+      if (keptItems.length > 0) {
+        memoryMessage = { role: "system", content: text };
+        usedTokens += cost;
+        memoryItemIds = keptItems.map((item) => item.id);
+        memoryTokens = cost;
+        memoryItems = keptItems;
+      }
     }
   }
 
@@ -323,12 +435,13 @@ export function buildContext(params: BuildContextParams): ContextBuildResult {
     if (group.userIndex !== null) roundsKept += 1;
   }
 
-  // ---- 组装最终 messages：system → 摘要 → 近期原文 ----
+  // ---- 组装最终 messages：system → 摘要 → 记忆 → 近期原文 ----
   const recentMessages = [...kept.entries()]
     .sort((left, right) => left[0] - right[0])
     .map(([, message]) => message);
   const finalMessages: TextMessage[] = [systemMessage];
   if (summaryMessage) finalMessages.push(summaryMessage);
+  if (memoryMessage) finalMessages.push(memoryMessage);
   finalMessages.push(...recentMessages);
 
   // ---- 被丢掉、还没被摘要覆盖的原始消息 ----
@@ -351,5 +464,8 @@ export function buildContext(params: BuildContextParams): ContextBuildResult {
     budgetTokens: effectiveBudget,
     usedSummary,
     degraded,
+    memoryItemIds,
+    memoryTokens,
+    memoryItems,
   };
 }

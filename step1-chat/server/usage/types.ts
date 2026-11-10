@@ -31,7 +31,13 @@ export interface UsageRecord {
   /** 记录写入时间（Unix ms） */
   timestamp: number;
   /** 来自哪条 API 链路 */
-  endpoint: "chat" | "chat/multi" | "rag/chat" | "chat/structured" | "chat/plan";
+  endpoint:
+    | "chat"
+    | "chat/multi"
+    | "rag/chat"
+    | "chat/structured"
+    | "chat/plan"
+    | "chat/reflection";
   /** 主模型名（出现次数最多的 model；无调用时用请求默认值） */
   model: string;
   promptTokens: number;

@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createChatStream } from "../chat.js";
 import { parseContextSummary } from "../context/parseContextSummary.js";
+import { isValidUserId } from "../memory/types.js";
 import { ConfirmSession } from "../react/confirmGate.js";
 import { getRuntimeConfig } from "../runtimeConfig.js";
 import { UsageAccumulator, bindUsageCallback } from "../usage/accumulator.js";
@@ -36,7 +37,7 @@ export function registerChatRoutes(app: Express): void {
     // ---- 步骤 1：声明 SSE，后续按块写 data: 行 ----
     setSseHeaders(res);
 
-    const { messages, model, searchDocs, contextSummary } = req.body ?? {};
+    const { messages, model, searchDocs, contextSummary, userId, allowMemory } = req.body ?? {};
 
     // ---- 步骤 2：校验 messages ----
     if (!Array.isArray(messages)) {
@@ -67,6 +68,13 @@ export function registerChatRoutes(app: Express): void {
       const onUsage = bindUsageCallback(accumulator, "askModel", defaultModel);
       // 摘要这次模型调用单独记一笔：要能看出「压缩花了多少」。
       const onSummaryUsage = bindUsageCallback(accumulator, "summary", defaultModel);
+      // 记忆抽取同样单独记一笔：要能看出「记住这些花了多少」。
+      const onMemoryUsage = bindUsageCallback(accumulator, "memory", defaultModel);
+
+      // ---- 步骤 5.6：记忆开关 ----
+      // userId 非法（不是 anon_xxx）就当没开记忆：不报错、不透传，
+      // 聊天照常继续——记忆是可选能力，不能因为它坏了就让主链路失败。
+      const memoryEnabled = allowMemory === true && isValidUserId(userId);
 
       // ---- 步骤 5.5：解析前端带回来的摘要 ----
       // 非法摘要当作没有摘要：不报错、不透传，聊天照常继续（决策四）。
@@ -83,16 +91,23 @@ export function registerChatRoutes(app: Express): void {
         // 本链路启用按 token 预算分层保留（system → 摘要 → 近期原文）。
         contextMode: "budget",
         contextSummary: parsedSummary,
+        // 跨会话记忆：注入相关记忆 + 抽取本轮的新事实
+        userId: isValidUserId(userId) ? userId : undefined,
+        allowMemory: memoryEnabled,
         // 勾选「搜索知识库」：服务端先强制检索，并把 searchDocs 工具交给模型
         searchDocs: searchDocs === true,
         confirmSession,
         onUsage,
         onSummaryUsage,
+        onMemoryUsage,
         onDelta: (delta) => {
           console.log("delta :>> ", delta);
           res.write(`data: ${JSON.stringify({ delta })}\n\n`);
         },
         onTrace: (event) => {
+          // 记忆抽取是 fire-and-forget：它的事件可能在流已经结束之后才到。
+          // 这时不能再往已关闭的响应里写，否则会抛错。
+          if (res.writableEnded) return;
           // 过程面板 + 确认闸门事件原样推给前端
           res.write(`data: ${JSON.stringify(event)}\n\n`);
         },

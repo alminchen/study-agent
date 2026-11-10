@@ -8,6 +8,8 @@ import type {
   PlanMode,
   PlanReplannedEvent,
   PlanRouteEvent,
+  ReflectionIssue,
+  ReflectionScores,
   StructuredClientError,
   StructuredDoneEvent,
   StructuredSnapshotEvent,
@@ -34,6 +36,17 @@ export interface StreamChatParams {
    * 服务端会校验；非法摘要按「没有摘要」处理，不会让请求失败。
    */
   contextSummary?: ContextSummary | null;
+  /**
+   * 匿名用户 id（anon_xxx）：跨会话记忆的归属标识。
+   * 只在本地生成、只存在 localStorage，服务端不采集任何真实身份。
+   */
+  userId?: string;
+  /**
+   * 是否允许使用长期记忆。
+   * 关掉时**不带 userId**：服务端要求 allowMemory===true 且 userId 合法才注入，
+   * 两者缺一不可——「关掉」必须是真的零注入，而不是服务端再判断一次。
+   */
+  allowMemory?: boolean;
   onDelta: (delta: string) => void;
   onTrace?: (step: ToolTraceStep) => void;
   onUsage?: (usage: UsageSnapshot) => void;
@@ -85,8 +98,51 @@ export interface StreamPlanParams {
   onError: (error: string) => void;
 }
 
+export interface StreamReflectionParams {
+  /** 单轮问题；服务端据此生成初版答案并复盘。 */
+  question: string;
+  model: string;
+  signal: AbortSignal;
+  /** 会话标识，服务端只用来串联日志。 */
+  sessionId?: string;
+  /** 只能把服务端模式往下调（enforce → shadow）；不传表示沿用服务端配置。 */
+  mode?: "shadow" | "enforce";
+  searchDocs?: boolean;
+  /** 正文由服务端在复盘结束后一次性给出，前端只负责拼接。 */
+  onDelta: (delta: string) => void;
+  /** 工具轨迹 + 反思事件（评分 / 重写 / 跳过）统一走这里。 */
+  onTrace?: (step: ToolTraceStep) => void;
+  onUsage?: (usage: UsageSnapshot) => void;
+  onError: (error: string) => void;
+}
+
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+/** 把服务端给的分数对象收敛成四维分数；缺项补 0，不让面板因脏数据崩掉。 */
+function parseReflectionScores(raw: unknown): ReflectionScores {
+  const source = (raw ?? {}) as Record<string, unknown>;
+  const read = (key: string): number =>
+    typeof source[key] === "number" ? source[key] : 0;
+  return {
+    relevance: read("relevance"),
+    completeness: read("completeness"),
+    groundedness: read("groundedness"),
+    clarity: read("clarity"),
+  };
+}
+
+/** 解析问题列表；只保留维度与描述两字段。 */
+function parseReflectionIssues(raw: unknown): ReflectionIssue[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const issue = item as Record<string, unknown>;
+    const dimension = asString(issue.dimension);
+    const detail = asString(issue.detail);
+    if (!dimension || !detail) return [];
+    return [{ dimension, detail }];
+  });
 }
 
 /**
@@ -498,6 +554,233 @@ export async function streamPlan({
 }
 
 /**
+ * Reflection 链路：POST /api/chat/reflection（SSE）。
+ *
+ * 与 streamChat / streamPlan 的差别：
+ * - 请求体是「一个问题」而不是 messages 数组，服务端自己生成初版答案。
+ * - 正文不是流式的：服务端在「初评 → 重写 → 重评」全部结束后才推一次 delta，
+ *   所以这里不做任何增量拼接假设。
+ * - 除工具轨迹外还会收到 reflection_scored / reflection_revised / reflection_skipped，
+ *   它们只进调试面板，不会污染正文。
+ */
+export async function streamReflection({
+  question,
+  model,
+  signal,
+  sessionId,
+  mode,
+  searchDocs,
+  onDelta,
+  onTrace,
+  onUsage,
+  onError,
+}: StreamReflectionParams): Promise<boolean> {
+  let response: Response;
+  try {
+    response = await fetch("/api/chat/reflection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question,
+        model,
+        sessionId: sessionId ?? null,
+        mode: mode ?? null,
+        searchDocs: Boolean(searchDocs),
+      }),
+      signal,
+    });
+  } catch (error) {
+    if (signal.aborted) return false;
+    onError(error instanceof Error ? error.message : "网络请求失败");
+    return false;
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    onError(body?.error ?? `服务异常：${response.status}`);
+    return false;
+  }
+  if (!response.body) {
+    onError("当前浏览器不支持流式响应");
+    return false;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let separator = buffer.indexOf("\n\n");
+      while (separator >= 0) {
+        const rawEvent = buffer.slice(0, separator);
+        buffer = buffer.slice(separator + 2);
+
+        for (const line of rawEvent.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (payload === "[DONE]") return true;
+
+          let event: Record<string, unknown>;
+          try {
+            const parsed = JSON.parse(payload) as unknown;
+            if (
+              typeof parsed !== "object" ||
+              parsed === null ||
+              Array.isArray(parsed)
+            ) {
+              continue;
+            }
+            event = parsed as Record<string, unknown>;
+          } catch {
+            // 单个损坏事件不应中断整条流。
+            continue;
+          }
+
+          if (typeof event.error === "string") {
+            onError(event.error);
+            return true;
+          }
+
+          if (event.type === "usage" && typeof event.totalTokens === "number") {
+            onUsage?.({
+              endpoint: event.endpoint as UsageSnapshot["endpoint"],
+              model: asString(event.model) ?? model,
+              promptTokens:
+                typeof event.promptTokens === "number" ? event.promptTokens : 0,
+              completionTokens:
+                typeof event.completionTokens === "number"
+                  ? event.completionTokens
+                  : 0,
+              totalTokens: event.totalTokens,
+              llmCalls: typeof event.llmCalls === "number" ? event.llmCalls : 1,
+              estimatedCostUsd:
+                typeof event.estimatedCostUsd === "number"
+                  ? event.estimatedCostUsd
+                  : 0,
+            });
+            continue;
+          }
+
+          // ---- 工具轨迹：与普通链路同构，原样转成 trace 步骤 ----
+          if (event.type === "tool_call" && asString(event.name)) {
+            onTrace?.({
+              kind: "tool_call",
+              name: event.name as string,
+              arguments: event.arguments,
+            });
+            continue;
+          }
+          if (event.type === "tool_result" && asString(event.name)) {
+            onTrace?.({
+              kind: "tool_result",
+              name: event.name as string,
+              result: event.result,
+            });
+            continue;
+          }
+          if (event.type === "pending_confirm" && asString(event.name)) {
+            onTrace?.({
+              kind: "pending_confirm",
+              confirmId: asString(event.confirmId) ?? "",
+              toolCallId: asString(event.toolCallId) ?? "",
+              name: event.name as string,
+              arguments: event.arguments,
+              status: "pending",
+            });
+            continue;
+          }
+          if (
+            event.type === "confirm_resolved" &&
+            (event.action === "allow" || event.action === "deny")
+          ) {
+            onTrace?.({
+              kind: "confirm_resolved",
+              toolCallId: asString(event.toolCallId) ?? "",
+              name: asString(event.name) ?? "",
+              action: event.action,
+            });
+            continue;
+          }
+          if (event.type === "injection_detected") {
+            onTrace?.({
+              kind: "injection_detected",
+              level: asString(event.level) ?? undefined,
+              rules: Array.isArray(event.rules)
+                ? event.rules.filter((item): item is string => typeof item === "string")
+                : [],
+            });
+            continue;
+          }
+
+          // ---- 反思事件：只进调试面板，绝不进正文 ----
+          if (event.type === "reflection_scored") {
+            const meta = (event.meta ?? {}) as Record<string, unknown>;
+            onTrace?.({
+              kind: "reflection_scored",
+              stage: event.stage === "revised" ? "revised" : "initial",
+              scores: parseReflectionScores(event.scores),
+              average: typeof event.average === "number" ? event.average : 0,
+              issues: parseReflectionIssues(event.issues),
+              shouldRewrite: event.shouldRewrite === true,
+              reason: asString(event.reason) ?? "",
+              meta: {
+                durationMs:
+                  typeof meta.durationMs === "number" ? meta.durationMs : undefined,
+                attempts:
+                  typeof meta.attempts === "number" ? meta.attempts : undefined,
+                truncated: meta.truncated === true,
+              },
+            });
+            continue;
+          }
+          if (event.type === "reflection_revised") {
+            // revisedText 是修订稿全文，正文已经由服务端单独推过 delta，
+            // 这里只留元信息，避免面板里再存一份完整答案。
+            onTrace?.({
+              kind: "reflection_revised",
+              adopted: event.adopted === true,
+              improved: event.improved === true,
+              beforeAverage:
+                typeof event.beforeAverage === "number" ? event.beforeAverage : 0,
+              afterAverage:
+                typeof event.afterAverage === "number" ? event.afterAverage : 0,
+              reason: asString(event.reason) ?? "",
+            });
+            continue;
+          }
+          if (event.type === "reflection_skipped") {
+            onTrace?.({
+              kind: "reflection_skipped",
+              reason: asString(event.reason) ?? "unknown",
+              detail: asString(event.detail) ?? "",
+            });
+            continue;
+          }
+
+          if (typeof event.delta === "string" && event.delta) {
+            onDelta(event.delta);
+            continue;
+          }
+        }
+        separator = buffer.indexOf("\n\n");
+      }
+    }
+  } catch (error) {
+    if (signal.aborted) return false;
+    onError(error instanceof Error ? error.message : "流式读取失败");
+    return false;
+  }
+  return true;
+}
+
+/**
  * 人工确认放行/拒绝。
  * 只通知服务端 resolve(wait)；不负责执行工具或拉新回复。
  * 单 Agent（/api/chat）与多 Agent（/api/chat/multi）共用本接口。
@@ -525,6 +808,8 @@ export async function streamChat({
   searchDocs,
   multiAgent = true,
   contextSummary,
+  userId,
+  allowMemory = false,
   onDelta,
   onTrace,
   onUsage,
@@ -543,6 +828,8 @@ export async function streamChat({
         searchDocs: Boolean(searchDocs),
         // 摘要只在普通对话链路生效；服务端校验不过就当没有摘要，不报错。
         contextSummary: contextSummary ?? null,
+        // 记忆：关掉时连 userId 一起不带，服务端直接零注入。
+        ...(allowMemory && userId ? { userId, allowMemory: true } : { allowMemory: false }),
       }),
       signal,
     });
@@ -616,6 +903,11 @@ export async function streamChat({
               estimatedCostUsd?: number;
               model?: string;
               endpoint?: UsageSnapshot["endpoint"];
+              itemIds?: string[];
+              tokens?: number;
+              items?: Array<{ id?: string; key?: string; value?: string; similarity?: number }>;
+              candidates?: number;
+              stored?: Array<{ id?: string; key?: string; value?: string }>;
             };
             if (event.error) {
               onError(event.error);
@@ -705,6 +997,41 @@ export async function streamChat({
                 matchedFingerprints: Array.isArray(event.matchedFingerprints)
                   ? event.matchedFingerprints
                   : [],
+              });
+            }
+            // 记忆注入事件：告诉用户「这轮给模型塞了哪几条长期记忆」。
+            if (event.type === "memory_injected") {
+              const items = Array.isArray(event.items)
+                ? event.items
+                    .filter((item) => Boolean(item?.id))
+                    .map((item) => ({
+                      id: String(item.id),
+                      key: item.key ?? "",
+                      value: item.value ?? "",
+                      similarity: typeof item.similarity === "number" ? item.similarity : 0,
+                    }))
+                : [];
+              onTrace?.({
+                kind: "memory_injected",
+                // 没给明细时退回数：至少还能告诉用户「注入了几条」。
+                count: items.length || (Array.isArray(event.itemIds) ? event.itemIds.length : 0),
+                tokens: typeof event.tokens === "number" ? event.tokens : 0,
+                items,
+              });
+            }
+            // 记忆抽取事件：聊完这一轮记住了什么，面板据此刷新列表。
+            if (event.type === "memory_extracted") {
+              const stored = Array.isArray(event.stored)
+                ? event.stored.map((item) => ({
+                    id: String(item?.id ?? ""),
+                    key: item?.key ?? "",
+                    value: item?.value ?? "",
+                  }))
+                : [];
+              onTrace?.({
+                kind: "memory_extracted",
+                candidates: typeof event.candidates === "number" ? event.candidates : 0,
+                stored,
               });
             }
             if (

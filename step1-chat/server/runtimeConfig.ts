@@ -62,6 +62,41 @@ function readJudgeMode(): JudgeMode {
   return "off";
 }
 
+/**
+ * Reflection 的运行模式。
+ *
+ * 与 Judge 同形但语义不同：Judge 管「输出能不能放出去」，
+ * Reflection 管「答案要不要回头改」，两者互不替代。
+ *
+ * off 是默认值：自我评估的收益还没被 Evals 证明，
+ * 就不该默认改写用户看到的答案。
+ */
+export type ReflectionMode = "off" | "shadow" | "enforce";
+
+const REFLECTION_MODES: readonly string[] = ["off", "shadow", "enforce"];
+
+/** 非法模式只警告一次，避免每个请求刷一次日志。 */
+let warnedInvalidReflectionMode = false;
+
+/**
+ * 读取 Reflection 模式；非法值回落到 off。
+ *
+ * 和 Judge 同样的理由：Reflection 配错的后果是「没生效」，
+ * 不该让整个聊天端点起不来。
+ */
+function readReflectionMode(): ReflectionMode {
+  const raw = process.env.REFLECTION_MODE?.trim().toLowerCase();
+  if (!raw) return "off";
+  if (REFLECTION_MODES.includes(raw)) return raw as ReflectionMode;
+  if (!warnedInvalidReflectionMode) {
+    warnedInvalidReflectionMode = true;
+    console.warn(
+      `[runtime-config] REFLECTION_MODE=${raw} 不是合法取值，已回落到 off（可选值：off|shadow|enforce）`,
+    );
+  }
+  return "off";
+}
+
 export function getRuntimeConfig() {
   const apiKey = process.env.LLM_API_KEY?.trim() ?? "";
   const forceMock = process.env.MOCK_MODE === "1";
@@ -140,6 +175,16 @@ export function getRuntimeConfig() {
         "JUDGE_CONFIDENCE_THRESHOLD",
         0.6,
       ),
+    },
+    /**
+     * Reflection 的独立配置。
+     *
+     * 只有模式开关，没有独立模型/Key：自我评估本来就该由生成答案的
+     * 同一个模型来做，换模型评就变成了「另一个模型的意见」，不再是自我评估。
+     */
+    reflection: {
+      /** off 直接返回初版答案；shadow 只报告；enforce 才允许改写正文。 */
+      mode: readReflectionMode(),
     },
   };
 }

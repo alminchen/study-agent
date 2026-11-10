@@ -976,6 +976,9 @@ npm run predawn:rerank
 - `docs/plan-and-execute-flow.svg`：Plan-and-Execute 全链路图
 - `docs/long-context.md`：长上下文预算、结构化摘要、降级和压缩提示
 - `docs/long-context-flow.svg`：长上下文管理全链路图
+- `docs/memory.md`：跨会话记忆阶段总结（数据模型、事实 vs 语义选型、实测数据、隐私设计）
+- `docs/memory-changelog.md`：跨会话记忆变更记录
+- `docs/memory-flow.svg`：跨会话记忆全链路图
 - `docs/project-messages-flow.md`：消息组装与调用链
 - `docs/rag-query-enhance-notes.md`：RAG 查询增强
 - `docs/human-confirm-changelog.md`：人工确认设计记录
@@ -991,3 +994,4 @@ npm run predawn:rerank
 - `rag/README.md`
 - `usage/README.md`
 - `mcp/README.md`
+- `memory/README.md`

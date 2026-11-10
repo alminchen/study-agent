@@ -15,9 +15,16 @@ import {
   fetchHealth,
   streamChat,
   streamPlan,
+  streamReflection,
   streamStructured,
 } from "../api/chat";
 import { fetchModelCatalog } from "../api/models";
+import {
+  clearMemoryFacts,
+  deleteMemoryFact,
+  fetchMemoryFacts,
+  updateMemoryFact,
+} from "../api/memory";
 import { askRag } from "../api/rag";
 import { fetchUsageSummary } from "../api/usage";
 import {
@@ -25,6 +32,7 @@ import {
   type ChatMessage,
   type ContextCompactionEvent,
   type ContextSummary,
+  type MemoryFact,
   type ModelOption,
   type PlanEvent,
   type PlanMode,
@@ -48,11 +56,63 @@ const MULTI_AGENT_KEY = "step1-chat:multi-agent";
 const PLAN_ENABLED_KEY = "step1-chat:plan-enabled";
 /** 计划链路的模式：auto 按规则路由，react 强制 ReAct，plan 强制进 Planner。 */
 const PLAN_MODE_KEY = "step1-chat:plan-mode";
+/** 是否把普通对话切到 /api/chat/reflection 链路（先出一版再自我评估）。 */
+const REFLECTION_ENABLED_KEY = "step1-chat:reflection-enabled";
 /**
  * 上下文摘要单独存一份 key，与聊天历史分开：
  * 历史可能被用户清空，摘要是「跨轮记忆」，两者生命周期不同。
  */
 const CONTEXT_SUMMARY_KEY = "step1-chat:context-summary";
+/** 匿名用户 id：跨会话记忆的归属标识，只存本地，不含任何真实身份。 */
+const MEMORY_USER_ID_KEY = "step1-chat:memory-user-id";
+/** 是否允许长期记忆；没写过时默认允许。 */
+const MEMORY_ENABLED_KEY = "step1-chat:memory-enabled";
+
+/** 匿名 id 的合法格式；与服务端 memory/types.ts 的 MEMORY_USER_ID_PATTERN 一致。 */
+const MEMORY_USER_ID_PATTERN = /^anon_[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * 生成匿名 id：anon_ + 8 位随机串。
+ *
+ * crypto.randomUUID 只在安全上下文（https / localhost）里有，
+ * 用局域网 IP 打开页面时会取不到，所以必须留兜底：
+ * 有 randomUUID 用它 → 没有用 getRandomValues → 再没有退回 Math.random。
+ */
+function generateMemoryUserId(): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `anon_${crypto.randomUUID().replace(/-/g, "").slice(0, 8).toLowerCase()}`;
+  }
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(8));
+    return `anon_${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
+  }
+  return `anon_${Array.from(
+    { length: 8 },
+    () => alphabet[Math.floor(Math.random() * alphabet.length)],
+  ).join("")}`;
+}
+
+/**
+ * 读匿名 id：没有、或者存坏了，都不复用，直接生成一个新的。
+ *
+ * 复用坏 id 只会让请求一直 400；重新生成一次就回到「合法但陌生」的状态。
+ */
+function loadMemoryUserId(): string {
+  try {
+    const raw = localStorage.getItem(MEMORY_USER_ID_KEY);
+    if (raw && MEMORY_USER_ID_PATTERN.test(raw)) return raw;
+  } catch {
+    // localStorage 不可用（隐私模式等）：退化成一次性 id，本次会话仍然可用。
+  }
+  const userId = generateMemoryUserId();
+  try {
+    localStorage.setItem(MEMORY_USER_ID_KEY, userId);
+  } catch {
+    // 存不进去就算了，本次会话仍然能用这个 id。
+  }
+  return userId;
+}
 
 // 页面内自增 id 只需稳定且唯一；时间戳前缀便于排查跨会话消息。
 let idCounter = 0;
@@ -173,6 +233,15 @@ export function useChat() {
   const planMode = ref<PlanMode>(
     (localStorage.getItem(PLAN_MODE_KEY) as PlanMode | null) ?? "auto",
   );
+  /**
+   * 是否走 Reflection 链路（先出一版答案，再自我评估、必要时重写）。
+   *
+   * 与 ragMode / planEnabled 互不影响；服务端 REFLECTION_MODE 仍是上限，
+   * 这里只决定前端走不走 /api/chat/reflection 这条端点。
+   */
+  const reflectionEnabled = ref(
+    localStorage.getItem(REFLECTION_ENABLED_KEY) === "1",
+  );
   const messages = ref<ChatMessage[]>(loadHistory(historyKey(ragMode.value)));
   const modelOptions = ref<ModelOption[]>([...FALLBACK_MODEL_OPTIONS]);
   const model = ref(localStorage.getItem(MODEL_KEY) ?? FALLBACK_MODEL_OPTIONS[0].id);
@@ -193,6 +262,19 @@ export function useChat() {
   const contextSummary = ref<ContextSummary | null>(loadContextSummary());
   /** 最近一次请求的上下文压缩事件；只在真的发生压缩时才有值。 */
   const contextCompaction = ref<ContextCompactionEvent | null>(null);
+  /**
+   * 匿名用户 id：跨会话记忆的归属标识。
+   * 首次访问生成后固定下来，刷新页面不变——它变了就等于「换了个人」。
+   */
+  const memoryUserId = ref(loadMemoryUserId());
+  /** 是否允许长期记忆（默认开）。关掉后既不注入也不再抽取。 */
+  const allowMemory = ref(localStorage.getItem(MEMORY_ENABLED_KEY) !== "0");
+  /** 面板里展示的记忆列表。 */
+  const memoryFacts = ref<MemoryFact[]>([]);
+  /** 记忆列表的加载状态；出错时只更新错误文案，不打断聊天。 */
+  const memoryLoading = ref(false);
+  /** 记忆操作（读/改/删/清空）的错误文案。 */
+  const memoryError = ref<string | null>(null);
   /** 当前进行中的 SSE 请求；stop() 对其 abort */
   let abortController: AbortController | null = null;
   /** 每次会话递增，旧请求的迟到回调不得污染新消息或全局状态。 */
@@ -205,6 +287,7 @@ export function useChat() {
     });
     void loadModelOptions();
     void refreshUsageSummary();
+    void refreshMemoryFacts();
   });
 
   /** 顶栏模型列表以服务端 /api/models 为准；失败时保留兜底列表。 */
@@ -222,6 +305,98 @@ export function useChat() {
   async function refreshUsageSummary() {
     // usage 汇总失败时保留旧值；面板不因一次刷新失败阻塞聊天。
     usageSummary.value = await fetchUsageSummary();
+  }
+
+  /**
+   * 拉取当前匿名用户的记忆列表。
+   *
+   * 失败只写错误文案：记忆是附加能力，读不到不影响聊天。
+   */
+  async function refreshMemoryFacts() {
+    memoryLoading.value = true;
+    try {
+      memoryFacts.value = await fetchMemoryFacts(memoryUserId.value);
+      memoryError.value = null;
+    } catch (error) {
+      memoryError.value = error instanceof Error ? error.message : "读取记忆失败";
+    } finally {
+      memoryLoading.value = false;
+    }
+  }
+
+  /** 开关长期记忆：即时生效，从下一轮请求开始起作用。 */
+  function setAllowMemory(next: boolean) {
+    allowMemory.value = next;
+    localStorage.setItem(MEMORY_ENABLED_KEY, next ? "1" : "0");
+  }
+
+  /**
+   * 换一套匿名身份。
+   *
+   * 用途是「验证跨会话记忆」：换 id 之后旧记忆不再被检索到，
+   * 面板列表也会换成新身份（通常是空的）。
+   */
+  function resetMemoryUserId() {
+    const userId = generateMemoryUserId();
+    localStorage.setItem(MEMORY_USER_ID_KEY, userId);
+    memoryUserId.value = userId;
+    memoryFacts.value = [];
+    void refreshMemoryFacts();
+  }
+
+  /**
+   * 编辑一条记忆（value / confidence）。
+   *
+   * 先改本地列表再同步接口（乐观更新）；接口失败回滚，
+   * 用户看到的是「改没改成」，而不是中途闪一下又跳回去。
+   *
+   * 改 value 同时也是一次冲突裁决：服务端会清掉冲突标记、
+   * 同 key 只留这一条（面板的三个裁决按钮都走这条路）。
+   */
+  async function updateMemory(
+    factId: string,
+    patch: { value?: string; confidence?: number },
+  ) {
+    const previous = memoryFacts.value;
+    memoryFacts.value = previous.map((fact) =>
+      fact.id === factId ? { ...fact, ...patch } : fact,
+    );
+    try {
+      const updated = await updateMemoryFact(memoryUserId.value, factId, patch);
+      memoryFacts.value = memoryFacts.value.map((fact) =>
+        fact.id === factId ? updated : fact,
+      );
+      memoryError.value = null;
+    } catch (error) {
+      memoryFacts.value = previous;
+      memoryError.value = error instanceof Error ? error.message : "更新记忆失败";
+    }
+  }
+
+  /** 删除一条记忆（服务端软删除，磁盘上仍可审计）。 */
+  async function removeMemory(factId: string) {
+    const previous = memoryFacts.value;
+    memoryFacts.value = previous.filter((fact) => fact.id !== factId);
+    try {
+      await deleteMemoryFact(memoryUserId.value, factId);
+      memoryError.value = null;
+    } catch (error) {
+      memoryFacts.value = previous;
+      memoryError.value = error instanceof Error ? error.message : "删除记忆失败";
+    }
+  }
+
+  /** 清空全部记忆；不可撤销，所以入口由面板做二次确认。 */
+  async function clearMemories() {
+    const previous = memoryFacts.value;
+    memoryFacts.value = [];
+    try {
+      await clearMemoryFacts(memoryUserId.value);
+      memoryError.value = null;
+    } catch (error) {
+      memoryFacts.value = previous;
+      memoryError.value = error instanceof Error ? error.message : "清空记忆失败";
+    }
   }
 
   /** 计划状态的初始值；route 事件先到时也要有一份空状态。 */
@@ -464,6 +639,11 @@ export function useChat() {
           return;
         }
         toolTrace.value = [...toolTrace.value, step];
+        // 记忆抽取是 fire-and-forget 的，事件可能在本轮之后才到；
+        // 到了就刷新面板列表，让「记住了什么」立刻可见。
+        if (step.kind === "memory_extracted") {
+          void refreshMemoryFacts();
+        }
       },
       // onUsage：SSE { type:"usage" } → 本次 Token 摘要 + 刷新汇总面板
       onUsage: (usage) => {
@@ -553,6 +733,9 @@ export function useChat() {
           multiAgent: multiAgent.value,
           // 带上上轮摘要：服务端会把它作为独立的一条 system 消息注入。
           contextSummary: contextSummary.value,
+          // 跨会话记忆：关掉开关时连 userId 一起不带，服务端零注入。
+          userId: memoryUserId.value,
+          allowMemory: allowMemory.value,
           // 以下四个来自 runSseSession，实现见上方骨架第 3 步：
           onDelta, // 助手正文流式增量
           onTrace, // 工具/确认/防护过程 → ToolTracePanel
@@ -684,6 +867,36 @@ export function useChat() {
   }
 
   /**
+   * Reflection 链路：POST /api/chat/reflection（SSE）。
+   *
+   * 与 runStream 的差别：
+   * - 请求体只带问题，不带历史；服务端自己生成初版答案。
+   * - 正文不流式：服务端在「初评 → 重写 → 重评」结束后一次性推 delta，
+   *   前端只拼接这一次，所以不会拼出两段答案。
+   * - 过程事件（工具轨迹 + 评分/重写/跳过）统一进 ToolTracePanel。
+   */
+  async function runReflection(history: ChatMessage[], selectedModel: string) {
+    const lastUser = [...history].reverse().find((message) => message.role === "user");
+    const question = lastUser?.content.trim() ?? "";
+    if (!question) return;
+    await runSseSession(history, {
+      emptyErrorFallback: "反思请求失败，请重试。",
+      start: ({ signal, onDelta, onTrace, onUsage, onError }) =>
+        streamReflection({
+          question,
+          model: selectedModel,
+          signal,
+          sessionId: createId(),
+          searchDocs: searchKb.value,
+          onDelta,
+          onTrace,
+          onUsage,
+          onError,
+        }),
+    });
+  }
+
+  /**
    * 资料问答：POST /api/rag/chat（SSE，与 chat 同形态）。
    * 过程事件进 ToolTracePanel；命中进 message.rag（RagHitPanel）；答案走 delta。
    * 服务端先 toolGuard(searchDocs) → 检索判空再决定是否调模型。
@@ -749,6 +962,10 @@ export function useChat() {
       await runPlan(history, model.value);
       return;
     }
+    if (reflectionEnabled.value) {
+      await runReflection(history, model.value);
+      return;
+    }
     await runStream(history, model.value);
   }
 
@@ -790,6 +1007,10 @@ export function useChat() {
     }
     if (planEnabled.value) {
       await runPlan(history, model.value);
+      return;
+    }
+    if (reflectionEnabled.value) {
+      await runReflection(history, model.value);
       return;
     }
     await runStream(history, model.value);
@@ -889,6 +1110,12 @@ export function useChat() {
     localStorage.setItem(PLAN_MODE_KEY, next);
   }
 
+  /** 是否走 Reflection 链路；只影响后续请求。 */
+  function setReflectionEnabled(next: boolean) {
+    reflectionEnabled.value = next;
+    localStorage.setItem(REFLECTION_ENABLED_KEY, next ? "1" : "0");
+  }
+
   /** 切换时先落下当前会话，再载入另一条链路的历史。 */
   function setRagMode(next: boolean) {
     if (next === ragMode.value || isStreaming.value) return;
@@ -913,6 +1140,7 @@ export function useChat() {
     multiAgent,
     planEnabled,
     planMode,
+    reflectionEnabled,
     planState,
     isStreaming,
     error,
@@ -922,6 +1150,11 @@ export function useChat() {
     serverMode,
     contextSummary,
     contextCompaction,
+    memoryUserId,
+    allowMemory,
+    memoryFacts,
+    memoryLoading,
+    memoryError,
     send,
     sendStructured,
     retry,
@@ -933,7 +1166,14 @@ export function useChat() {
     setMultiAgent,
     setPlanEnabled,
     setPlanMode,
+    setReflectionEnabled,
     refreshUsageSummary,
+    refreshMemoryFacts,
+    setAllowMemory,
+    resetMemoryUserId,
+    updateMemory,
+    removeMemory,
+    clearMemories,
     resolveToolConfirm,
   };
 }

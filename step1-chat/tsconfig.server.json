@@ -15,7 +15,10 @@
     "evals",
     "scripts/run-evals.ts",
     "scripts/run-plan-evals.ts",
+    "scripts/run-reflection-evals.ts",
     "scripts/check-judge-dataset.ts",
-    "scripts/test-long-context.ts"
+    "scripts/test-long-context.ts",
+    "scripts/test-memory.ts",
+    "scripts/test-chat-chains.ts"
   ]
 }

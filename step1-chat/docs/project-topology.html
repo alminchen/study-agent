@@ -115,6 +115,8 @@
     <a href="#plan">6d 计划执行</a>
     <a href="#long-context">6e 长上下文</a>
     <a href="#judge">6f LLM-as-Judge</a>
+    <a href="#reflection">6g Reflection</a>
+    <a href="#memory">6h Memory</a>
     <a href="#cross">7 Token/Guard/Trace</a>
     <a href="#tools">7b 工具注册表</a>
     <a href="#pending">8 未交付</a>
@@ -258,6 +260,18 @@
           <td><span class="badge now">已实现 / 未准入</span></td>
           <td>语义判定层：<code>server/guard/judge.ts</code> · <code>judgePolicy.ts</code> · <code>judgeRuntime.ts</code> · <code>judgeSchema.ts</code>；关键方法 <span class="fn">judgeInput</span> / <span class="fn">judgeOutput</span> / <span class="fn">decideInputAction</span> / <span class="fn">runInputJudge</span>；离线评测 <code>evals/judge-dataset.json</code> + <code>scripts/run-judge-evals.ts</code></td>
           <td><a href="./llm-judge.md">阶段说明</a> · <a href="./llm-judge-changelog.md">变更记录</a> · <a href="#judge">§6f</a></td>
+        </tr>
+        <tr>
+          <td>7 Reflection</td>
+          <td><span class="badge now">已实现 / 未准入</span></td>
+          <td>自我评估层：<code>reflection/types.ts</code> · <code>critic.ts</code> · <code>revise.ts</code>；关键方法 <span class="fn">critique</span> / <span class="fn">shouldRewriteByThreshold</span> / <span class="fn">revise</span> / <span class="fn">runReflectionPipeline</span>；离线评测 <code>evals/dataset-reflection.json</code> + <code>scripts/run-reflection-evals.ts</code></td>
+          <td><a href="./reflection.md">阶段说明</a> · <a href="./reflection-changelog.md">变更记录</a> · <a href="#reflection">§6g</a></td>
+        </tr>
+        <tr>
+          <td>进阶学习第 8 项 · Memory<br/><span style="font-size:12px;color:#64748b">跨会话记忆 · 仅 /api/chat 已接入</span></td>
+          <td><span class="badge now">已实现 / 四链路未接入</span></td>
+          <td>长期记忆层：<code>memory/types.ts</code> · <code>store.ts</code> · <code>extract.ts</code> · <code>merge.ts</code> · <code>retrieve.ts</code> · <code>context.ts</code> · <code>pipeline.ts</code> · <code>embedder.ts</code>；关键方法 <span class="fn">retrieveRelevantFacts</span> / <span class="fn">renderMemoryBlock</span> / <span class="fn">mergeIncomingFact</span> / <span class="fn">extractAndStoreFacts</span>；管理接口 <code>routes/memory.ts</code> + <code>context/buildContext.ts</code> 预算裁剪</td>
+          <td><a href="./memory.md">阶段说明</a> · <a href="./memory-changelog.md">变更记录</a> · <a href="./memory-flow.svg">全链路 SVG</a> · <a href="#memory">§6h</a></td>
         </tr>
       </tbody>
     </table>
@@ -1747,6 +1761,422 @@ flowchart TB
     <p class="path">仓库根：<code>tasks/llm-judge-plan.md</code>（阶段 6 计划与执行记录）。</p>
   </div>
 
+  <!-- ========== 6g ========== -->
+  <h2 id="reflection">6g. Reflection 自我评估与重写（阶段 7 · 已实现 / enforce 未准入）</h2>
+  <p class="lede">在答案生成之后加一层「自己给自己打分」：Critic 模型按固定 JSON Schema 对初版答案打四维分（相关性 / 完整性 / 事实依据 / 清晰度），代码用固定阈值规则决定要不要重写，需要时由 Rewrite 模型出一版修订稿，再做一次事实守卫与重评，不优于初版就回退。本阶段默认 <code>off</code>，仅在评测达标后才允许 <code>enforce</code>。细泳道：<a href="./reflection-flow.svg">reflection-flow.svg</a> · 阶段说明：<a href="./reflection.md">reflection.md</a> · 变更记录：<a href="./reflection-changelog.md">reflection-changelog.md</a> · 模块说明：<a href="../server/reflection/README.md">reflection/README.md</a> · 索引：<a href="./flows-index.html#reflection">flows-index.html 0f</a></p>
+
+  <div class="card">
+    <h3>6g.1 总览图（评分 → 阈值 → 重写 → 重评 → 回退）</h3>
+    <div class="mermaid">
+flowchart TB
+  subgraph entry["POST /api/chat/reflection"]
+    E1["校验 ReflectionChatRequestSchema"]
+    E2["拿到 question / toolFacts / draft"]
+  end
+  CR["critic.ts<br/>critique() → Critique"]
+  THR{"shouldRewriteByThreshold<br/>任一维≤3 或存在 groundedness 问题"}
+  RV["revise.ts<br/>revise() → 四态结果"]
+  GD{"事实守卫<br/>detectUnsupportedFacts"}
+  RE["重评：第二次 critique"]
+  KEEP["沿用初版 draft"]
+  NEW["采用修订稿"]
+  OUT["SSE：正文一次性推完"]
+  MODE{"REFLECTION_MODE"}
+  SKIP["reflection_skipped(off)"]
+  SH["shadow：只报告不改正文"]
+  E1 --> E2 --> CR --> THR
+  THR -->|不触发| KEEP
+  THR -->|触发| RV --> GD
+  GD -->|rejected / no_change / error| KEEP
+  GD -->|ok| RE
+  RE -->|不优于初版| KEEP
+  RE -->|更优| NEW
+  KEEP --> OUT
+  NEW --> OUT
+  MODE -->|off| SKIP
+  MODE -->|shadow| SH
+  MODE -->|enforce| CR
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6g.2 方法调用树（端点 / 评分 / 重写 / 契约）</h3>
+    <div class="calltree"><span class="c">// A. 端点（routes/chatReflection.ts）</span>
+<span class="m">registerChatReflectionRoutes</span>(app) → POST /api/chat/reflection
+  └─ <span class="m">runReflectionPipeline</span>({ question, toolFacts, draft, mode })
+       ├─ 校验 <span class="fn">ReflectionChatRequestSchema</span>（失败 400）
+       ├─ <span class="m">resolveReflectionMode</span>(mode) → off / shadow / enforce（非法值回落 off）
+       ├─ off → onTrace(<span class="fn">reflection_skipped</span>, reason=off)，零模型调用
+       ├─ shadow → 跑完整管线，只报告不改正文
+       └─ enforce → 跑完整管线，正文可能被替换
+
+<span class="c">// B. 评分内核（reflection/critic.ts）</span>
+<span class="m">critique</span>({ question, toolFacts, draft }, caller) → Critique
+  ├─ 提示词：四维评分说明 + 固定输出格式（结构化）
+  ├─ 解析：JSON.parse → <span class="fn">CritiqueSchema</span> 校验 → 非法即 error（<span class="e">不伪造分数</span>）
+  ├─ 失败分类：timeout / bad_json / api_error / schema_error
+  └─ <span class="m">shouldRewriteByThreshold</span>(scores, issues)
+       ├─ 任一维 ≤ <span class="fn">REFLECTION_REWRITE_THRESHOLD</span>(3) → 触发
+       ├─ 存在 groundedness 问题 → 触发
+       └─ 否则不触发（模型自评不能越过阈值，也不能阻止阈值）
+
+<span class="c">// C. 重写（reflection/revise.ts）</span>
+<span class="m">revise</span>({ question, toolFacts, draft, instructions }, caller) → ReviseResult
+  ├─ 输入只有四项：问题 / 工具事实 / draft / 修订指令
+  ├─ 请求中<span class="e">没有 tools 字段</span> → 结构上不可能调用工具
+  ├─ 事实守卫：<span class="fn">detectUnsupportedFacts</span> + <span class="fn">extractFactTokens</span>
+  └─ 四态：ok / no_change / rejected / error（<span class="e">非 ok 一律回退初版</span>）
+
+<span class="c">// D. 输出契约（reflection/types.ts）</span>
+<span class="fn">CritiqueSchema</span> 判别联合：
+  ├─ ok 分支：{ status: <span class="ok">"ok"</span>, scores, issues, shouldRewrite, revisionInstructions, reason }
+  └─ error 分支：{ status: <span class="ok">"error"</span>, errorKind, retries, raw }（<span class="e">不含任何分数字段</span>）
+  <span class="fn">REFLECTION_LIMITS</span>（issues≤10 / issue≤200 / 指令≤2000 / 理由≤500 / raw≤500）· <span class="fn">REFLECTION_SCHEMA_VERSION</span>=reflection.v1
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6g.3 模式与配置</h3>
+    <table class="map">
+      <thead>
+        <tr><th>模式</th><th>是否调模型</th><th>是否改正文</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>off</code>（默认）</td><td>否</td><td>否</td><td>直接推 <span class="fn">reflection_skipped(off)</span>，零额外开销</td></tr>
+        <tr><td><code>shadow</code></td><td>是</td><td>否</td><td>只跑评分并报告，正文保持初版（影子运行）</td></tr>
+        <tr><td><code>enforce</code></td><td>是</td><td>是</td><td>触发阈值且重写通过时采用修订稿；本阶段未准入</td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li><strong>配置单一来源</strong>：<code>runtimeConfig.ts</code> 新增 <code>reflection.mode</code>（独立配置块，与 <code>judge</code> 不混用）</li>
+      <li><strong>服务端为上限</strong>：请求只能把模式往下调（enforce → shadow/off），不能往上提</li>
+      <li><strong>非法值回落</strong>：配置或请求里的未知模式一律按 <code>off</code> 处理</li>
+      <li><strong>正文一次性推完</strong>：反思链路不流式——正文可能被整体替换，逐片推送会出现前后不一致</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6g.4 Trace 事件与跳过原因</h3>
+    <table class="map">
+      <thead>
+        <tr><th>事件</th><th>时机</th><th>关键字段</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>reflection_scored</code></td><td>每次评分成功后（初评 / 重评各一次）</td><td><code>stage</code>（<code>initial</code> / <code>revised</code>）· 四维分 · 平均分 · issues · 是否触发重写</td></tr>
+        <tr><td><code>reflection_revised</code></td><td>重写通过并被采用后</td><td><code>adopted</code>（是否采用）· <code>improved</code>（重评是否更优）· 前后分数对比</td></tr>
+        <tr><td><code>reflection_skipped</code></td><td>链路未真正生效时</td><td><code>reason</code>（10 种，见下表）</td></tr>
+      </tbody>
+    </table>
+    <table class="map">
+      <thead>
+        <tr><th>skip reason</th><th>含义</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>off</code></td><td>模式关闭，未进入反思链路</td></tr>
+        <tr><td><code>mock_mode</code></td><td>使用 mock 调用器（单测 / mock 评测）</td></tr>
+        <tr><td><code>critique_failed</code></td><td>评分失败（超时 / 坏 JSON / schema 错误 / API 错误）</td></tr>
+        <tr><td><code>no_rewrite_needed</code></td><td>评分通过，阈值未触发</td></tr>
+        <tr><td><code>revise_failed</code></td><td>重写调用失败</td></tr>
+        <tr><td><code>revise_rejected</code></td><td>事实守卫命中，修订稿作废</td></tr>
+        <tr><td><code>revise_no_change</code></td><td>修订稿与初版无实质差异</td></tr>
+        <tr><td><code>rescore_failed</code></td><td>重评失败，无法判定是否更优</td></tr>
+        <tr><td><code>no_improvement</code></td><td>重评不优于初版，回退初版</td></tr>
+        <tr><td><code>shadow_mode</code></td><td>影子模式，只报告不改正文</td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li><strong>rubric 不入正文</strong>：评分明细只在调试面板（ToolTracePanel）展示，不污染答案</li>
+      <li><strong>用量可分账</strong>：<code>critic</code> 与 <code>revise</code> 作为独立用量来源计入 Token 计费</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6g.5 与 Judge 的分层（不可混用）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>维度</th><th>Judge（阶段 6 · §6f）</th><th>Reflection（阶段 7 · §6g）</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>回答的问题</td><td>「要不要拦」</td><td>「要不要改」</td></tr>
+        <tr><td>作用对象</td><td>用户输入 / 检索片段 / 模型输出</td><td>已生成的初版答案</td></tr>
+        <tr><td>动作</td><td>拦截 / 打标放行</td><td>重写并替换正文</td></tr>
+        <tr><td>失败降级方向</td><td>更严（正则 Guard 兜底）</td><td>更弱（返回初版 draft）</td></tr>
+        <tr><td>是否调用工具</td><td>否</td><td>否（重写请求中无 tools 字段）</td></tr>
+        <tr><td>配置块</td><td><code>judge.mode</code></td><td><code>reflection.mode</code></td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li><strong>两套 schema 独立</strong>：Judge 输出的是「结论 + 风险 + 置信度」，Reflection 输出的是「四维分 + 问题清单 + 修订指令」</li>
+      <li><strong>两个方向相反的降级语义</strong>：因此提示词、阈值、代码、trace 事件均不复用</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6g.6 评测状态与准入结论</h3>
+    <table class="map">
+      <thead>
+        <tr><th>数据集</th><th>规模</th><th>结果</th><th>结论</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>evals/dataset-reflection.json</code></td><td>8 条（当前为 mock）</td><td>触发重写 6/8 · 采纳 6/8 · 预期一致 75%</td><td><span class="badge now">mock</span> 只证明管线跑通，<strong>不构成质量结论</strong></td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li><strong>enforce 未准入</strong>：真实模型评测未达阈值 → 线上停留 <code>shadow</code>，默认仍为 <code>off</code></li>
+      <li><strong>评测入口</strong>：<code>scripts/run-reflection-evals.ts</code>（四列对比：质量分 / 延迟 / token / 成本）</li>
+      <li><strong>报告</strong>：<code>evals/reflection-comparison-report.md</code>（当前为 mock 数据）</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6g.7 本阶段文件清单（新增 17 / 修改 11）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>分组</th><th>文件</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>新增</td><td><code>reflection/types.ts</code></td><td>评分契约：判别联合 CritiqueSchema · 字段上限 · 构造与截断工具</td></tr>
+        <tr><td>新增</td><td><code>reflection/text.ts</code></td><td>共用工具：truncateMiddle · stripCodeFence</td></tr>
+        <tr><td>新增</td><td><code>reflection/critic.ts</code></td><td>评分内核：拼提示词 · 调模型 · 解析 · 阈值规则</td></tr>
+        <tr><td>新增</td><td><code>reflection/revise.ts</code></td><td>重写内核：受限上下文 · 无 tools 请求 · 事实守卫</td></tr>
+        <tr><td>新增</td><td><code>reflection/README.md</code></td><td>模块说明：职责 · 契约 · 失败路径 · 扩展指引</td></tr>
+        <tr><td>新增</td><td><code>reflection/types.test.ts</code></td><td>契约单测（Schema · 判别联合 · 上限截断）</td></tr>
+        <tr><td>新增</td><td><code>reflection/critic.test.ts</code></td><td>评分单测（合法 / 非法 / 模糊 / 超时 / 阈值）</td></tr>
+        <tr><td>新增</td><td><code>reflection/revise.test.ts</code></td><td>重写单测（四态 · 事实守卫命中与放行）</td></tr>
+        <tr><td>新增</td><td><code>routes/chatReflection.ts</code></td><td>端点：校验 → draft → 评分 → 可选重写 → SSE → dispose</td></tr>
+        <tr><td>新增</td><td><code>routes/chatReflection.test.ts</code></td><td>端点单测（事件顺序 · skip 原因 · 模式回落）</td></tr>
+        <tr><td>新增</td><td><code>evals/dataset-reflection.json</code></td><td>评测集 8 条（mock）</td></tr>
+        <tr><td>新增</td><td><code>evals/reflectionDataset.ts</code></td><td>数据集加载与校验</td></tr>
+        <tr><td>新增</td><td><code>scripts/run-reflection-evals.ts</code></td><td>评测 CLI（四列对比）</td></tr>
+        <tr><td>新增</td><td><code>evals/reflection-comparison-report.md</code></td><td>评测报告（mock）</td></tr>
+        <tr><td>新增</td><td><code>docs/reflection.md</code></td><td>阶段完整说明</td></tr>
+        <tr><td>新增</td><td><code>docs/reflection-changelog.md</code></td><td>阶段变更记录</td></tr>
+        <tr><td>新增</td><td><code>docs/reflection-flow.svg</code></td><td>阶段 7 细泳道流程图（索引页 0f 引用）</td></tr>
+        <tr><td>修改</td><td><code>routes/index.ts</code></td><td>注册 <code>/api/chat/reflection</code></td></tr>
+        <tr><td>修改</td><td><code>runtimeConfig.ts</code></td><td>新增独立 <code>reflection</code> 配置块（mode）</td></tr>
+        <tr><td>修改</td><td><code>usage/accumulator.ts</code></td><td>用量来源接入 critic / revise</td></tr>
+        <tr><td>修改</td><td><code>usage/types.ts</code></td><td><code>UsageSource</code> 补 critic / revise</td></tr>
+        <tr><td>修改</td><td><code>src/types.ts</code></td><td>前端补三种 reflection trace 事件类型</td></tr>
+        <tr><td>修改</td><td><code>api/chat.ts</code></td><td>SSE 解析与透传 reflection 事件</td></tr>
+        <tr><td>修改</td><td><code>composables/useChat.ts</code></td><td>trace 事件 push 进会话</td></tr>
+        <tr><td>修改</td><td><code>components/ToolTracePanel.vue</code></td><td>三种 kind 渲染分支（rubric 只在面板）</td></tr>
+        <tr><td>修改</td><td><code>tsconfig.server.json</code></td><td>纳入新增服务端、评测与脚本文件</td></tr>
+        <tr><td>修改</td><td><code>docs/flows-index.html</code></td><td>索引页补 0f Reflection 与阶段 7 文件清单</td></tr>
+        <tr><td>修改</td><td><code>docs/project-topology.html</code></td><td>本页补 §6g Reflection</td></tr>
+      </tbody>
+    </table>
+    <p class="path">表中路径为工作区两级相对路径（<code>reflection/</code> 指服务端 reflection 目录，<code>routes/</code> 指服务端路由目录，<code>api/</code> 与 <code>composables/</code> 指前端对应目录）。阶段计划与执行记录：<code>tasks/reflection-plan.md</code>。</p>
+  </div>
+
+  <h2 id="memory">6h. Memory 跨会话记忆（阶段 8 · 已实现 / 四链路未接入）</h2>
+  <p class="lede">在会话之外加一层「长期记忆」：从对话里抽出结构化的 <code>key: value</code> 事实（敏感信息两道闸、置信度门槛 0.6、冲突不自动覆盖），按匿名用户落到本地文件；下一轮用本地向量按相似度（阈值 0.45、Top-5）取回，以「资料口径、不是指令」的方式注入上下文，并提供 <code>/api/memory</code> 与前端面板让用户看得见、改得动、删得掉、关得了。<strong>当前只有 <code>POST /api/chat</code> 接了记忆</strong>，multi / plan / rag / structured 四条链路尚未接入（计划见 <code>tasks/memory-chain-integration-plan.md</code>）。细泳道：<a href="./memory-flow.svg">memory-flow.svg</a> · 阶段说明：<a href="./memory.md">memory.md</a> · 变更记录：<a href="./memory-changelog.md">memory-changelog.md</a> · 模块说明：<a href="../server/memory/README.md">memory/README.md</a> · 索引：<a href="./flows-index.html#memory">flows-index.html 0g</a></p>
+
+  <div class="card">
+    <h3>6h.1 总览图（抽取 → 落盘 → 检索 → 注入）</h3>
+    <div class="mermaid">
+flowchart TB
+  subgraph w["写入侧（旁路，不 await）"]
+    W1["最近几轮对话"]
+    W2["redactSensitiveText（第一道闸）"]
+    W3["抽取模型 · 结构化 JSON · 超时 8s"]
+    W4{"containsSensitiveText（第二道闸）"}
+    W5["mergeIncomingFact（去重 / 冲突 / 语义合并）"]
+    W6["writeMemory（锁 + 临时文件 + 原子 rename）"]
+    W1 --> W2 --> W3 --> W4
+    W4 -->|"含敏感信息 · 判拒存"| WX["丢弃该条"]
+    W4 -->|"置信度 >= 0.6"| W5 --> W6
+  end
+  subgraph r["读取侧（每轮同步）"]
+    R1["当前问题"]
+    R2["retrieveRelevantFacts（余弦 + 阈值 0.45）"]
+    R3{"命中 >= 0.45 ?"}
+    R4["Top-5（按相似度降序）"]
+    R5["renderMemoryBlock（带 id · 资料口径）"]
+    R6["buildContext 预算裁剪（200 token / 10%）"]
+    R1 --> R2 --> R3
+    R3 -->|"否"| RN["本轮不注入"]
+    R3 -->|"是"| R4 --> R5 --> R6
+  end
+  subgraph g["用户可控"]
+    G1["/api/memory 列表 / 增 / 改 / 删 / 清空"]
+    G2["前端 MemoryPanel（冲突裁决）"]
+    G1 --> G2
+  end
+  W6 -.->|"落盘后下一轮可召回"| R2
+  G1 -.->|"软删除立即失效"| R2
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6h.2 方法调用树（检索 / 注入 / 抽取 / 存储 / 契约）</h3>
+    <div class="calltree"><span class="c">// A. 检索与注入（单 Agent 链路）</span>
+<span class="m">createChatStream</span>({ userId, allowMemory, messages })
+  └─ <span class="m">retrieveMemoryBlock</span>(options, question)
+       ├─ allowMemory ≠ true 或 userId 非法 → 返回 null（不检索）
+       ├─ <span class="m">retrieveRelevantFacts</span>(userId, question, { limit: <span class="fn">MEMORY_INJECT_LIMIT</span>=5 })
+       │    ├─ 过滤已软删除 / 已过期
+       │    ├─ <span class="m">tryEmbed</span>：给问题算向量，给无向量的旧记忆补算并回写
+       │    ├─ <span class="m">cosineSimilarity</span> ≥ <span class="fn">SIMILARITY_THRESHOLD</span>(0.45) → 按相似度降序取前 5
+       │    └─ 任一步失败 → 返回空数组（<span class="e">聊天照常</span>）
+       └─ <span class="m">renderMemoryBlock</span>(retrieved) → ContextMemoryBlock
+            └─ <span class="m">buildContext</span>({ memory }) → 预算裁剪后作为 system 消息插入
+<span class="c">// B. 抽取（旁路，不 await）</span>
+<span class="m">scheduleMemoryExtraction</span>(options, deps)
+  ├─ 不使用请求的 AbortSignal：客户端断开也要把偏好存下来（独立超时 <span class="fn">MEMORY_EXTRACT_TIMEOUT_MS</span>=8000）
+  ├─ 无 API Key（mock 模式）→ 跳过
+  └─ <span class="m">extractAndStoreFacts</span>({ userId, messages, callModel, signal, timeoutMs })
+       ├─ <span class="m">extractMemoryFacts</span>：模型输出非法 JSON / 超时 → <span class="e">返回空数组，不抛异常</span>
+       ├─ 第一道闸 <span class="fn">redactSensitiveText</span>（送模型前脱敏）
+       ├─ 第二道闸 <span class="fn">containsSensitiveText</span>（模型输出后复述即拒存）
+       ├─ 置信度 &lt; <span class="fn">MIN_CONFIDENCE</span>(0.6) → 不落盘
+       └─ <span class="m">mergeIncomingFact</span> → <span class="m">writeMemory</span>
+            ├─ 同 key 同值 → 刷新 updatedAt
+            ├─ 同 key 不同值 → 标 conflict（<span class="e">不自动覆盖，交给用户裁决</span>）
+            └─ 语义相似 &gt; <span class="fn">SEMANTIC_MERGE_THRESHOLD</span>(0.85) → 合并成一条
+<span class="c">// C. 存储契约（memory/store.ts）</span>
+<span class="m">resolveMemoryPath</span>(userId) → memory/{userId}.json（<span class="fn">MEMORY_USER_ID_PATTERN</span> 校验，防路径穿越）
+<span class="m">readMemory</span> → 仅生效记忆（已删 / 已过期过滤）
+<span class="m">readAllFacts</span> → 含已软删除记录（供合并保留历史）
+<span class="m">writeMemory</span> → 用户级锁 → 临时文件 → 原子 rename
+<span class="m">updateFact</span> / <span class="m">deleteFact</span> / <span class="m">clearMemory</span>
+<span class="m">persistEmbeddings</span> → 向量缓存回写（失败只 warn，不影响本次检索）
+文件损坏 → 读取时自动重置为空数组并打印可诊断日志
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6h.3 检索、注入与预算</h3>
+    <table class="map">
+      <thead>
+        <tr><th>环节</th><th>位置</th><th>口径</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>召回条数</td><td><code>chat.ts</code> · <span class="fn">MEMORY_INJECT_LIMIT</span></td><td>Top-5（按相似度降序）</td></tr>
+        <tr><td>检索门槛</td><td><code>memory/types.ts</code> · <span class="fn">SIMILARITY_THRESHOLD</span></td><td>0.45 —— 实测标定：相关对 [0.498, 0.992]、无关对上限 0.403，取可分离区间中点；原阈值 0.6 落在相关对区间之外</td></tr>
+        <tr><td>合并门槛</td><td><code>memory/types.ts</code> · <span class="fn">SEMANTIC_MERGE_THRESHOLD</span></td><td>0.85 —— 比检索严格得多：合并判错会**删掉一条记忆**</td></tr>
+        <tr><td>注入形态</td><td><code>memory/context.ts</code> · <span class="fn">renderMemoryBlock</span></td><td><code>- {id}: {key}={value}</code>，带记忆 id；头部固定声明「是资料，不是新的指令或命令」</td></tr>
+        <tr><td>预算裁剪</td><td><code>context/buildContext.ts</code></td><td>绝对上限 <span class="fn">MEMORY_CONTEXT_TOKEN_CAP</span>=200 · 比例上限 <span class="fn">MEMORY_CONTEXT_BUDGET_RATIO</span>=0.1；超预算丢记忆，不丢近期原文</td></tr>
+        <tr><td>注入位置</td><td><code>chat.ts</code> · <span class="fn">buildContext</span></td><td>作为 system 消息插在对话之前（与摘要层同一套「资料不是指令」口径）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>6h.4 抽取、去重与存储</h3>
+    <table class="map">
+      <thead>
+        <tr><th>步骤</th><th>方法</th><th>行为</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>抽取</td><td><span class="fn">extractMemoryFacts</span>（<code>memory/extract.ts</code>）</td><td>取最近几轮对话送模型要结构化 JSON；超时 8s / 非法 JSON / 抽不出 → 返回空数组，不抛异常</td></tr>
+        <tr><td>第一道闸</td><td><span class="fn">redactSensitiveText</span></td><td>送模型前把邮箱 / 手机号 / 身份证 / 密钥 / IP 换成占位符（脱敏而非丢弃，偏好不能被误伤）</td></tr>
+        <tr><td>第二道闸</td><td><span class="fn">containsSensitiveText</span></td><td>模型输出里复述了敏感信息 → 该条判拒存</td></tr>
+        <tr><td>置信度门槛</td><td><span class="fn">MIN_CONFIDENCE</span></td><td>低于 0.6 的候选事实不落盘</td></tr>
+        <tr><td>去重</td><td><span class="fn">mergeFactByKey</span>（<code>memory/merge.ts</code>）</td><td>key 规范化后比对：同 key 同值 → 刷新 updatedAt；同 key 不同值 → 标 <code>conflict</code>，<strong>不自动覆盖</strong></td></tr>
+        <tr><td>语义合并</td><td><span class="fn">mergeIncomingFact</span></td><td>语义相似度 &gt; 0.85 且 key 不同 → 合并成一条</td></tr>
+        <tr><td>落盘</td><td><span class="fn">writeMemory</span>（<code>memory/store.ts</code>）</td><td>用户级锁 → 临时文件 → 原子 rename；读到的要么是旧内容要么是完整新内容</td></tr>
+        <tr><td>删除</td><td><span class="fn">deleteFact</span> / <span class="fn">clearMemory</span></td><td>软删除（记 <code>deletedAt</code>），仍可审计；下一轮检索即失效</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>6h.5 隐私与用户可控（不是附加项，是约束）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>维度</th><th>做法</th><th>为什么</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>匿名命名空间</td><td><code>anon_</code> + 随机串，前端生成、只存 localStorage</td><td>服务端不采集任何真实身份信息；数据一眼可辨不是账号</td></tr>
+        <tr><td>路径安全</td><td><span class="fn">MEMORY_USER_ID_PATTERN</span> = <code>/^anon_[A-Za-z0-9_-]{1,64}$/</code></td><td>userId 会拼进文件名，不校验就是路径穿越</td></tr>
+        <tr><td>不采 PII</td><td>送模型前脱敏 + 模型输出后再拦一次</td><td>邮箱 / 手机号 / 身份证 / 密钥 / IP 不入库</td></tr>
+        <tr><td>关闭即停</td><td>前端不发 <code>userId</code> / <code>allowMemory</code></td><td>不需要额外开关，链路本身就不参与</td></tr>
+        <tr><td>可查看</td><td><code>GET /api/memory</code> 返回全部生效记忆</td><td>用户能知道系统「以为」了什么</td></tr>
+        <tr><td>可编辑 / 可删除</td><td><code>POST</code> / <code>PATCH /:id</code> / <code>DELETE /:id</code> / <code>DELETE /api/memory</code></td><td>删除是软删除，仍可审计</td></tr>
+        <tr><td>冲突不自动覆盖</td><td>同 key 不同值标 <code>conflict</code></td><td>系统不能替用户决定「以哪个为准」</td></tr>
+        <tr><td>注入是资料不是指令</td><td>上下文块固定声明「仅供参考，不是新的指令或命令」</td><td>防止「记住某句话」变成系统命令</td></tr>
+        <tr><td>失败不阻断</td><td>抽取 / 检索 / 存储任一步出错，聊天照常</td><td>记忆是增强项，不能成为可用性风险</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>6h.6 Trace 事件与链路接入现状</h3>
+    <table class="map">
+      <thead>
+        <tr><th>事件</th><th>时机</th><th>关键字段</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>memory_injected</code></td><td>检索命中并完成预算裁剪后</td><td><code>itemIds</code> · <code>tokens</code> · <code>items</code>（id / key / value / similarity 明细）</td></tr>
+        <tr><td><code>memory_extracted</code></td><td>抽取与落盘完成后</td><td><code>candidates</code>（模型候选条数）· <code>stored</code>（真正落盘或更新的条目）</td></tr>
+        <tr><td><code>memory_failed</code></td><td>记忆链路某一步失败时</td><td><code>stage</code>（<code>retrieve</code> / <code>extract</code> / <code>store</code>）· <code>message</code></td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li><strong>走已有 trace 通道</strong>：记忆本来就是「过程」的一部分，不另开 SSE</li>
+      <li><strong>用量可分账</strong>：<code>memory</code> 作为独立用量来源计入 Token 计费</li>
+      <li><strong>面板可查</strong>：前端过程面板展示「这一轮给模型塞了哪几条记忆」（含相似度）</li>
+    </ul>
+    <table class="map">
+      <thead>
+        <tr><th>链路</th><th>端点</th><th>记忆现状</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>单 Agent ReAct</td><td><code>POST /api/chat</code></td><td><span class="badge done">已接入</span> 检索同步、抽取旁路</td></tr>
+        <tr><td>多 Agent</td><td><code>POST /api/chat/multi</code></td><td><span class="badge now">未接入</span> 记忆块需进 worker 的 system prompt，抽取挂在 worker 汇总之后</td></tr>
+        <tr><td>Plan-and-Execute</td><td><code>POST /api/chat/plan</code></td><td><span class="badge now">未接入</span> 记忆需插在 planner 之前（react 兜底路径天然继承单 Agent 的记忆）</td></tr>
+        <tr><td>资料问答 RAG</td><td><code>POST /api/rag/chat</code></td><td><span class="badge now">未接入</span> 记忆块追加在检索片段之后，作为「用户事实」而不是「检索资料」</td></tr>
+        <tr><td>结构化输出</td><td><code>POST /api/chat/structured</code></td><td><span class="badge now">未接入</span> 结构化输出有自己的拼装逻辑，注入点独立</td></tr>
+      </tbody>
+    </table>
+    <p class="path">四条链路的接入顺序与落点见 <code>tasks/memory-chain-integration-plan.md</code>（本阶段只出计划，未改这四条链路的代码）。</p>
+  </div>
+
+  <div class="card">
+    <h3>6h.7 本阶段文件清单（新增 18 / 修改 15）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>分组</th><th>文件</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>新增</td><td><code>memory/types.ts</code></td><td>线协议：MemoryFact · MemoryExtractResult · 阈值常量 · userId 规则 · MemoryTraceEvent</td></tr>
+        <tr><td>新增</td><td><code>memory/store.ts</code></td><td>存储：路径解析 · 用户级锁 · 原子写 · 软删除 · embedding 回写 · 损坏自愈</td></tr>
+        <tr><td>新增</td><td><code>memory/extract.ts</code></td><td>抽取器：脱敏 · 提示词 · 结构化解析 · 模型调用封装</td></tr>
+        <tr><td>新增</td><td><code>memory/merge.ts</code></td><td>去重合并：key 规范化 · 同 key 裁决 · 语义合并 · 补向量</td></tr>
+        <tr><td>新增</td><td><code>memory/retrieve.ts</code></td><td>检索：余弦相似度 · 阈值 0.45 · Top-K · 缺向量补算</td></tr>
+        <tr><td>新增</td><td><code>memory/context.ts</code></td><td>渲染上下文块（资料口径 + 记忆 id）</td></tr>
+        <tr><td>新增</td><td><code>memory/pipeline.ts</code></td><td>编排：抽取 -&gt; 合并 -&gt; 落盘</td></tr>
+        <tr><td>新增</td><td><code>memory/embedder.ts</code></td><td>向量化封装：本地模型 · 余弦相似度 · 失败兜底</td></tr>
+        <tr><td>新增</td><td><code>memory/README.md</code></td><td>模块说明：职责 · 契约 · 失败路径 · 扩展指引</td></tr>
+        <tr><td>新增</td><td><code>routes/memory.ts</code></td><td><code>/api/memory</code>：列表 / 新增 / 修改 / 删除 / 清空</td></tr>
+        <tr><td>新增</td><td><code>api/memory.ts</code></td><td>前端记忆接口封装</td></tr>
+        <tr><td>新增</td><td><code>components/MemoryPanel.vue</code></td><td>前端记忆面板（含冲突裁决）</td></tr>
+        <tr><td>新增</td><td><code>scripts/test-memory.ts</code></td><td>跨会话 / 语义 spike / 并发与损坏自愈</td></tr>
+        <tr><td>新增</td><td><code>scripts/test-chat-chains.ts</code></td><td>五链路 + 记忆接口回归</td></tr>
+        <tr><td>新增</td><td><code>scripts/check-memory-recall.ts</code></td><td>检索阈值标定 CLI</td></tr>
+        <tr><td>新增</td><td><code>docs/memory.md</code></td><td>阶段完整说明</td></tr>
+        <tr><td>新增</td><td><code>docs/memory-changelog.md</code></td><td>阶段变更记录</td></tr>
+        <tr><td>新增</td><td><code>docs/memory-flow.svg</code></td><td>阶段 8 细泳道流程图（索引页 0g 引用）</td></tr>
+        <tr><td>修改</td><td><code>chat.ts</code></td><td>retrieveMemoryBlock · scheduleMemoryExtraction · MEMORY_INJECT_LIMIT · MEMORY_EXTRACT_TIMEOUT_MS</td></tr>
+        <tr><td>修改</td><td><code>routes/chat.ts</code></td><td>透传 userId / allowMemory 到单 Agent 链路</td></tr>
+        <tr><td>修改</td><td><code>routes/index.ts</code></td><td>注册 /api/memory</td></tr>
+        <tr><td>修改</td><td><code>context/buildContext.ts</code></td><td>记忆块预算裁剪（200 token / 10%）</td></tr>
+        <tr><td>修改</td><td><code>context/types.ts</code></td><td>ContextMemoryBlock / ContextMemoryItem · 记忆 id 与 token 统计</td></tr>
+        <tr><td>修改</td><td><code>usage/accumulator.ts</code></td><td>用量来源新增 memory</td></tr>
+        <tr><td>修改</td><td><code>api/chat.ts</code></td><td>请求体带 userId / allowMemory · SSE 解析三个记忆事件</td></tr>
+        <tr><td>修改</td><td><code>composables/useChat.ts</code></td><td>memoryUserId / allowMemory / memoryFacts 状态与增删改清空</td></tr>
+        <tr><td>修改</td><td><code>App.vue</code></td><td>顶栏记忆开关 · 记忆管理浮层 · memoryInjectionSupported 口径</td></tr>
+        <tr><td>修改</td><td><code>components/ToolTracePanel.vue</code></td><td>三个记忆事件的渲染分支</td></tr>
+        <tr><td>修改</td><td><code>types.ts</code></td><td>前端补三个记忆 trace 事件类型</td></tr>
+        <tr><td>修改</td><td><code>package.json</code></td><td>新增 test:memory / test:chains</td></tr>
+        <tr><td>修改</td><td><code>tsconfig.server.json</code></td><td>纳入新增服务端与脚本文件</td></tr>
+        <tr><td>修改</td><td><code>docs/flows-index.html</code></td><td>索引页补 0g Memory 与阶段 8 文件清单</td></tr>
+        <tr><td>修改</td><td><code>docs/project-topology.html</code></td><td>本页补 §6h Memory</td></tr>
+      </tbody>
+    </table>
+    <p class="path">表中路径为工作区两级相对路径（<code>memory/</code> 指服务端记忆目录，<code>routes/</code> 指服务端路由目录，<code>api/</code>、<code>components/</code>、<code>composables/</code> 指前端对应目录）。阶段计划与执行记录：<code>tasks/memory-plan.md</code>；四链路接入计划：<code>tasks/memory-chain-integration-plan.md</code>。</p>
+  </div>
+
   <!-- ========== 7 ========== -->
   <h2 id="cross">7. 横切：Token 计费 · 安全 Guard · Trace（方法级）</h2>
   <p class="lede">Token、Guard、Trace 横切挂在普通聊天 / 多 Agent / RAG / 计划执行四条业务链上；结构化端点的 usage / LangSmith 单独见 <a href="#structured">§6c</a>。细泳道 SVG：<a href="./crosscutting-token-guard-trace-flow.svg">crosscutting-token-guard-trace-flow.svg</a></p>
@@ -2080,6 +2510,7 @@ flowchart LR
     Plan-and-Execute 章节按 <code>server/plan-execute/</code> 与 <code>server/routes/chatPlan.ts</code> 同步整理（2026-11 同步）。
     工具注册表章节（§5b / §7b）按阶段 5「Tool 动态发现」改造后的 <code>server/tools/</code> 同步整理（2026-11 同步）。
     LLM-as-Judge 章节（§6f）按 <code>server/guard/judge*.ts</code> 与 <code>evals/</code> 同步整理（2026-11 同步）。
+    Memory 章节（§6h）按 <code>server/memory/</code>、<code>routes/memory.ts</code> 与 <code>chat.ts</code> 同步整理（2026-11 同步）；四条链路（multi / plan / rag / structured）的记忆接入状态按源码如实标注为「未接入」。
     协作红线：不允许私自删除代码注释。细泳道请打开 <a href="./flows-index.html">flows-index.html</a>。
   </footer>
 </div>

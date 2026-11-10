@@ -1,0 +1,61 @@
+{
+  "version": "reflection.v1",
+  "examples": [
+    {
+      "id": "ref-001",
+      "question": "我的快递什么时候能到？",
+      "toolFacts": "[order_query] 订单号 SF1234567890，当前状态为运输中，最近一次扫描记录显示已到达杭州转运中心，网点名称为城东分部。",
+      "notes": "事实里没有送达时间，属于信息不足型；期望反思能收敛到事实边界内，而不是编造时效。",
+      "expected": "rewrite"
+    },
+    {
+      "id": "ref-002",
+      "question": "生鲜商品破损可以退吗？",
+      "toolFacts": "[policy_query] 生鲜商品签收后 2 小时内凭照片申请赔付，商品外包装破损或明显变质可全额退款，不满足条件仅做部分退款。",
+      "notes": "带具体时限与条件，期望反思补齐「2 小时」和「凭照片」两个关键限定。",
+      "expected": "rewrite"
+    },
+    {
+      "id": "ref-003",
+      "question": "门店周末几点关门？",
+      "toolFacts": "[store_query] 城东分部营业时间为每天 09:00 到 21:00，周末不休息，全年无休。",
+      "notes": "事实明确，期望初版即达标、不触发重写。",
+      "expected": "no_rewrite"
+    },
+    {
+      "id": "ref-004",
+      "question": "标准版和专业版有什么差别？",
+      "toolFacts": "[product_compare] 标准版支持 5 个项目、每月 20 次生成、单人协作；专业版支持 50 个项目、每月 500 次生成、含审批流与专属客服。",
+      "notes": "两个方案并列对比，期望反思把差异整理成可比较的结构。",
+      "expected": "rewrite"
+    },
+    {
+      "id": "ref-005",
+      "question": "寄同城要多少钱运费？",
+      "toolFacts": "[pricing_query] 同城件首重 1 公斤 8 元，续重每公斤 2 元；当日达需另付加件费 5 元。",
+      "notes": "带金额，期望反思不擅自改价，只用事实里的数字。",
+      "expected": "rewrite"
+    },
+    {
+      "id": "ref-006",
+      "question": "退货要怎么操作？",
+      "toolFacts": "[faq_search] 退货流程为：在订单页点击申请退货，上传商品照片，客服在 24 小时内审核，通过后按原支付方式退款。",
+      "notes": "步骤型答案，期望反思补齐「上传照片」与审核时效。",
+      "expected": "rewrite"
+    },
+    {
+      "id": "ref-007",
+      "question": "运单号 SF7788990011 的物流信息是什么？",
+      "toolFacts": "[tracking_query] 运单号 SF7788990011 已签收，签收时间 2025-03-11 14:20，签收网点为城西分部。",
+      "notes": "事实完整，期望初版即覆盖状态、时间、网点三项，不重写。",
+      "expected": "no_rewrite"
+    },
+    {
+      "id": "ref-008",
+      "question": "可以指定时间送货吗？",
+      "toolFacts": "[service_query] 当前支持预约派送，可在订单页选择日期范围，预约仅覆盖所选网点可配送区域。",
+      "notes": "事实只说「可预约」，没说具体时段，期望反思不补「明天上午」这类时间推断词。",
+      "expected": "rewrite"
+    }
+  ]
+}

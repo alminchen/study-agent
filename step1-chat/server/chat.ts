@@ -1,15 +1,27 @@
 import { clipMessages } from "./clipMessages.js";
-import { buildContext, renderSummaryText } from "./context/buildContext.js";
+import { buildContext, renderMemoryText, renderSummaryText } from "./context/buildContext.js";
 import { summarizeDroppedMessages } from "./context/summarize.js";
 import {
   estimateMessagesTokens,
   estimateMessageTokens,
   resolveBudgetTokens,
 } from "./context/tokenBudget.js";
-import type { ContextBuildResult, ContextSummary } from "./context/types.js";
+import type {
+  ContextBuildResult,
+  ContextMemoryBlock,
+  ContextSummary,
+} from "./context/types.js";
 import { detectInjection, type RiskLevel } from "./guard/inputGuard.js";
 import { SAFE_BLOCK_TEXT } from "./guard/judgePolicy.js";
 import { runInputJudge } from "./guard/judgeRuntime.js";
+import { renderMemoryBlock } from "./memory/context.js";
+import {
+  createMemoryModelCaller,
+  type MemoryConversationMessage,
+} from "./memory/extract.js";
+import { extractAndStoreFacts } from "./memory/pipeline.js";
+import { retrieveRelevantFacts } from "./memory/retrieve.js";
+import { isValidUserId } from "./memory/types.js";
 import { streamMock } from "./mock/streamMock.js";
 import { getRuntimeConfig } from "./runtimeConfig.js";
 import type { ConfirmSession } from "./react/confirmGate.js";
@@ -69,6 +81,12 @@ const SUMMARY_TRIGGER_MIN_MESSAGES = 2;
 /** 触发摘要生成的门槛：丢掉部分的估算 token。 */
 const SUMMARY_TRIGGER_MIN_TOKENS = 200;
 
+/** 一次最多注入几条记忆。 */
+const MEMORY_INJECT_LIMIT = 5;
+
+/** 记忆抽取的整体超时（毫秒）。 */
+const MEMORY_EXTRACT_TIMEOUT_MS = 8_000;
+
 export type ChatStreamMessage = TextMessage;
 
 export interface CreateChatStreamOptions {
@@ -110,6 +128,19 @@ export interface CreateChatStreamOptions {
   onUsage?: (usage: TokenUsage, model: string) => void;
   /** 摘要这次模型调用的 usage，单独记账（要能看出「压缩花了多少」）。 */
   onSummaryUsage?: (usage: TokenUsage, model: string) => void;
+  /**
+   * 匿名用户 id（跨会话记忆的归属键）。
+   * 格式必须是 anon_xxx（由前端生成、只存 localStorage），非法就当没传。
+   */
+  userId?: string;
+  /**
+   * 是否启用记忆。
+   * - true：注入（检索相关记忆）+ 抽取（从本轮对话存新记忆）
+   * - false / 不传：完全不走记忆链路，行为与本阶段改造前一致。
+   */
+  allowMemory?: boolean;
+  /** 记忆抽取这次模型调用的 usage，单独记账（要能看出「记忆抽取花了多少」）。 */
+  onMemoryUsage?: (usage: TokenUsage, model: string) => void;
   /**
    * 人工确认会话：传入后会把 draft_message 等需确认工具挂给模型，
    * 并在 applyToolCalls 里 await 用户 allow/deny。
@@ -179,6 +210,109 @@ async function maybeSummarize(params: {
     onUsage: params.onUsage,
   });
 }
+
+/**
+ * 检索与当前问题相关的记忆，渲染成可注入的上下文块。
+ *
+ * 失败（模型没加载、文件读不出来）返回 null：这一轮就是没有记忆，
+ * 聊天照常继续。记忆是加分项，不是必需品。
+ */
+async function retrieveMemoryBlock(
+  options: CreateChatStreamOptions,
+  question: string,
+): Promise<ContextMemoryBlock | null> {
+  const userId = options.userId;
+  if (options.allowMemory !== true || !isValidUserId(userId)) return null;
+  if (!question.trim()) return null;
+
+  try {
+    const retrieved = await retrieveRelevantFacts(userId, question, {
+      limit: MEMORY_INJECT_LIMIT,
+    });
+    if (retrieved.length === 0) return null;
+    return renderMemoryBlock(retrieved);
+  } catch (error) {
+    console.warn("[memory] 检索失败，本轮不注入记忆", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    options.onTrace?.({
+      type: "memory_failed",
+      stage: "retrieve",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * 从本轮对话里抽取事实并落盘（旁路，不 await）。
+ *
+ * 三个刻意的设计：
+ * 1. **不 await**：抽取要多花 1~3 秒，聊天主链路不能为它买单。
+ * 2. **不用请求的 AbortSignal**：客户端一断开就取消抽取，
+ *    那「模型刚说完就断开」的用户永远存不下任何偏好。
+ *    这里用独立控制器 + 自己的超时。
+ * 3. **没有 API Key 就跳过**：Mock 模式没有真模型，调了也是假的。
+ */
+function scheduleMemoryExtraction(
+  options: CreateChatStreamOptions,
+  deps: { apiKey: string; forceMock: boolean; baseUrl: string },
+): Promise<void> | null {
+  const userId = options.userId;
+  if (options.allowMemory !== true || !isValidUserId(userId)) return null;
+  if (deps.forceMock || !deps.apiKey) return null;
+
+  const messages: MemoryConversationMessage[] = options.messages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
+  if (messages.length === 0) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MEMORY_EXTRACT_TIMEOUT_MS);
+
+  const task = (async () => {
+    try {
+      const callModel = createMemoryModelCaller({
+        apiKey: deps.apiKey,
+        baseUrl: deps.baseUrl,
+        model: options.model ?? "deepseek-chat",
+        onUsage: options.onMemoryUsage,
+      });
+      const outcome = await extractAndStoreFacts({
+        userId,
+        messages,
+        callModel,
+        signal: controller.signal,
+        timeoutMs: MEMORY_EXTRACT_TIMEOUT_MS,
+      });
+      options.onTrace?.({
+        type: "memory_extracted",
+        candidates: outcome.candidates,
+        stored: outcome.stored.map((fact) => ({
+          id: fact.id,
+          key: fact.key,
+          value: fact.value,
+        })),
+      });
+    } catch (error) {
+      console.warn("[memory] 抽取失败（不影响聊天）", {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      options.onTrace?.({
+        type: "memory_failed",
+        stage: "extract",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+
+  return task;
+}
+
 /**
  * 把构建好的上下文交给下游：没有 Key 走假流式，有 Key 走 ReAct。
  */
@@ -252,11 +386,35 @@ export async function createChatStream(options: CreateChatStreamOptions) {
 
   const deps = { apiKey, forceMock, searchDocs, baseUrl };
 
+  // ---- 记忆注入（C2）：先检索出候选，再交给上下文构建器按预算摆位置 ----
+  // 放在 judge 之后：被拦截的输入不该触发任何记忆检索。
+  const memoryBlock = await retrieveMemoryBlock(options, guardInfo?.text ?? "");
+
   if ((options.contextMode ?? "legacy") === "legacy") {
     // 旧路径：按条数截断，行为与本阶段改造前完全一致。
     const maxContextMessages = options.maxContextMessages ?? MAX_CONTEXT_MESSAGES;
     const clippedMessages = clipMessages(options.messages, systemPrompt, maxContextMessages);
-    await dispatchChat(options, clippedMessages, deps);
+    if (!memoryBlock) {
+      await dispatchChat(options, clippedMessages, deps);
+    } else {
+      // 旧路径没有预算裁剪层：记忆整体作为一条独立的 system 消息，
+      // 插在 system 之后、原文之前，和摘要层的位置口径一致。
+      const memoryMessage = { role: "system" as const, content: renderMemoryText(memoryBlock) };
+      const withMemory = [clippedMessages[0], memoryMessage, ...clippedMessages.slice(1)];
+      options.onTrace?.({
+        type: "memory_injected",
+        itemIds: memoryBlock.items.map((item) => item.id),
+        tokens: estimateMessageTokens(memoryMessage),
+        items: memoryBlock.items.map((item) => ({
+          id: item.id,
+          key: item.key ?? "",
+          value: item.value ?? "",
+          similarity: item.similarity,
+        })),
+      });
+      await dispatchChat(options, withMemory, deps);
+    }
+    scheduleMemoryExtraction(options, deps);
     return;
   }
 
@@ -274,6 +432,7 @@ export async function createChatStream(options: CreateChatStreamOptions) {
     systemPrompt,
     budgetTokens,
     maxRecentRounds: maxRounds,
+    memory: memoryBlock,
   });
 
   // ---- 压缩：只有真的丢掉内容才处理，避免每轮都推事件制造噪音 ----
@@ -304,6 +463,7 @@ export async function createChatStream(options: CreateChatStreamOptions) {
         systemPrompt,
         budgetTokens,
         maxRecentRounds: maxRounds,
+        memory: memoryBlock,
       });
     }
 
@@ -325,5 +485,24 @@ export async function createChatStream(options: CreateChatStreamOptions) {
     });
   }
 
+  // 记忆实际注入了几条、占多少 token，由构建器裁剪后才知道。
+  if (memoryBlock) {
+    options.onTrace?.({
+      type: "memory_injected",
+      itemIds: context.memoryItemIds,
+      tokens: context.memoryTokens,
+      // 裁剪后的明细：前端展示「这轮到底塞了哪几条」。
+      items: context.memoryItems.map((item) => ({
+        id: item.id,
+        key: item.key ?? "",
+        value: item.value ?? "",
+        similarity: item.similarity,
+      })),
+    });
+  }
+
   await dispatchChat(options, context.messages, deps);
+
+  // ---- 记忆抽取（C1）：fire-and-forget，不阻塞这一轮响应 ----
+  scheduleMemoryExtraction(options, deps);
 }

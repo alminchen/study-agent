@@ -3,8 +3,10 @@ import { registerChatRoutes } from "./chat.js";
 import { registerChatConfirmRoutes } from "./chatConfirm.js";
 import { registerChatMultiRoutes } from "./chatMulti.js";
 import { registerChatPlanRoutes } from "./chatPlan.js";
+import { registerChatReflectionRoutes } from "./chatReflection.js";
 import { registerChatStructuredRoutes } from "./chatStructured.js";
 import { registerHealthRoutes } from "./health.js";
+import { registerMemoryRoutes } from "./memory.js";
 import { registerModelRoutes } from "./models.js";
 import { registerRagChatRoutes } from "./ragChat.js";
 import { registerUsageRoutes } from "./usage.js";
@@ -22,4 +24,8 @@ export function registerRoutes(app: Express): void {
   registerChatMultiRoutes(app);
   // Plan-and-Execute 使用独立端点，与普通聊天链路并行挂载。
   registerChatPlanRoutes(app);
+  // Reflection 使用独立端点：先出一版答案再回头评分/重写，默认关闭（REFLECTION_MODE=off）。
+  registerChatReflectionRoutes(app);
+  // 跨会话记忆的读写接口：用户可以查看、修改、删除自己被记住的内容。
+  registerMemoryRoutes(app);
 }
