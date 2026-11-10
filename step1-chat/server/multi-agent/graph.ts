@@ -26,6 +26,7 @@
  */
 
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import type { ContextMemoryBlock } from "../context/types.js";
 import type { ConfirmSession } from "../react/confirmGate.js";
 import type { ToolTraceHandler } from "../react/types.js";
 import {
@@ -91,6 +92,17 @@ export interface MultiAgentGraphOptions {
    * Supervisor 若未分到 kb，强制追加 kb Worker（task=用户原文），保证必走检索。
    */
   forceKbSearch?: boolean;
+  /**
+ * 本轮检索出的长期记忆块。
+   *
+ * 由路由层（chatMulti）检索**一次**再传进来：
+ * 四个 Worker 各检索一次 = 四倍向量计算 + 四份可能不一致的注入。
+ *
+ * 只下发给 Worker，**不给 supervisor、不给 aggregate**：
+ * 路由依据是「问题属于哪个领域」、汇总不产生新事实，
+ * 这两处看到用户偏好只会增加噪音和 token。
+ */
+  memoryBlock?: ContextMemoryBlock;
 }
 
 /**
@@ -126,6 +138,7 @@ export function compileMultiAgentGraph(options?: MultiAgentGraphOptions) {
   const onTrace = options?.onTrace;
   const writeSse = options?.writeSse;
   const forceKbSearch = Boolean(options?.forceKbSearch);
+  const memoryBlock = options?.memoryBlock;
 
   /** 无累加器时返回 undefined；有则按 source 打标签绑到同一个 acc */
   const onUsage = (source: UsageSource) =>
@@ -212,6 +225,7 @@ export function compileMultiAgentGraph(options?: MultiAgentGraphOptions) {
             onUsage: onUsage("worker"),
             confirmSession,
             onTrace,
+            memoryBlock,
           }),
         );
         console.log(`  [${assignment.name}] 完成: error=${result.error}, tools=${result.toolsCalled.join(",") || "无"}`);

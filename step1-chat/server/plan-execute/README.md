@@ -19,7 +19,7 @@
 |------|------|
 | `types.ts` | 共享协议：Plan/PlanStep（模型产物，生成后不可变）、PlanRun/PlanStepResult（服务端运行时状态）、错误码、SSE 事件契约 |
 | `classify.ts` | 规则分类器（纯函数，不调模型）：判断走 ReAct 还是 Plan-and-Execute |
-| `prompts.ts` | 三套提示词 + `emit_plan` 工具 schema：只输出计划、不回答用户 |
+| `prompts.ts` | 三套提示词 + `emit_plan` 工具 schema：只输出计划、不回答用户；有长期记忆时追加「## 用户长期记忆」小节（无记忆时逐字不变） |
 | `schema.ts` | Zod 计划契约与长度上限，`validatePlan` 归一化并报错码 |
 | `planner.ts` | Planner 契约 + 真实实现：让模型用 `emit_plan` 吐出可校验 JSON |
 | `executor.ts` | Executor 契约 + 真实实现：执行单个步骤，返回**不可信**的 `PlanStepResult` |
@@ -41,6 +41,11 @@
 | 规划 | `[system(计划提示词), user(问句)]` | `emit_plan`（只产出计划） |
 | 单步 | `[system(单步提示词), user(目标 + 当前步 + 已完成摘要)]` | 本步白名单（≤3 个） |
 | 终答 | `[system(终答提示词), user(已完成步骤摘要)]` | 无 |
+
+长期记忆（可选）：路由层 `routes/chatPlan.ts` 检索**一次**，
+经 `graph.ts` 下发给 planner / 每一步 / 终答 / re-plan，
+在各自 system 提示词**末尾**追加「## 用户长期记忆」小节（无记忆时提示词逐字不变）。
+ReAct 回退路径走 `chat.ts`，记忆以独立 system 消息注入。
 
 ## 关键常量
 

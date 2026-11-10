@@ -106,7 +106,17 @@ function titleOf(step: ToolTraceStep): string {
   if (step.kind === "memory_extracted") {
     return `长期记忆 · 记住了 ${step.stored.length} 条`;
   }
+  if (step.kind === "memory_failed") {
+    return `长期记忆 · ${memoryStageText(step.stage)}失败`;
+  }
   return `确认结果 · ${step.name}（${step.action === "allow" ? "允许" : "拒绝"}）`;
+}
+
+/** 记忆失败发生在哪一步；与服务端 MemoryTraceEvent 的 stage 一一对应。 */
+function memoryStageText(stage: "retrieve" | "extract" | "store"): string {
+  if (stage === "extract") return "抽取";
+  if (stage === "store") return "保存";
+  return "检索";
 }
 
 function payloadOf(step: ToolTraceStep): unknown {
@@ -164,6 +174,9 @@ function payloadOf(step: ToolTraceStep): unknown {
   }
   if (step.kind === "memory_extracted") {
     return { candidates: step.candidates, stored: step.stored };
+  }
+  if (step.kind === "memory_failed") {
+    return { stage: step.stage, message: step.message };
   }
   return { action: step.action };
 }
@@ -268,6 +281,13 @@ function onDeny(step: Extract<ToolTraceStep, { kind: "pending_confirm" }>) {
               {{ item.key }}={{ item.value }}
             </li>
           </ul>
+        </div>
+        <!-- 记忆失败：检索 / 抽取 / 保存某一步挂了，聊天照常，只是这轮没记住。 -->
+        <div v-else-if="step.kind === 'memory_failed'" class="reflection-body">
+          <div class="reflection-line">
+            {{ memoryStageText(step.stage) }}失败：{{ step.message }}
+          </div>
+          <div class="reflection-reason">不影响本轮回答，记忆功能继续可用。</div>
         </div>
         <pre v-else class="trace-json">{{ JSON.stringify(payloadOf(step), null, 2) }}</pre>
         <div v-if="step.kind === 'pending_confirm'" class="confirm-actions">

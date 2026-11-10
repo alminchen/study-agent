@@ -36,7 +36,8 @@
 | 多 Agent | `server/multi-agent/` | Supervisor、Worker、Aggregate 三段式编排 |
 | RAG 资料问答 | `server/rag/` | 独立于普通聊天的检索增强问答链路 |
 | SSE 流式传输 | `server/routes/` | 普通聊天、Plan、Structured、多 Agent、RAG 均使用 SSE 传输过程事件和结果 |
-| 前端 SSE 解析 | `src/api/` | 使用 `fetch + ReadableStream`，不依赖 EventSource |
+| 前端 SSE 解析 | `src/api/` | 使用 `fetch + ReadableStream`，不依赖 EventSource；记忆事件统一由 `api/memoryTrace.ts` 解析 |
+| 跨会话长期记忆 | `server/memory/` | 路由层检索一次注入上下文，对话结束抽取用户事实；普通对话、multi、plan、rag、structured 五条链路已接入，反思复盘未接入 |
 | 工具调用 | `server/tools/` | 天气、时间、知识库检索、消息起草 |
 | 人工确认 | `server/react/` | 有后果的工具会暂停，等待前端 `allow` 或 `deny` |
 | 输入防护 | `server/guard/` | 检测 Prompt Injection，只标记不拦截 |
@@ -871,7 +872,7 @@ npm run eval:chat -- --id weather-gz
 ```text
 step1-chat/
 ├── src/
-│   ├── api/                 前端 SSE 请求与事件解析
+│   ├── api/                 前端 SSE 请求与事件解析（记忆事件见 memoryTrace.ts）
 │   ├── components/          聊天、工具轨迹、命中、用量面板
 │   ├── composables/         聊天状态、切换、重试、持久化
 │   └── rag/                 前端引用工具
@@ -881,6 +882,7 @@ step1-chat/
 │   ├── multi-agent/         Supervisor、Worker、Aggregate
 │   ├── rag/                 RAG 检索、重排、Prompt 和回答
 │   ├── context/             Token 预算、上下文裁剪和结构化摘要
+│   ├── memory/              跨会话长期记忆：数据模型、检索、抽取、公共接入层
 │   ├── structured/          Structured 协议、partial 解析和流式快照
 │   ├── plan-execute/        Plan 路由、Planner、Executor 和 Re-plan
 │   ├── guard/               输入、工具、输出防护

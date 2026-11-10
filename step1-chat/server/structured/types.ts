@@ -57,6 +57,15 @@ export const StructuredChatRequestSchema = z
       .max(STRUCTURED_LIMITS.requestMessagesMax, "messages 不能超过 100 条"),
     model: requiredText(STRUCTURED_LIMITS.modelMaxChars, "模型名"),
     target: StructuredTargetSchema,
+    /**
+     * 匿名用户 id（跨会话记忆的归属键）；非法 id 按「没开记忆」处理。
+     *
+     * 关掉记忆时前端**连 userId 一起不带**：
+     * 服务端要求 allowMemory === true 且 userId 合法才检索，缺一不可。
+     */
+    userId: z.string().optional(),
+    /** 是否启用长期记忆；false / 不传时零检索、零抽取。 */
+    allowMemory: z.boolean().optional(),
   })
   .strict();
 

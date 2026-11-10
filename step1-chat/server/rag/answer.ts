@@ -1,4 +1,5 @@
 import { normalizeKnowledgeAnswer } from "../answer-style/knowledgeAnswer.js";
+import type { ContextMemoryBlock } from "../context/types.js";
 import { detectInjection } from "../guard/inputGuard.js";
 import { SAFE_BLOCK_TEXT } from "../guard/judgePolicy.js";
 import { runInputJudge, type InputJudgeOutcome } from "../guard/judgeRuntime.js";
@@ -97,6 +98,8 @@ function toPublicHits(
  * - Input：由 routes/ragChat.ts 对 question 调 detectInjection（只标记；SSE injection_detected）。
  * - Trace：onTrace 推 tool_call / tool_result / output_leak_blocked（SSE）。
  * - LangSmith：retrieve / LLM 分别走 runRagRetrieveWithTracing / runRagLlmWithTracing。
+ * - 记忆：长期记忆块由路由层检索一次后经 options.memoryBlock 传入，
+ *   在 prompt 的「## 用户长期记忆」小节注入（与「## 资料」严格分开）。
  */
 export async function answerFromDocs(
   question: string,
@@ -105,9 +108,16 @@ export async function answerFromDocs(
   model?: string,
   onUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void,
   onTrace?: ToolTraceHandler,
-  usageHooks?: {
+  options?: {
     onRewriteUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
     onHydeUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
+    /**
+     * 预检索好的长期记忆块。
+     *
+     * 由路由层检索一次后传进来，在 prompt 的「## 用户长期记忆」小节注入。
+     * 这里不自己检索——一次请求只检索一次记忆。
+     */
+    memoryBlock?: ContextMemoryBlock | null;
   },
 ): Promise<RagAnswer> {
   const trimmed = question.trim();
@@ -134,8 +144,8 @@ export async function answerFromDocs(
     // signal 传入：用户停止时扩写 / HyDE HTTP 也能 abort
     const result = await retrieveForAnswer(trimmed, undefined, undefined, {
       signal,
-      onRewriteUsage: usageHooks?.onRewriteUsage,
-      onHydeUsage: usageHooks?.onHydeUsage,
+      onRewriteUsage: options?.onRewriteUsage,
+      onHydeUsage: options?.onHydeUsage,
     });
     return {
       ...result,
@@ -185,7 +195,12 @@ export async function answerFromDocs(
     },
   });
 
-  const prompt = buildRagPrompt({ question: trimmed, judgment, history });
+  const prompt = buildRagPrompt({
+    question: trimmed,
+    judgment,
+    history,
+    memoryBlock: options?.memoryBlock,
+  });
   const hits = toPublicHits(judgment.rawHits, judgment.rankedAll, judgment.hits);
   if (prompt.empty) {
     return {

@@ -20,7 +20,8 @@
 | [rag-query-enhance-flow.svg](./rag-query-enhance-flow.svg) | **检索前问句增强**：意图/扩写/路由/Multi-Query/HyDE + env 开关 + meta 面板 | [rag-query-enhance-notes.md](./rag-query-enhance-notes.md) · [计划](../../rag-query-intent-rewrite-learning-plan.md) · 拓扑 [§6b](./project-topology.html#rag-enhance) |
 | [llm-judge-flow.svg](./llm-judge-flow.svg) | **LLM-as-Judge 语义判定（阶段 6）**：三个判定面（input/retrieval/output）→ 正则与 Judge 双层防线 → off/shadow/enforce 三档决策 → judge_shadow / judge_enforced trace → 70 条离线评测与七条 enforce 准入阈值 | [llm-judge.md](./llm-judge.md) · [llm-judge-changelog.md](./llm-judge-changelog.md) · 拓扑 [§6f](./project-topology.html#judge) |
 | [reflection-flow.svg](./reflection-flow.svg) | **Reflection 自我评估与重写（阶段 7）**：独立端点与三档模式 → Critic 四维评分与失败分支 → 阈值裁决 → 重写与事实守卫 → 重评回退与 trace 事件 → 与 Judge 的分层 → 离线评测准入 | [reflection.md](./reflection.md) · [reflection-changelog.md](./reflection-changelog.md) · 拓扑 [§6g](./project-topology.html#reflection) |
-| [memory-flow.svg](./memory-flow.svg) | **跨会话记忆 Memory（阶段 8）**：开关与匿名 userId → 检索阈值 0.45 / Top-5 → 注入渲染与预算裁剪 → 旁路抽取与敏感信息两道闸 → 去重合并与原子落盘 → 记忆管理接口与面板 → trace 事件 → 四链路接入现状 | [memory.md](./memory.md) · [memory-changelog.md](./memory-changelog.md) · 拓扑 [§6h](./project-topology.html#memory) |
+| [memory-flow.svg](./memory-flow.svg) | **跨会话记忆 Memory（阶段 8）**：开关与匿名 userId → 检索阈值 0.45 / Top-5 → 注入渲染与预算裁剪 → 旁路抽取与敏感信息两道闸 → 去重合并与原子落盘 → 记忆管理接口与面板 → trace 事件 → 五链路接入现状 | [memory.md](./memory.md) · [memory-changelog.md](./memory-changelog.md) · 拓扑 [§6h](./project-topology.html#memory) |
+| [memory-chain-flow.svg](./memory-chain-flow.svg) | **跨会话记忆接入四条链路（阶段 9）**：公共接入层 memory/bridge.ts → 路由层检索一次共用同一块记忆 → multi 独立 system / plan 四处 prompt / rag「## 资料」之后 / structured system prompt 末尾 → 抽取输入按链路裁剪 → 前端统一契约与事件解析 → 失败一律旁路 | [memory-chain-integration.md](./memory-chain-integration.md) · [memory-chain-changelog.md](./memory-chain-changelog.md) · 拓扑 [§6i](./project-topology.html#memory-chain) |
 | [messages-assembly-flow.svg](./messages-assembly-flow.svg) | messages 三层 × 三条链路总览 | [project-messages-flow.md](./project-messages-flow.md) |
 | [resilience-failure-flow.svg](./resilience-failure-flow.svg) | 失败地图与恢复策略 | [resilience-failure-map.md](./resilience-failure-map.md) |
 | [dynamic-tool-discovery-flow.svg](./dynamic-tool-discovery-flow.svg) | **工具动态发现（阶段 5 已落地）**：启动扫描 modules/* → discoverTools() 校验 → createRegistry() 派生唯一清单 → Guard / MCP / Chat / Worker 四路消费 | [dynamic-tool-discovery.md](./dynamic-tool-discovery.md) · 拓扑 [§7b](./project-topology.html#tools) |
@@ -36,3 +37,20 @@ Markdown 索引与浏览器版 [flows-index.html](./flows-index.html) 一一对�
 | [llm-judge-changelog.md](./llm-judge-changelog.md) | **阶段 6 变更记录**：新增 12 文件 / 修改 15 文件清单、判定结果结构、评测结果与七条阈值对照 |
 | [reflection.md](./reflection.md) · [reflection-changelog.md](./reflection-changelog.md) | **阶段 7 Reflection**：自我评估偏差、与 Judge 分层、默认不启用条件；变更记录 |
 | [memory.md](./memory.md) · [memory-changelog.md](./memory-changelog.md) | **阶段 8 Memory**：跨会话记忆数据模型、事实 vs 语义选型对比、实测数据、隐私设计；变更记录 |
+| [memory-chain-integration.md](./memory-chain-integration.md) · [memory-chain-changelog.md](./memory-chain-changelog.md) | **阶段 9 Memory 链路接入**：跨会话记忆接进 multi / plan / rag / structured 四条链路 · 六个设计决策 · 四链路注入点与抽取输入对照表 · 前端契约与面板三态；变更记录 |
+
+## 阶段 9 文件清单
+
+阶段 9（跨会话记忆接入四条链路）涉及的每一个文件：
+
+| 分组 | 数量 | 说明 |
+|------|------|------|
+| 新增 | 7 | `memory/bridge.ts` · `memory/index.ts` · `multi-agent/workers/memoryPrompt.ts` · `api/memoryTrace.ts` · `docs/memory-chain-integration.md` · `docs/memory-chain-changelog.md` · `docs/memory-chain-flow.svg` |
+| 修改 · 服务端 | 28 | `chat.ts` · `memory/context.ts` · `memory/README.md` · `routes/{chatMulti,chatPlan,ragChat,chatStructured}.ts` · `multi-agent/{graph,README}` + 五个 worker 文件 · `plan-execute/` 九项 · `rag/{prompt,answer,README}` · `structured/{complete,types,README}` |
+| 修改 · 前端 | 7 | `api/chat.ts` · `api/rag.ts` · `composables/useChat.ts` · `types.ts` · `App.vue` · `components/{MemoryPanel,ToolTracePanel}.vue` |
+| 修改 · 脚本与文档 | 6 | `scripts/test-chat-chains.ts` · `docs/flows-index.html` · `docs/flows-index.md` · `docs/project-topology.html` · `docs/memory-flow.svg` · `README.md` |
+
+逐项改动说明见 [memory-chain-changelog.md](./memory-chain-changelog.md)。
+
+**实测状态**：`npm run typecheck` 通过；`npm run build` 未运行；`npm run test:chains` 未运行；
+端到端跨会话脚本与单元测试均未写（归后续阶段）。

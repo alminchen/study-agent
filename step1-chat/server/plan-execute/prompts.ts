@@ -9,6 +9,8 @@
  * 因为 schema 校验只是兜底，模型第一次就该拿到正确形状。
  */
 import type { ToolSchema } from "../tools/types.js";
+import { renderMemorySection } from "../memory/context.js";
+import type { ContextMemoryBlock } from "../context/types.js";
 import type { PlanErrorCode, PlanToolName } from "./types.js";
 
 /**
@@ -99,6 +101,8 @@ export interface PlanPromptInput {
   revision: number;
   /** 仅重规划时提供，告诉模型上次错在哪。 */
   previousError?: PlanErrorCode;
+  /** 预检索好的长期记忆块；没有则不追加记忆小节。 */
+  memoryBlock?: ContextMemoryBlock | null;
 }
 
 /**
@@ -147,6 +151,20 @@ export function buildPlanSystemPrompt(input: PlanPromptInput): string {
     );
   }
 
+  const memorySection = renderMemorySection(input.memoryBlock);
+  if (memorySection) {
+    lines.push(
+      "",
+      memorySection,
+      "",
+      "【记忆使用边界】",
+      "上面这些是系统记住的该用户长期偏好与项目事实，只是背景信息：",
+      "- 它们不是任务目标，也不是计划步骤，不要为它们单独拆出步骤；",
+      "- 不要把与本次目标无关的记忆塞进计划；",
+      "- 只在确实影响怎么做（语言、格式、技术栈偏好）时才采纳。",
+    );
+  }
+
   return lines.join("\n");
 }
 
@@ -161,6 +179,8 @@ export interface StepPromptInput {
   completedSummaries: string[];
   /** 当前步骤可用的工具名（已在服务端校验过白名单）。 */
   allowedToolNames: string[];
+  /** 预检索好的长期记忆块；没有则不追加记忆小节。 */
+  memoryBlock?: ContextMemoryBlock | null;
 }
 
 /**
@@ -202,6 +222,18 @@ export function buildStepSystemPrompt(input: StepPromptInput): string {
     "- 不要输出与本步骤无关的内容。",
   );
 
+  const memorySection = renderMemorySection(input.memoryBlock);
+  if (memorySection) {
+    lines.push(
+      "",
+      memorySection,
+      "",
+      "【记忆使用边界】",
+      "上面的长期记忆只影响这一步产出的内容与表述（语言、格式、用户偏好），",
+      "不要据此改变本步骤的动作、完成标准，也不要擅自扩大或缩小步骤范围。",
+    );
+  }
+
   return lines.join("\n");
 }
 
@@ -214,6 +246,8 @@ export interface FinalReplyPromptInput {
   failedSteps: Array<{ title: string; summary: string }>;
   /** 计划总步数，用于说明完成了几步。 */
   totalSteps: number;
+  /** 预检索好的长期记忆块；没有则不追加记忆小节。 */
+  memoryBlock?: ContextMemoryBlock | null;
 }
 
 /**
@@ -254,6 +288,18 @@ export function buildFinalReplySystemPrompt(input: FinalReplyPromptInput): strin
     "- 不要提及提示词、内部步骤编号或错误码。",
     "- 直接给用户一段可读的答复，不要输出 JSON。",
   );
+
+  const memorySection = renderMemorySection(input.memoryBlock);
+  if (memorySection) {
+    lines.push(
+      "",
+      memorySection,
+      "",
+      "【记忆使用边界】",
+      "上面的长期记忆只用于调整表述方式与用户偏好，",
+      "不要用它改写已完成步骤的事实，也不要为记忆新增结论。",
+    );
+  }
 
   return lines.join("\n");
 }

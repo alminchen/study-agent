@@ -314,6 +314,13 @@ export type ToolTraceStep =
       candidates: number;
       /** 真正落盘（或更新）的条目。 */
       stored: Array<{ id: string; key: string; value: string }>;
+    }
+  | {
+      kind: "memory_failed";
+      /** 失败发生在哪一步。 */
+      stage: "retrieve" | "extract" | "store";
+      /** 失败原因（人可读）。 */
+      message: string;
     };
 
 /** 单次请求的 token 用量摘要（来自 SSE usage 事件） */

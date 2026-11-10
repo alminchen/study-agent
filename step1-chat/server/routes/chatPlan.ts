@@ -15,6 +15,16 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { createChatStream } from "../chat.js";
+import { renderMemoryText } from "../context/buildContext.js";
+import { estimateMessageTokens } from "../context/tokenBudget.js";
+import type { ContextMemoryBlock } from "../context/types.js";
+import {
+  buildExtractionInput,
+  buildMemoryInjectedEvent,
+  retrieveMemoryBlock,
+  scheduleMemoryExtraction,
+} from "../memory/bridge.js";
+import { isValidUserId, type MemoryTraceEvent } from "../memory/types.js";
 import { createRealExecutor } from "../plan-execute/executor.js";
 import { createRealFinalReplier, type FinalReplier } from "../plan-execute/finalReply.js";
 import { runPlanGraph, type PlanGraphState } from "../plan-execute/graph.js";
@@ -44,6 +54,10 @@ export const PlanChatRequestSchema = z.object({
   model: z.string().min(1),
   mode: z.enum(["auto", "react", "plan"]).optional(),
   searchDocs: z.boolean().optional(),
+  /** 匿名用户 id（跨会话记忆的归属键）；非法 id 按「没开记忆」处理。 */
+  userId: z.string().optional(),
+  /** 是否启用记忆；false / 不传时零检索、零抽取。 */
+  allowMemory: z.boolean().optional(),
 });
 
 export interface RunPlanExecuteOptions {
@@ -62,6 +76,12 @@ export interface RunPlanExecuteOptions {
   onTrace: ToolTraceHandler;
   onDelta: (delta: string) => void;
   onUsage: (usage: TokenUsage, model: string) => void;
+  /** 匿名用户 id；仅在 allowMemory 为 true 时参与记忆检索与抽取。 */
+  userId?: string;
+  /** 是否启用记忆。 */
+  allowMemory?: boolean;
+  /** 路由层检索好的记忆块；全图共用同一份，不再各自检索。 */
+  memoryBlock?: ContextMemoryBlock | null;
   /** 本次请求的 planId；不传则由图生成。 */
   planId?: string;
 }
@@ -143,6 +163,7 @@ export function runPlanExecute(options: RunPlanExecuteOptions): Promise<PlanGrap
     searchDocs: options.searchDocs,
     signal: options.signal,
     confirmSession: options.confirmSession,
+    memoryBlock: options.memoryBlock,
     planner,
     executor,
     finalReplier,
@@ -161,6 +182,11 @@ export function runPlanExecute(options: RunPlanExecuteOptions): Promise<PlanGrap
           onUsage: options.onUsage,
           onDelta: options.onDelta,
           onTrace: options.onTrace,
+          // 记忆：路由层已经检索过一次，这里直接把块传下去。
+          // 传 null 也算「提供方已处理」→ chat.ts 不再检索、不再发事件、不再抽取。
+          userId: options.userId,
+          allowMemory: options.allowMemory,
+          memoryBlock: options.memoryBlock ?? null,
         });
       },
     },
@@ -187,7 +213,7 @@ export function registerChatPlanRoutes(app: Express): void {
       return;
     }
 
-    const { messages, model, mode, searchDocs } = parsed.data;
+    const { messages, model, mode, searchDocs, userId, allowMemory } = parsed.data;
     setSseHeaders(res);
 
     // 客户端断开 → 中止图内所有模型请求与确认等待。
@@ -215,6 +241,39 @@ export function registerChatPlanRoutes(app: Express): void {
       const observer = createPlanObserver({ requestId, planId });
       const userPreview = planUserPreview(messages);
 
+      // ---- 长期记忆：路由层检索一次，planner / step / final reply 共用同一块 ----
+      // 关闭开关 / userId 非法时 retrieveMemoryBlock 直接返回 null（零检索）。
+      const memoryOptions = {
+        userId: isValidUserId(userId) ? userId : undefined,
+        allowMemory: allowMemory === true,
+        model: selectedModel,
+        onTrace: (event: MemoryTraceEvent) => writeEvent(event),
+        onMemoryUsage: bindUsageCallback(usage, "memory", selectedModel),
+      };
+      const lastUserText =
+        [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+      const memoryBlock = await retrieveMemoryBlock(memoryOptions, lastUserText);
+      if (memoryBlock) {
+        writeEvent(
+          buildMemoryInjectedEvent(
+            memoryBlock.items.map((item) => ({
+              id: item.id,
+              key: item.key,
+              value: item.value,
+              similarity: item.similarity,
+            })),
+            estimateMessageTokens({
+              role: "system",
+              content: renderMemoryText(memoryBlock),
+            }),
+          ),
+        );
+      }
+
+      // 本轮给用户的最终回答：计划模式是 final reply，ReAct 回退是流式 delta。
+      // 抽取输入要用它（见 memory/bridge.ts 的 D4 口径）。
+      let answerText = "";
+
       const observation = await runPlanRequestWithTracing(
         { requestId, planId, mode: mode ?? "auto", userPreview },
         async () => {
@@ -229,6 +288,9 @@ export function registerChatPlanRoutes(app: Express): void {
             signal: abortController.signal,
             confirmSession,
             planId,
+            userId: memoryOptions.userId,
+            allowMemory: memoryOptions.allowMemory,
+            memoryBlock,
             onUsage: bindUsageCallback(usage, "plan", selectedModel),
             onEvent: (event) => {
               observer.onEvent(event);
@@ -238,9 +300,25 @@ export function registerChatPlanRoutes(app: Express): void {
               observer.onTrace(event);
               writeEvent(event);
             },
-            onDelta: (delta) => writeEvent({ delta }),
+            onDelta: (delta) => {
+              answerText += delta;
+              writeEvent({ delta });
+            },
           });
           return observer.observe(state);
+        },
+      );
+
+      // ---- 长期记忆抽取（旁路，不阻塞本轮回复）----
+      // 抽取输入按统一口径裁剪：最近 2 轮**用户消息** + 本轮给用户的最终回答。
+      // 计划步骤的中间产物、工具返回都不参与抽取——那些不是用户事实。
+      scheduleMemoryExtraction(
+        memoryOptions,
+        buildExtractionInput({ messages, finalReply: answerText }),
+        {
+          apiKey: config.apiKey,
+          forceMock: config.forceMock,
+          baseUrl: config.baseUrl,
         },
       );
 

@@ -33,6 +33,7 @@
 import { callLLM } from "../llm.js";
 import { runToolSafely } from "../runToolSafely.js";
 import { toolsWithTags } from "../../tools/index.js";
+import { buildWorkerMessages } from "./memoryPrompt.js";
 import type { WorkerContext, WorkerResult } from "./types.js";
 
 /**
@@ -75,10 +76,8 @@ export async function runRealtimeWorker(ctx: WorkerContext): Promise<WorkerResul
    * 只包含：system prompt + Supervisor 分配的 task(作为 user) + 工具交互过程。
    * 这保证了 Worker 的上下文干净，不会被其他 Worker 或主对话污染。
    */
-  const messages: { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string }[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: ctx.task },
-  ];
+  const messages: { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string }[] =
+    buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock);
 
   /**
    * 只暴露 getWeather 和 getCurrentTime 的 schema 给模型。

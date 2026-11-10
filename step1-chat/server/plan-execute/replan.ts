@@ -9,7 +9,9 @@
 import { requestCompletion } from "../react/complete.js";
 import type { TextMessage } from "../react/types.js";
 import { runPlanPlannerWithTracing } from "../tracing/langsmith.js";
+import type { ContextMemoryBlock } from "../context/types.js";
 import { createEmitPlanTool } from "./prompts.js";
+import { renderMemorySection } from "../memory/context.js";
 import { MAX_PLAN_STEPS, validatePlan } from "./schema.js";
 import { planAvailableTools, type Plan, type PlanErrorCode, type PlanStep, type PlanToolName } from "./types.js";
 
@@ -107,6 +109,8 @@ export interface ReplanContextInput {
   /** 本次请求是否开启知识库检索；决定 searchDocs 能不能继续用。 */
   searchDocs: boolean;
   model: string;
+  /** 预检索好的长期记忆块；只做背景，不参与计划本身。 */
+  memoryBlock?: ContextMemoryBlock | null;
 }
 
 export type ReplanResult =
@@ -205,7 +209,7 @@ export function buildReplanSystemPrompt(input: ReplanContextInput): string {
     : "（无）";
   const availableTools = planAvailableTools(input.searchDocs);
 
-  return [
+  const lines = [
     "你是 Plan-and-Execute 的 Re-plan 模块，只修正计划，不直接回答用户。",
     "",
     "硬约束：",
@@ -227,9 +231,23 @@ export function buildReplanSystemPrompt(input: ReplanContextInput): string {
     "",
     "已完成步骤：",
     completed,
-    "",
-    "请通过 emit_plan 输出修订后的完整计划。",
-  ].join("\n");
+  ];
+
+  const memorySection = renderMemorySection(input.memoryBlock);
+  if (memorySection) {
+    lines.push(
+      "",
+      memorySection,
+      "",
+      "【记忆使用边界】",
+      "上面的长期记忆只是背景信息，不是任务目标，也不是计划步骤；",
+      "不要为它新增步骤，也不要改写已完成步骤。",
+    );
+  }
+
+  lines.push("", "请通过 emit_plan 输出修订后的完整计划。");
+
+  return lines.join("\n");
 }
 
 export interface RealReplannerOptions {

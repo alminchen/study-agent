@@ -8,6 +8,7 @@
 import { requestCompletion } from "../react/complete.js";
 import type { TextMessage } from "../react/types.js";
 import { runPlanPlannerWithTracing } from "../tracing/langsmith.js";
+import type { ContextMemoryBlock } from "../context/types.js";
 import { validatePlan } from "./schema.js";
 import { buildPlanSystemPrompt, createEmitPlanTool } from "./prompts.js";
 import { planAvailableTools, type Plan, type PlanErrorCode } from "./types.js";
@@ -21,6 +22,8 @@ export interface PlanContext {
   planId: string;
   /** 仅重规划时传入，让 Planner 避开同一个坑。 */
   previousError?: PlanErrorCode;
+  /** 预检索好的长期记忆块；只做背景，不参与计划本身。 */
+  memoryBlock?: ContextMemoryBlock | null;
 }
 
 export type PlannerResult =
@@ -53,6 +56,7 @@ export function createRealPlanner(options: RealPlannerOptions): Planner {
         availableTools,
         revision: context.revision,
         previousError: context.previousError,
+        memoryBlock: context.memoryBlock,
       });
 
       const messages: TextMessage[] = [

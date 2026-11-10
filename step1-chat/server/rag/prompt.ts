@@ -1,3 +1,5 @@
+import type { ContextMemoryBlock } from "../context/types.js";
+import { renderMemorySection } from "../memory/context.js";
 import type { RetrievalJudgment, SearchHit } from "./types.js";
 
 /** 与聊天主链路的 system 分开；RAG 只用这一份。 */
@@ -33,6 +35,13 @@ export interface BuildRagPromptInput {
   history?: RagMessage[];
   /** 最多保留的历史条数（user + assistant 合计） */
   maxHistoryMessages?: number;
+  /**
+   * 预检索好的长期记忆块。
+   *
+ * 有记忆时在「## 资料」**之后**追加独立的「## 用户长期记忆」小节；
+ * 没有记忆时 prompt 与改造前逐字一致。
+   */
+  memoryBlock?: ContextMemoryBlock | null;
 }
 
 export type RagPromptResult =
@@ -91,9 +100,18 @@ export function buildRagPrompt(input: BuildRagPromptInput): RagPromptResult {
   }
 
   const evidence = formatEvidenceBlocks(judgment.hits);
+  const memorySection = renderMemorySection(input.memoryBlock);
   const system: RagMessage = {
     role: "system",
-    content: `${RAG_SYSTEM_PROMPT}\n\n## 资料\n\n${evidence}`,
+    content:
+      `${RAG_SYSTEM_PROMPT}\n\n## 资料\n\n${evidence}` +
+      // 记忆必须与资料严格分开小节：混进 evidence 模型会当成检索来源，
+      // 引用编号对不上，「资料问答」的可追溯性就毁了。
+      (memorySection
+        ? `\n\n${memorySection}\n\n` +
+          "（上面这一节是用户长期记忆，不是检索资料：不要给它编号，" +
+          "也不要把它的内容当作资料引用。）"
+        : ""),
   };
 
   const recent = trimHistory(history, maxHistoryMessages);

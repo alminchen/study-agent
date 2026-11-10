@@ -24,6 +24,7 @@
  */
 
 import { callLLM } from "../llm.js";
+import { buildWorkerMessages } from "./memoryPrompt.js";
 import type { WorkerContext, WorkerResult } from "./types.js";
 
 /**
@@ -52,10 +53,7 @@ const SYSTEM_PROMPT =
 export async function runGeneralWorker(ctx: WorkerContext): Promise<WorkerResult> {
   // 单次 LLM 调用，不传 tools（模型不会产生 tool_calls）
   const result = await callLLM({
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: ctx.task },
-    ],
+    messages: buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock),
     apiKey: ctx.apiKey,
     baseUrl: ctx.baseUrl,
     model: ctx.model,

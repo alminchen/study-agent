@@ -14,14 +14,12 @@ import type {
 import { detectInjection, type RiskLevel } from "./guard/inputGuard.js";
 import { SAFE_BLOCK_TEXT } from "./guard/judgePolicy.js";
 import { runInputJudge } from "./guard/judgeRuntime.js";
-import { renderMemoryBlock } from "./memory/context.js";
 import {
-  createMemoryModelCaller,
-  type MemoryConversationMessage,
-} from "./memory/extract.js";
-import { extractAndStoreFacts } from "./memory/pipeline.js";
-import { retrieveRelevantFacts } from "./memory/retrieve.js";
-import { isValidUserId } from "./memory/types.js";
+  buildMemoryInjectedEvent,
+  retrieveMemoryBlock,
+  scheduleMemoryExtraction,
+} from "./memory/bridge.js";
+import type { MemoryConversationMessage } from "./memory/extract.js";
 import { streamMock } from "./mock/streamMock.js";
 import { getRuntimeConfig } from "./runtimeConfig.js";
 import type { ConfirmSession } from "./react/confirmGate.js";
@@ -81,12 +79,6 @@ const SUMMARY_TRIGGER_MIN_MESSAGES = 2;
 /** 触发摘要生成的门槛：丢掉部分的估算 token。 */
 const SUMMARY_TRIGGER_MIN_TOKENS = 200;
 
-/** 一次最多注入几条记忆。 */
-const MEMORY_INJECT_LIMIT = 5;
-
-/** 记忆抽取的整体超时（毫秒）。 */
-const MEMORY_EXTRACT_TIMEOUT_MS = 8_000;
-
 export type ChatStreamMessage = TextMessage;
 
 export interface CreateChatStreamOptions {
@@ -139,6 +131,19 @@ export interface CreateChatStreamOptions {
    * - false / 不传：完全不走记忆链路，行为与本阶段改造前一致。
    */
   allowMemory?: boolean;
+  /**
+   * 预检索好的记忆块。
+   *
+   * 传了就**直接用**，不再自行检索；`memory_injected` 事件也由提供方负责发，
+   * 这里不再重复发一次；记忆抽取同样由提供方负责，这里不再抽一次。
+   *
+   * 谁会传：/api/chat/plan 的 ReAct 回退路径——那条路径本来就走 createChatStream，
+   * 但记忆块是路由层检索一次后传下来的（一次请求只检索一次记忆）。
+   *
+   * 传 `null` 表示「提供方已经查过了，这一轮没有可用记忆」：
+   * 同样不检索、不抽取、不发事件。
+   */
+  memoryBlock?: ContextMemoryBlock | null;
   /** 记忆抽取这次模型调用的 usage，单独记账（要能看出「记忆抽取花了多少」）。 */
   onMemoryUsage?: (usage: TokenUsage, model: string) => void;
   /**
@@ -212,105 +217,20 @@ async function maybeSummarize(params: {
 }
 
 /**
- * 检索与当前问题相关的记忆，渲染成可注入的上下文块。
+ * 从当前对话里挑选适合抽取的消息。
  *
- * 失败（模型没加载、文件读不出来）返回 null：这一轮就是没有记忆，
- * 聊天照常继续。记忆是加分项，不是必需品。
+ * 默认口径：用户消息 + 助手最终回复。工具返回、路由判断这些
+ * 「不是用户事实」的内容不进抽取器。
  */
-async function retrieveMemoryBlock(
-  options: CreateChatStreamOptions,
-  question: string,
-): Promise<ContextMemoryBlock | null> {
-  const userId = options.userId;
-  if (options.allowMemory !== true || !isValidUserId(userId)) return null;
-  if (!question.trim()) return null;
-
-  try {
-    const retrieved = await retrieveRelevantFacts(userId, question, {
-      limit: MEMORY_INJECT_LIMIT,
-    });
-    if (retrieved.length === 0) return null;
-    return renderMemoryBlock(retrieved);
-  } catch (error) {
-    console.warn("[memory] 检索失败，本轮不注入记忆", {
-      userId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    options.onTrace?.({
-      type: "memory_failed",
-      stage: "retrieve",
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-}
-
-/**
- * 从本轮对话里抽取事实并落盘（旁路，不 await）。
- *
- * 三个刻意的设计：
- * 1. **不 await**：抽取要多花 1~3 秒，聊天主链路不能为它买单。
- * 2. **不用请求的 AbortSignal**：客户端一断开就取消抽取，
- *    那「模型刚说完就断开」的用户永远存不下任何偏好。
- *    这里用独立控制器 + 自己的超时。
- * 3. **没有 API Key 就跳过**：Mock 模式没有真模型，调了也是假的。
- */
-function scheduleMemoryExtraction(
-  options: CreateChatStreamOptions,
-  deps: { apiKey: string; forceMock: boolean; baseUrl: string },
-): Promise<void> | null {
-  const userId = options.userId;
-  if (options.allowMemory !== true || !isValidUserId(userId)) return null;
-  if (deps.forceMock || !deps.apiKey) return null;
-
-  const messages: MemoryConversationMessage[] = options.messages
+function getMemoryConversationMessages(
+  messages: ChatStreamMessage[],
+): MemoryConversationMessage[] {
+  return messages
     .filter((message) => message.role === "user" || message.role === "assistant")
-    .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
-  if (messages.length === 0) return null;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MEMORY_EXTRACT_TIMEOUT_MS);
-
-  const task = (async () => {
-    try {
-      const callModel = createMemoryModelCaller({
-        apiKey: deps.apiKey,
-        baseUrl: deps.baseUrl,
-        model: options.model ?? "deepseek-chat",
-        onUsage: options.onMemoryUsage,
-      });
-      const outcome = await extractAndStoreFacts({
-        userId,
-        messages,
-        callModel,
-        signal: controller.signal,
-        timeoutMs: MEMORY_EXTRACT_TIMEOUT_MS,
-      });
-      options.onTrace?.({
-        type: "memory_extracted",
-        candidates: outcome.candidates,
-        stored: outcome.stored.map((fact) => ({
-          id: fact.id,
-          key: fact.key,
-          value: fact.value,
-        })),
-      });
-    } catch (error) {
-      console.warn("[memory] 抽取失败（不影响聊天）", {
-        userId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      options.onTrace?.({
-        type: "memory_failed",
-        stage: "extract",
-        message: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  })();
-
-  return task;
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      content: message.content,
+    }));
 }
 
 /**
@@ -388,7 +308,14 @@ export async function createChatStream(options: CreateChatStreamOptions) {
 
   // ---- 记忆注入（C2）：先检索出候选，再交给上下文构建器按预算摆位置 ----
   // 放在 judge 之后：被拦截的输入不该触发任何记忆检索。
-  const memoryBlock = await retrieveMemoryBlock(options, guardInfo?.text ?? "");
+  //
+  // providedMemory：调用方已经检索过一次并把块传进来了（plan 链路的路由层）。
+  // 这种情况下这里既不检索、也不发 memory_injected、也不抽取——
+  // 「一次请求只检索一次记忆、只抽一次」的口径由提供方保证。
+  const providedMemory = options.memoryBlock !== undefined;
+  const memoryBlock = providedMemory
+    ? options.memoryBlock ?? null
+    : await retrieveMemoryBlock(options, guardInfo?.text ?? "");
 
   if ((options.contextMode ?? "legacy") === "legacy") {
     // 旧路径：按条数截断，行为与本阶段改造前完全一致。
@@ -401,20 +328,24 @@ export async function createChatStream(options: CreateChatStreamOptions) {
       // 插在 system 之后、原文之前，和摘要层的位置口径一致。
       const memoryMessage = { role: "system" as const, content: renderMemoryText(memoryBlock) };
       const withMemory = [clippedMessages[0], memoryMessage, ...clippedMessages.slice(1)];
-      options.onTrace?.({
-        type: "memory_injected",
-        itemIds: memoryBlock.items.map((item) => item.id),
-        tokens: estimateMessageTokens(memoryMessage),
-        items: memoryBlock.items.map((item) => ({
-          id: item.id,
-          key: item.key ?? "",
-          value: item.value ?? "",
-          similarity: item.similarity,
-        })),
-      });
+      if (!providedMemory) {
+        options.onTrace?.(
+          buildMemoryInjectedEvent(
+            memoryBlock.items.map((item) => ({
+              id: item.id,
+              key: item.key,
+              value: item.value,
+              similarity: item.similarity,
+            })),
+            estimateMessageTokens(memoryMessage),
+          ),
+        );
+      }
       await dispatchChat(options, withMemory, deps);
     }
-    scheduleMemoryExtraction(options, deps);
+    if (!providedMemory) {
+      scheduleMemoryExtraction(options, getMemoryConversationMessages(options.messages), deps);
+    }
     return;
   }
 
@@ -486,7 +417,7 @@ export async function createChatStream(options: CreateChatStreamOptions) {
   }
 
   // 记忆实际注入了几条、占多少 token，由构建器裁剪后才知道。
-  if (memoryBlock) {
+  if (memoryBlock && !providedMemory) {
     options.onTrace?.({
       type: "memory_injected",
       itemIds: context.memoryItemIds,
@@ -504,5 +435,7 @@ export async function createChatStream(options: CreateChatStreamOptions) {
   await dispatchChat(options, context.messages, deps);
 
   // ---- 记忆抽取（C1）：fire-and-forget，不阻塞这一轮响应 ----
-  scheduleMemoryExtraction(options, deps);
+  if (!providedMemory) {
+    scheduleMemoryExtraction(options, getMemoryConversationMessages(options.messages), deps);
+  }
 }

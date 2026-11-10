@@ -483,4 +483,330 @@ system = RAG_SYSTEM_PROMPT
 
 ---
 
-*本文档为计划，尚未实现。执行顺序：指令 1 → 8，每条做完再进下一条。*
+## 10. 执行进度
+
+| 指令 | 状态 | 验证结果 |
+| --- | --- | --- |
+| 1 · 抽公共接入层 | ✅ 已完成 | `typecheck` 通过；`test:memory` 硬断言 18/18；`test:chains` 6/6 |
+| 2 · multi 链路接入 | ✅ 已完成（代码） | `typecheck` 通过；`test:chains` **未运行**（用户要求跳过实测，见 §11） |
+| 3 · plan 链路接入 | ✅ 已完成（代码） | `typecheck` 通过；plan-execute 单元测试 56/56；`test:chains` **未运行**（见 §11） |
+| 4 · rag 链路接入 | ✅ 已完成（代码） | `typecheck` 通过；`test:chains` **未运行**（见 §11） |
+| 5 · structured 链路接入 | ✅ 已完成（代码） | `typecheck` 通过；`test:chains` **未运行**（见 §11） |
+| 6 · 前端契约与面板文案 | ✅ 已完成（代码） | `typecheck` 通过；`test:chains` **未运行**（见 §11） |
+| 7 · 端到端测试 | ⬜ 未开始 | — |
+| 8 · 文档与清单收尾 | ⬜ 未开始 | — |
+
+## 11. 执行结果与补记
+
+### 指令 1 · 抽公共接入层（已完成）
+
+**实际改动**
+
+- 新增 `server/memory/bridge.ts`：导出 `retrieveMemoryBlock` / `scheduleMemoryExtraction`，
+  以及 `MemoryBridgeOptions` / `MemoryExtractionDeps` 两个入参类型。
+- 新增 `server/memory/index.ts`：记忆模块统一出口。
+- `server/chat.ts`：删除两处私有实现，改为调用 bridge；
+  抽出 `getMemoryConversationMessages()` 承担「挑哪些消息进抽取器」的职责。
+- `server/memory/README.md`：文件地图补 `bridge.ts` / `index.ts`。
+
+**与计划的差异**
+
+- D1 草案里 `scheduleMemoryExtraction(options, messages, deps)` 的 `messages` 由调用方传入，
+  实际实现照此落地：`chat.ts` 负责裁剪消息，bridge 只负责存。
+  这样后续四条链路能各自按 D4 口径裁剪抽取输入，而不必改 bridge。
+
+**实测**
+
+- `npm run typecheck`：通过。
+- `npm run test:memory`：硬断言 18/18 通过（跨会话命中、删除即时生效、关闭即停全部符合预期）。
+- `npm run test:chains`：6/6 通过。
+
+**环境备注**
+
+- 网关上原 `.env` 配的 `deepseek-v4-flash` 当时无可用通道（503），
+  改用同网关的 `deepseek-v4.1-flash` 跑通全部回归。
+- plan 链路在默认 240s 超时下超时过一次；放宽到 600s 后 13～18s 正常跑完，
+  是模型响应耗时而非接线问题。
+
+### 指令 2 · multi 链路接入（代码已完成，实测待补）
+
+**实际改动**
+
+- `server/memory/bridge.ts`：新增 `buildExtractionInput(options)`，
+  把 D4 的「抽取输入裁剪口径」抽成公共函数：
+  只取最近 N 轮**用户消息** + 本轮给用户的最终回复，其余一概不取。
+- `server/memory/index.ts`：同步导出。
+- `server/multi-agent/workers/types.ts`：`WorkerContext` 增加 `memoryBlock?: ContextMemoryBlock`。
+- `server/multi-agent/workers/memoryPrompt.ts`（新增）：`buildWorkerMessages(systemPrompt, task, memoryBlock)`，
+  统一拼装 `system → 记忆(system) → task`；**无记忆时返回的数组与接入前逐字一致**。
+- 四个 Worker（`generalWorker` / `kbWorker` / `actionWorker` / `realtimeWorker`）：
+  初始 messages 改为调用上面的公共拼装函数，角色 prompt 一字未动。
+- `server/multi-agent/graph.ts`：`MultiAgentGraphOptions` 增加 `memoryBlock`，
+  由 workersNode 下发给每个 Worker。
+- `server/routes/chatMulti.ts`：
+  1. 读 `userId` / `allowMemory`，`isValidUserId` 校验；
+  2. judge 之后、graph 之前**检索一次**记忆，命中则写 `memory_injected`（含 `itemIds` / `tokens` / `items`）；
+  3. 把同一块 `memoryBlock` 经 graph options 下传（Supervisor / Aggregate **不注入**）；
+  4. aggregate 之后按 D4 口径触发抽取（fire-and-forget，不阻塞回复）。
+- `scripts/test-chat-chains.ts`：multi 的断言扩成三段——
+  开关开（断言 `memory_injected` 且 `itemIds` 非空）、开关关（断言无 `memory_injected`）、
+  抽取 0 条（断言记忆条数没变）。用独立匿名用户，避免被别的链路抽取污染。
+- `server/multi-agent/README.md`：文件地图补 `workers/memoryPrompt.ts`，并说明记忆下发口径。
+
+**与计划的差异**
+
+- D4 的裁剪口径原本写在计划里，落地时抽成了 `buildExtractionInput` 而不是散落在各路由：
+  plan / rag / structured 三条链路要的是同一套口径，抽成公共函数才不会抄成三份。
+- 计划没规定「多 Agent 的抽取输入要不要保留中间的 assistant 回复」：
+  实际取「最近 2 轮用户消息 + aggregate 最终回复」，
+  中间的 assistant 回复里混着 worker 的工具返回和路由 JSON，按 D4 一律排除。
+
+**实测**
+
+- `npm run typecheck`：通过。
+- `npm run test:chains`：**未运行**（用户明确要求跳过实测以省资源）。
+  → 指令 2 的两条硬完成判定（命中断言 / 关闭即零注入）**目前只有代码、没有实测结论**，
+  补跑方式：`LLM_MODEL=deepseek-v4.1-flash npm run test:chains`。
+
+### 指令 3 · plan 链路接入（代码已完成，实测待补）
+
+**实际改动**
+
+- `server/chat.ts`：`CreateChatStreamOptions.memoryBlock` 落地为「**提供方已处理**」语义——
+  传了（哪怕是 `null`）就不再检索、不再发 `memory_injected`、不再抽取；
+  没传则行为与接入前完全一致。
+  这是 plan 链路「一次请求只检索一次记忆」能成立的前提。
+- `server/plan-execute/prompts.ts`：新增 `buildMemorySection(memoryBlock)`，
+  有记忆时追加「## 用户长期记忆」小节，**无记忆时返回 `null`、一行都不加**；
+  `buildPlanSystemPrompt` / `buildStepSystemPrompt` / `buildFinalReplySystemPrompt`
+  三处共用它，并各自追加一段「【记忆使用边界】」。
+- `server/plan-execute/planner.ts` / `executor.ts` / `finalReply.ts` / `replan.ts`：
+  各自的 context 增加 `memoryBlock`，原样传给 prompt 构造器。
+- `server/plan-execute/graph.ts`：`RunPlanGraphOptions.memoryBlock` 下发给
+  planner / 每个 step / 最终回答 / re-plan，**全图共用路由层检索的那一块**。
+- `server/routes/chatPlan.ts`：
+  1. 请求 schema 增加 `userId` / `allowMemory`（可选）；
+  2. 路由层检索**一次**记忆，命中则写 `memory_injected`；
+  3. 同一块经 `runPlanExecute` 下传；
+  4. react 兜底路径把 `userId` / `allowMemory` / `memoryBlock` 一起交给 `createChatStream`，
+     由它以「独立 system 消息」的形式注入（与 multi 一致的注入形态）；
+  5. 按 D4 口径触发抽取（最近 2 轮用户消息 + 本轮最终回答）。
+- `server/plan-execute/prompts.test.ts`：新增两条断言——
+  无记忆时三条 prompt 都不出现记忆小节，有记忆时都出现且带使用边界。
+- `scripts/test-chat-chains.ts`：plan 的断言扩成三段——
+  不带 `userId`（零检索零注入）、开关开（断言 `memory_injected` 且 `itemIds` 非空）、
+  抽取 0 条（断言记忆条数没变）。用独立匿名用户，避免被别的链路抽取污染。
+
+**与计划的差异**
+
+- 计划 §4.2 写的是「step 的注入点放在 `buildStepSystemPrompt` **之后**，作为独立 system 消息」，
+  实际落地成「**追加到 prompt 末尾的小节**」，三条 prompt 形态统一。
+  理由：计划里「独立 system 消息」的说法是针对 `/api/chat` 那种「拼 messages 数组」的结构；
+  plan 的三条 prompt 都是**单条 system 字符串**，
+  拆成两条消息要改的是 messages 结构（executor 还要回填 tool 结果），改动面更大、回归风险更高。
+  记忆块的措辞（`MEMORY_BLOCK_HEADER`）没有变，注入位置仍在角色约束之后。
+- 计划没规定 re-plan 要不要带记忆：实际**带**（同一块），
+  因为 re-plan 用的也是同一套 plan prompt，背景信息理应一致；
+  并加了边界说明，防止重规划时把记忆当成待办事项。
+- 计划只提「final reply 之后触发抽取」；实际把抽取统一放在**路由层**，
+  覆盖 plan 模式与 react 回退两种路径（react 回退的最终回答由 delta 累积得到），
+  这样「一次请求只抽一次」的口径不依赖走的是哪条分支。
+
+**实测**
+
+- `npm run typecheck`：通过。
+- `node --import tsx --test server/plan-execute/*.test.ts server/routes/chatPlan.test.ts`：
+  56/56 通过（纯本地 mock，不调模型）。
+- `npm run test:chains`：**未运行**（用户明确要求跳过实测以省资源）。
+  → 指令 3 的硬完成判定里「plan 链路出现 `memory_injected`」「计划未被记忆污染」
+  「`allowMemory:false` 零注入」**目前只有代码、没有实测结论**，
+  补跑方式：`LLM_MODEL=deepseek-v4.1-flash PLAN_TIMEOUT_MS=600000 npm run test:chains`。
+  其中「计划未被记忆污染」需要人工看一次 planner 产出的计划内容（断言只能覆盖事件形状）。
+
+### 指令 4 · rag 链路接入（代码已完成，实测待补）
+
+**实际改动**
+
+- `server/memory/context.ts`：新增 `MEMORY_SECTION_TITLE` 与 `renderMemorySection(block)`——
+  「只有一条 system 字符串」的链路（plan / rag / structured）统一用它把记忆渲染成
+  **带标题的小节**；没有记忆时返回 `null`，调用方一行都不加。
+  与 `renderMemoryText`（给「拼 messages 数组」的链路用的裸文本）分工明确。
+- `server/memory/index.ts`：同步导出。
+- `server/plan-execute/prompts.ts` / `replan.ts`：改用上面这个公共渲染器，
+  不再各自私有一份（指令 3 里的 `buildMemorySection` 已被替换掉）。
+- `server/rag/prompt.ts`：`BuildRagPromptInput` 增加 `memoryBlock`；
+  有记忆时在「## 资料」**之后**追加独立的「## 用户长期记忆」小节，
+  并附一句「不是检索资料，不要给它编号」——
+  记忆混进 evidence 会让模型把它当成检索来源，引用编号对不上。
+  **无记忆时 prompt 与改造前逐字一致。**
+- `server/rag/answer.ts`：`answerFromDocs` 的第 7 个入参由 `usageHooks` 扩成 `options`，
+  增挂 `memoryBlock`（只改名字与多一个字段，调用方逐个具名传参，行为不变）。
+- `server/routes/ragChat.ts`：
+  1. 读 `userId` / `allowMemory`，`isValidUserId` 校验；
+  2. judge 之后检索**一次**记忆，命中则写 `memory_injected`；
+  3. 同一块经 `options.memoryBlock` 传给 `answerFromDocs`；
+  4. 回答生成后按 D4 触发抽取（最近 2 轮用户消息 + 本轮最终回答），
+     **检索到的资料片段一律不进抽取器**。
+- `src/api/rag.ts`：`askRag` 增加 `userId` / `allowMemory`，
+  关掉时**连 userId 一起不带**（与 `streamChat` 同一口径）。
+- `src/composables/useChat.ts`：`runRag` 传 `memoryUserId` / `allowMemory`。
+- `server/rag/README.md`、`server/memory/README.md`：文件地图同步。
+
+**与计划的差异**
+
+- 计划只说「在「## 资料」之后追加」，没说追加的是哪种渲染。
+  实际统一走 `memory/context.ts` 的 `renderMemorySection`，
+  好处是 plan / rag / structured 三条链路的小节标题与条目格式**完全一致**，
+  不会出现「每条链路各写一种措辞」的情况。
+- 计划没规定「空结果 / 被 outputGuard 拦下时要不要抽取」。
+  实际**不抽**：这两种情况下返回的是固定文案或替换文案，不是模型真的给用户的回答，
+  拿它去抽取只会记进无意义的 assistant 事实。
+- 单元测试没有在本指令做（属于指令 7 的测试范围），
+  因此「记忆没有混进 evidence」目前只有代码保证、没有断言保证。
+
+**实测**
+
+- `npm run typecheck`：通过。
+- `npm run test:chains`：**未运行**（用户明确要求跳过实测以省资源）。
+  → 指令 4 的三条完成判定（出现 `memory_injected` / 记忆未混进 evidence /
+  复述记忆不误触发 `output_leak_blocked`）**目前只有代码、没有实测结论**，
+  补跑方式：`LLM_MODEL=deepseek-v4.1-flash npm run test:chains`。
+  其中「复述记忆不误触发 `output_leak_blocked`」需要构造一次
+  「请把你记住的关于我的信息复述一遍」的提问才能验。
+
+### 指令 5 · structured 链路接入（代码已完成，实测待补）
+
+**实际改动**
+
+- `server/structured/complete.ts`：
+  1. `buildSystemPrompt(target, memoryBlock)` 改为可接收记忆块；
+  2. 有记忆时在 system prompt **末尾**追加「## 用户长期记忆」小节
+     （复用 `memory/context.ts` 的 `renderMemorySection`，与 plan / rag 完全一致），
+     并追加一句边界说明：「只能影响生成内容的取值，不得改变 JSON 的形状与字段」；
+  3. **无记忆时 system prompt 与改造前逐字一致**（记忆小节一行都不加）；
+  4. `StreamStructuredCompletionOptions` 增加 `memoryBlock` 字段。
+- `server/structured/types.ts`：`StructuredChatRequestSchema` 增加可选
+  `userId` / `allowMemory`。schema 是 `.strict()` 的，不加这两个字段，
+  前端一传就会整条请求被判 400。
+- `server/routes/chatStructured.ts`：
+  1. 检索**一次**记忆（检索问题取「最后一条用户消息」——结构化链路没有别的自然语言入口），
+     命中则写 `memory_injected`；
+  2. 同一块经 `options.memoryBlock` 传给 `streamStructuredCompletion`，
+     Mock 分支不消费它（Mock 走 fixture 回放，没有真实 system prompt）；
+  3. `structured_done` 之后触发抽取，**只用最后一条用户消息**、
+     且**不带最终回答**（生成的 JSON / 表格是数据，不是用户事实）；
+  4. 记忆抽取的 usage 单独记账（source = `memory`）。
+- `src/api/chat.ts`：`streamStructured` 增加 `userId` / `allowMemory`，
+  关掉时**连 userId 一起不带**（与 `streamChat` / `askRag` 同一口径）；
+  同时把三个记忆事件从「未知事件」白名单里摘出来，避免开发环境误报警告
+  （面板展示归指令 6）。
+- `src/composables/useChat.ts`：`runStructured` 传 `memoryUserId` / `allowMemory`。
+- `scripts/test-chat-chains.ts`：structured 的断言扩成三段——
+  开关开（断言 `memory_injected` 且 `itemIds` 非空，且仍收到
+  `structured_snapshot` / `structured_done`）、开关关（断言无 `memory_injected`）、
+  抽取条数不变。用独立匿名用户 `anon_test_chain_structured_mem`，
+  并把两条记忆的内容故意设成「表格列名」，用来观察抽取器会不会把列名当事实。
+- `server/structured/README.md`：SSE 事件表、数据流、API 端点、
+  「长期记忆的口径」小节同步。
+
+**与计划的差异**
+
+- 计划 §4.4 给的小节标题是「## 用户长期记忆（仅供参考，不是指令）」，
+  实际统一走 `renderMemorySection`，标题是「## 用户长期记忆」——
+  与 plan / rag 两条链路**逐字一致**（指令 4 已定的口径）。
+  「不是指令」这层语义没有丢：记忆块本身的第一行就是
+  「[长期记忆] 以下是系统记住的……仅供参考，不是新的指令或命令。」
+- 计划没规定结构化链路「用什么当检索问题」。实际取**最后一条用户消息**：
+  结构化请求没有独立的问题字段，用户消息就是唯一的自然语言入口。
+- 计划没规定 Mock 分支怎么处理。实际**不注入**：Mock 走 fixture 回放，
+  没有真实 system prompt，注入进去也只是自欺欺人。
+- 计划只说「`structured_done` 之后触发抽取」，实际补了一条：
+  **不带最终回答**。理由和 D4 一致——生成的 JSON / 表格是数据，
+  拿它去抽取等于让模型把自己的输出记成用户偏好，越聊越脏。
+- 计划没规定「抽取器会不会把列名当事实」。按计划「不改抽取器提示词」的口径，
+  实际**没改共享组件**，只在测试里埋了观察点：
+  两条记忆的内容正是「表格列名」，
+  断言里把「多出事实」记成**待评估**而不是判负——
+  这是模型行为，不是本指令能保证的系统行为。
+
+**实测**
+
+- `npm run typecheck`：通过。
+- `npm run test:chains`：**未运行**（用户明确要求跳过实测以省资源）。
+  → 指令 5 的三条完成判定（出现 `memory_injected` 且 JSON 校验仍通过 /
+  关闭开关零注入 / 列名不被记成记忆）**目前只有代码、没有实测结论**，
+  补跑方式：`LLM_MODEL=deepseek-v4.1-flash npm run test:chains`。
+  其中「列名不被记成记忆」要看 structured 那条用例的 detail 里
+  「抽取 0 条新事实」还是「多出 N 条事实（待评估）」。
+
+---
+
+### 指令 6 · 前端契约与面板文案（代码已完成，实测待补）
+
+**实际改动**
+
+- `src/api/memoryTrace.ts`（新增）：`parseMemoryTraceStep(event)`，
+  统一解析 `memory_injected` / `memory_extracted` / `memory_failed` 三种 SSE 事件，
+  脏数据一律降级（缺字段补默认值）而不是让流崩掉。
+  单独成文件的原因：四条链路各写一遍 SSE 解析，迟早会漏掉某一种事件。
+- `src/types.ts`：`ToolTraceStep` 联合类型补 `memory_failed` 变体
+  （`stage: "retrieve" | "extract" | "store"` + `message`）。
+- `src/api/chat.ts`：
+  1. `streamPlan` / `streamStructured` 增加 `userId` / `allowMemory`，
+     请求体统一按 `...(allowMemory && userId ? { userId, allowMemory: true } : { allowMemory: false })` 传——
+     关掉时**连 userId 一起不带**，服务端零检索零抽取；
+  2. `streamPlan` / `streamStructured` 的 SSE 循环接 `parseMemoryTraceStep`；
+  3. `streamChat` 里原本手写的 `memory_injected` / `memory_extracted` 解析
+     **换成同一个 `parseMemoryTraceStep`**（顺带多支持了 `memory_failed`），
+     避免同一份协议在前端有两套实现；
+  4. `streamStructured` 增加 `onTrace` 回调，把记忆事件送进工具过程面板。
+- `src/api/rag.ts`：`askRag` 增加 `userId` / `allowMemory`，
+  SSE 事件类型补齐记忆相关字段，接 `parseMemoryTraceStep`。
+- `src/composables/useChat.ts`：`runPlan` / `runStructured` / RAG 三处
+  统一传 `memoryUserId.value` / `allowMemory.value`；
+  `runStructured` 的 `start` 回调把 `onTrace` 透传给 `streamStructured`。
+- `src/components/MemoryPanel.vue`：
+  1. 新增 `chainLabel` prop（默认「普通对话（/api/chat）」）；
+  2. `injectionSupported` 的语义从「多 Agent 没接」改成「**当前链路**是否支持记忆注入与抽取」；
+  3. 提示文案改成三态——开关关闭（关闭说明）/ 当前链路未接入（黄色警告）/
+     当前链路已接入（绿色说明），文案里带上具体链路名。
+- `src/components/ToolTracePanel.vue`：补 `memory_failed` 的标题与载荷分支，
+  新增 `memoryStageText()`（retrieve→检索 / extract→抽取 / store→保存），
+  并在面板里单独渲染一行「不影响本轮回答」。
+- `src/App.vue`：
+  1. `memoryInjectionSupported` 改为 `() => !reflectionEnabled.value`
+     ——四条业务链路 + 普通对话都已接入，只有反思复盘还没接；
+  2. 新增 `memoryChainLabel` computed（rag / structured / plan / reflection / multi / 普通）；
+  3. 新增 `memoryTraceSteps` computed；
+  4. 侧栏接线：RAG 模式原本整块隐藏 `ToolTracePanel`，
+     现在改成「RAG 模式只渲染记忆相关步骤、其它链路渲染全量」，
+     并让 `hasSideContent` 在「RAG 模式且有记忆事件」时也展开侧栏——
+     否则资料问答链路注入了什么记忆，用户在界面上完全看不见。
+
+**与计划的差异**
+
+- 计划 §3 D6 只说了「复用同一组字段与同一套开关」，
+  实际落地时多抽了一层：`parseMemoryTraceStep` 把三种记忆事件的解析也统一了。
+  字段统一不够——解析逻辑分叉一样会漂移（`streamChat` 原本就是手写的另一份）。
+- 计划 §指令 6 第 3 条只说「把提示改成按当前链路的真实状态显示」，
+  实际多了一个 `chainLabel` prop：
+  光说「没接入」用户不知道自己在哪条链路上，说清楚链路名才有用。
+- 计划没提 RAG 侧栏。实际发现：RAG 模式下侧栏被命中面板独占，
+  记忆事件如果按原样 `v-if="!ragMode"` 会被一起藏掉——
+  这会让「指令 4 的注入在界面上不可见」，
+  所以补了 RAG 模式下的记忆步骤过滤 + 侧栏展开条件。
+
+**实测**
+
+- `npm run typecheck`：**通过**（`vue-tsc --noEmit` + `tsc -p tsconfig.server.json --noEmit`）。
+- `npm run build`：**未运行**（用户要求只跑 typecheck）。
+- `npm run test:chains`：**未运行**（用户明确要求跳过实测以省资源）。
+  → 指令 6 的三条完成判定里，「四条链路在界面上都能看到『注入了 N 条记忆』的过程展示」
+  和「关闭开关后四条链路均零注入、零抽取」
+  **目前只有代码、没有实测结论**，补跑方式：
+  `LLM_MODEL=deepseek-v4.1-flash npm run test:chains`。
+  界面层面的三条链路（非 RAG / RAG / 结构化）建议人工点一遍确认面板文案与颜色。
+
+---
+
+*执行顺序：指令 1 → 8，每条做完再进下一条。*

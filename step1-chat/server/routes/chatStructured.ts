@@ -6,6 +6,15 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Express } from "express";
+import { renderMemoryText } from "../context/buildContext.js";
+import { estimateMessageTokens } from "../context/tokenBudget.js";
+import {
+  buildExtractionInput,
+  buildMemoryInjectedEvent,
+  retrieveMemoryBlock,
+  scheduleMemoryExtraction,
+} from "../memory/bridge.js";
+import { isValidUserId, type MemoryTraceEvent } from "../memory/types.js";
 import { getRuntimeConfig } from "../runtimeConfig.js";
 import { streamStructuredCompletion } from "../structured/complete.js";
 import { streamMockStructuredChunks } from "../structured/mockStream.js";
@@ -71,7 +80,9 @@ export function registerChatStructuredRoutes(app: Express): void {
     });
 
     // 所有浏览器事件都经过此出口，统一阻止终态或已中止请求继续写数据。
-    const writeEvent = (event: StructuredSseEvent) => {
+    // 记忆事件（memory_injected / memory_extracted / memory_failed）与结构化事件同流，
+    // 但不参与结构化协议本身：前端只在过程面板里展示，不进业务结果。
+    const writeEvent = (event: StructuredSseEvent | MemoryTraceEvent) => {
       if (res.writableEnded || abortController.signal.aborted) return;
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     };
@@ -80,6 +91,12 @@ export function registerChatStructuredRoutes(app: Express): void {
     const recordStructuredUsage = bindUsageCallback(
       usageAccumulator,
       "structured",
+      request.data.model,
+    );
+    // 记忆抽取的 usage 单独记账（source = memory），与结构化主流的用量分开看。
+    const recordMemoryUsage = bindUsageCallback(
+      usageAccumulator,
+      "memory",
       request.data.model,
     );
     let sequence = 0;
@@ -182,6 +199,42 @@ export function registerChatStructuredRoutes(app: Express): void {
       });
 
       try {
+        // ---- 长期记忆：路由层检索一次，注入走 system prompt 末尾 ----
+        // 关闭开关 / userId 非法时 retrieveMemoryBlock 直接返回 null（零检索）。
+        // 检索的问题取「最后一条用户消息」：结构化链路没有别的自然语言入口。
+        const lastUserMessage = [...request.data.messages]
+          .reverse()
+          .find((message) => message.role === "user");
+        const memoryOptions = {
+          userId: isValidUserId(request.data.userId)
+            ? request.data.userId
+            : undefined,
+          allowMemory: request.data.allowMemory === true,
+          model: request.data.model,
+          onTrace: (event: MemoryTraceEvent) => writeEvent(event),
+          onMemoryUsage: recordMemoryUsage,
+        };
+        const memoryBlock = await retrieveMemoryBlock(
+          memoryOptions,
+          lastUserMessage?.content ?? "",
+        );
+        if (memoryBlock) {
+          writeEvent(
+            buildMemoryInjectedEvent(
+              memoryBlock.items.map((item) => ({
+                id: item.id,
+                key: item.key,
+                value: item.value,
+                similarity: item.similarity,
+              })),
+              estimateMessageTokens({
+                role: "system",
+                content: renderMemoryText(memoryBlock),
+              }),
+            ),
+          );
+        }
+
         if (config.mockMode) {
           // Mock 与真实模型共用 acceptChunk 和最终 schema，只替换文本来源。
           const streamResult = await streamMockStructuredChunks({
@@ -220,6 +273,8 @@ export function registerChatStructuredRoutes(app: Express): void {
                   jsonMode,
                   includeUsage: config.structuredRequest.includeUsage,
                   timeouts: config.structuredRequest.timeouts,
+                  // 记忆块只影响 system prompt 的内容取值，不影响 JSON 形状。
+                  memoryBlock,
                   onChunk: acceptChunk,
                   onUsage: recordStructuredUsage,
                 }),
@@ -332,6 +387,25 @@ export function registerChatStructuredRoutes(app: Express): void {
           revision: finished.revision,
           result: finished.result,
         });
+
+        // ---- 长期记忆抽取（旁路，不阻塞本轮回复）----
+        // 抽取输入按统一口径裁剪，但 structured 更窄：
+        // **只用最后一条用户消息**，且**不带最终回答**——
+        // 生成的 JSON / 表格是「数据」不是「用户事实」，
+        // 把它当事实记下来，下一轮就会拿自己的输出反过来污染输入。
+        scheduleMemoryExtraction(
+          memoryOptions,
+          buildExtractionInput({
+            messages: lastUserMessage ? [lastUserMessage] : [],
+            rounds: 1,
+          }),
+          {
+            apiKey: config.apiKey,
+            forceMock: config.forceMock,
+            baseUrl: config.baseUrl,
+          },
+        );
+
         console.info("[chat/structured] completed", {
           requestId,
           mode: config.mockMode ? "mock" : "api",

@@ -18,6 +18,7 @@ import type {
   UsageSnapshot,
 } from "../types";
 import { normalizeContextSummary } from "../types";
+import { parseMemoryTraceStep } from "./memoryTrace";
 
 export interface StreamChatParams {
   messages: Array<{ role: ChatRole; content: string }>;
@@ -66,12 +67,25 @@ export interface StreamStructuredParams {
   model: string;
   /** table/code 决定服务端 system prompt 和最终 block 形状。 */
   target: StructuredTarget;
+  /**
+   * 匿名用户 id（anon_xxx）：跨会话记忆的归属标识。
+   * 只在本地生成、只存 localStorage，服务端不采集任何真实身份。
+   */
+  userId?: string;
+  /**
+   * 是否允许使用长期记忆。
+   * 关掉时**不带 userId**：服务端要求 allowMemory===true 且 userId 合法才注入，
+   * 两者缺一不可——「关掉」必须是真的零注入，而不是服务端再判断一次。
+   */
+  allowMemory?: boolean;
   /** stop() 会 abort 此 signal，服务端 close 后终止上游模型请求。 */
   signal: AbortSignal;
   /** 只在服务端证明快照稳定且 revision 增长时回调。 */
   onSnapshot: (event: StructuredSnapshotEvent) => void;
   /** 只有最终 Zod 校验通过后才会回调。 */
   onDone: (event: StructuredDoneEvent) => void;
+  /** 记忆过程事件（注入 / 抽取 / 失败）走这里，进工具过程面板。 */
+  onTrace?: (step: ToolTraceStep) => void;
   onUsage?: (usage: UsageSnapshot) => void;
   /** 网络、协议、解析和 schema 失败都收敛到这个回调。 */
   onError: (error: StructuredClientError) => void;
@@ -90,6 +104,17 @@ export interface StreamPlanParams {
   /** auto 按规则判断；react 强制走 ReAct；plan 强制进 Planner。 */
   mode?: PlanMode;
   searchDocs?: boolean;
+  /**
+   * 匿名用户 id（anon_xxx）：跨会话记忆的归属标识。
+   * 只在本地生成、只存 localStorage，服务端不采集任何真实身份。
+   */
+  userId?: string;
+  /**
+   * 是否允许使用长期记忆。
+   * 关掉时**不带 userId**：服务端要求 allowMemory===true 且 userId 合法才注入，
+   * 两者缺一不可——「关掉」必须是真的零注入，而不是服务端再判断一次。
+   */
+  allowMemory?: boolean;
   /** 计划事件（plan_*）统一走这里；未知事件被忽略，不会让流中断。 */
   onPlanEvent: (event: PlanEvent) => void;
   onDelta: (delta: string) => void;
@@ -307,6 +332,8 @@ export async function streamPlan({
   signal,
   mode = "auto",
   searchDocs,
+  userId,
+  allowMemory = false,
   onPlanEvent,
   onDelta,
   onTrace,
@@ -323,6 +350,8 @@ export async function streamPlan({
         model,
         mode,
         searchDocs: Boolean(searchDocs),
+        // 记忆：关掉时连 userId 一起不带，服务端直接零注入。
+        ...(allowMemory && userId ? { userId, allowMemory: true } : { allowMemory: false }),
       }),
       signal,
     });
@@ -535,6 +564,14 @@ export async function streamPlan({
 
           if (typeof event.delta === "string" && event.delta) {
             onDelta(event.delta);
+            continue;
+          }
+
+          // 记忆事件（memory_injected / memory_extracted / memory_failed）：
+          // 与普通对话链路共用同一份解析，四条链路口径一致。
+          const memoryStep = parseMemoryTraceStep(event);
+          if (memoryStep) {
+            onTrace?.(memoryStep);
             continue;
           }
 
@@ -999,41 +1036,9 @@ export async function streamChat({
                   : [],
               });
             }
-            // 记忆注入事件：告诉用户「这轮给模型塞了哪几条长期记忆」。
-            if (event.type === "memory_injected") {
-              const items = Array.isArray(event.items)
-                ? event.items
-                    .filter((item) => Boolean(item?.id))
-                    .map((item) => ({
-                      id: String(item.id),
-                      key: item.key ?? "",
-                      value: item.value ?? "",
-                      similarity: typeof item.similarity === "number" ? item.similarity : 0,
-                    }))
-                : [];
-              onTrace?.({
-                kind: "memory_injected",
-                // 没给明细时退回数：至少还能告诉用户「注入了几条」。
-                count: items.length || (Array.isArray(event.itemIds) ? event.itemIds.length : 0),
-                tokens: typeof event.tokens === "number" ? event.tokens : 0,
-                items,
-              });
-            }
-            // 记忆抽取事件：聊完这一轮记住了什么，面板据此刷新列表。
-            if (event.type === "memory_extracted") {
-              const stored = Array.isArray(event.stored)
-                ? event.stored.map((item) => ({
-                    id: String(item?.id ?? ""),
-                    key: item?.key ?? "",
-                    value: item?.value ?? "",
-                  }))
-                : [];
-              onTrace?.({
-                kind: "memory_extracted",
-                candidates: typeof event.candidates === "number" ? event.candidates : 0,
-                stored,
-              });
-            }
+            // 记忆事件（注入 / 抽取 / 失败）：与其它三条链路共用同一份解析。
+            const memoryStep = parseMemoryTraceStep(event);
+            if (memoryStep) onTrace?.(memoryStep);
             if (
               event.type === "pending_confirm" &&
               event.name &&
@@ -1096,9 +1101,12 @@ export async function streamStructured({
   messages,
   model,
   target,
+  userId,
+  allowMemory = false,
   signal,
   onSnapshot,
   onDone,
+  onTrace,
   onUsage,
   onError,
 }: StreamStructuredParams): Promise<boolean> {
@@ -1108,7 +1116,15 @@ export async function streamStructured({
     response = await fetch("/api/chat/structured", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, model, target }),
+      body: JSON.stringify({
+        messages,
+        model,
+        target,
+        // 记忆：关掉时连 userId 一起不带，服务端直接零注入。
+        ...(allowMemory && userId
+          ? { userId, allowMemory: true }
+          : { allowMemory: false }),
+      }),
       signal,
     });
   } catch (error) {
@@ -1253,11 +1269,23 @@ export async function streamStructured({
             });
             return false;
           }
+          // 记忆事件：结构化链路的注入 / 抽取 / 失败与其它三条链路同形状。
+          const memoryStep = parseMemoryTraceStep(event);
+          if (memoryStep) {
+            onTrace?.(memoryStep);
+            continue;
+          }
           if (
             // start/delta 已由状态机隐式处理；未知事件只在开发环境提示一次。
             event.type !== "structured_start" &&
             event.type !== "structured_delta" &&
             event.type !== "usage" &&
+            // 记忆事件（memory_injected / memory_extracted / memory_failed）
+            // 与结构化协议无关：面板展示归前端契约那一版处理，
+            // 这里先认下来，避免开发环境误报「未知事件」。
+            event.type !== "memory_injected" &&
+            event.type !== "memory_extracted" &&
+            event.type !== "memory_failed" &&
             !warnedUnknownEvent &&
             import.meta.env?.DEV
           ) {

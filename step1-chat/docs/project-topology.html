@@ -117,6 +117,7 @@
     <a href="#judge">6f LLM-as-Judge</a>
     <a href="#reflection">6g Reflection</a>
     <a href="#memory">6h Memory</a>
+    <a href="#memory-chain">6i Memory 链路接入</a>
     <a href="#cross">7 Token/Guard/Trace</a>
     <a href="#tools">7b 工具注册表</a>
     <a href="#pending">8 未交付</a>
@@ -268,10 +269,16 @@
           <td><a href="./reflection.md">阶段说明</a> · <a href="./reflection-changelog.md">变更记录</a> · <a href="#reflection">§6g</a></td>
         </tr>
         <tr>
-          <td>进阶学习第 8 项 · Memory<br/><span style="font-size:12px;color:#64748b">跨会话记忆 · 仅 /api/chat 已接入</span></td>
-          <td><span class="badge now">已实现 / 四链路未接入</span></td>
+          <td>进阶学习第 8 项 · Memory<br/><span style="font-size:12px;color:#64748b">跨会话记忆</span></td>
+          <td><span class="badge done">已实现</span></td>
           <td>长期记忆层：<code>memory/types.ts</code> · <code>store.ts</code> · <code>extract.ts</code> · <code>merge.ts</code> · <code>retrieve.ts</code> · <code>context.ts</code> · <code>pipeline.ts</code> · <code>embedder.ts</code>；关键方法 <span class="fn">retrieveRelevantFacts</span> / <span class="fn">renderMemoryBlock</span> / <span class="fn">mergeIncomingFact</span> / <span class="fn">extractAndStoreFacts</span>；管理接口 <code>routes/memory.ts</code> + <code>context/buildContext.ts</code> 预算裁剪</td>
           <td><a href="./memory.md">阶段说明</a> · <a href="./memory-changelog.md">变更记录</a> · <a href="./memory-flow.svg">全链路 SVG</a> · <a href="#memory">§6h</a></td>
+        </tr>
+        <tr>
+          <td>阶段 9 · Memory 链路接入<br/><span style="font-size:12px;color:#64748b">跨会话记忆接进四条业务链路</span></td>
+          <td><span class="badge now">代码已完成 / 未实测</span></td>
+          <td>公共接入层：<code>memory/bridge.ts</code>（<span class="fn">retrieveMemoryBlock</span> / <span class="fn">scheduleMemoryExtraction</span> / <span class="fn">buildExtractionInput</span> / <span class="fn">buildMemoryInjectedEvent</span>）；四条链路路由层各检索一次并共用同一块记忆；前端统一 <code>userId</code> + <code>allowMemory</code> 契约与 <code>api/memoryTrace.ts</code> 事件解析</td>
+          <td><a href="./memory-chain-integration.md">阶段说明</a> · <a href="./memory-chain-changelog.md">变更记录</a> · <a href="./memory-chain-flow.svg">流程图</a> · <a href="#memory-chain">§6i</a></td>
         </tr>
       </tbody>
     </table>
@@ -1968,8 +1975,8 @@ flowchart TB
     <p class="path">表中路径为工作区两级相对路径（<code>reflection/</code> 指服务端 reflection 目录，<code>routes/</code> 指服务端路由目录，<code>api/</code> 与 <code>composables/</code> 指前端对应目录）。阶段计划与执行记录：<code>tasks/reflection-plan.md</code>。</p>
   </div>
 
-  <h2 id="memory">6h. Memory 跨会话记忆（阶段 8 · 已实现 / 四链路未接入）</h2>
-  <p class="lede">在会话之外加一层「长期记忆」：从对话里抽出结构化的 <code>key: value</code> 事实（敏感信息两道闸、置信度门槛 0.6、冲突不自动覆盖），按匿名用户落到本地文件；下一轮用本地向量按相似度（阈值 0.45、Top-5）取回，以「资料口径、不是指令」的方式注入上下文，并提供 <code>/api/memory</code> 与前端面板让用户看得见、改得动、删得掉、关得了。<strong>当前只有 <code>POST /api/chat</code> 接了记忆</strong>，multi / plan / rag / structured 四条链路尚未接入（计划见 <code>tasks/memory-chain-integration-plan.md</code>）。细泳道：<a href="./memory-flow.svg">memory-flow.svg</a> · 阶段说明：<a href="./memory.md">memory.md</a> · 变更记录：<a href="./memory-changelog.md">memory-changelog.md</a> · 模块说明：<a href="../server/memory/README.md">memory/README.md</a> · 索引：<a href="./flows-index.html#memory">flows-index.html 0g</a></p>
+  <h2 id="memory">6h. Memory 跨会话记忆（阶段 8 · 已实现）</h2>
+  <p class="lede">在会话之外加一层「长期记忆」：从对话里抽出结构化的 <code>key: value</code> 事实（敏感信息两道闸、置信度门槛 0.6、冲突不自动覆盖），按匿名用户落到本地文件；下一轮用本地向量按相似度（阈值 0.45、Top-5）取回，以「资料口径、不是指令」的方式注入上下文，并提供 <code>/api/memory</code> 与前端面板让用户看得见、改得动、删得掉、关得了。本章讲记忆内核本身；<strong>记忆接进 multi / plan / rag / structured 四条业务链路是阶段 9 的内容</strong>，见 <a href="#memory-chain">§6i</a>（阶段 9 的公共接入层、四个注入点、抽取输入裁剪与前端契约都在那里）。细泳道：<a href="./memory-flow.svg">memory-flow.svg</a> · 阶段说明：<a href="./memory.md">memory.md</a> · 变更记录：<a href="./memory-changelog.md">memory-changelog.md</a> · 模块说明：<a href="../server/memory/README.md">memory/README.md</a> · 索引：<a href="./flows-index.html#memory">flows-index.html 0g</a></p>
 
   <div class="card">
     <h3>6h.1 总览图（抽取 → 落盘 → 检索 → 注入）</h3>
@@ -2010,6 +2017,9 @@ flowchart TB
   <div class="card">
     <h3>6h.2 方法调用树（检索 / 注入 / 抽取 / 存储 / 契约）</h3>
     <div class="calltree"><span class="c">// A. 检索与注入（单 Agent 链路）</span>
+<span class="c">// 阶段 9 起：multi / plan / rag / structured 四条链路统一走 memory/bridge.ts（见 §6i）</span>
+<span class="c">// 本节仍是内核口径的权威描述 —— bridge 只是把它包了一层，四条链路不许自己改口径</span>
+<span class="c">// createChatStream 的 memoryBlock 字段 = 「上游已检索好」，传了就不再检索 / 不发事件 / 不抽取</span>
 <span class="m">createChatStream</span>({ userId, allowMemory, messages })
   └─ <span class="m">retrieveMemoryBlock</span>(options, question)
        ├─ allowMemory ≠ true 或 userId 非法 → 返回 null（不检索）
@@ -2123,17 +2133,19 @@ flowchart TB
       </thead>
       <tbody>
         <tr><td>单 Agent ReAct</td><td><code>POST /api/chat</code></td><td><span class="badge done">已接入</span> 检索同步、抽取旁路</td></tr>
-        <tr><td>多 Agent</td><td><code>POST /api/chat/multi</code></td><td><span class="badge now">未接入</span> 记忆块需进 worker 的 system prompt，抽取挂在 worker 汇总之后</td></tr>
-        <tr><td>Plan-and-Execute</td><td><code>POST /api/chat/plan</code></td><td><span class="badge now">未接入</span> 记忆需插在 planner 之前（react 兜底路径天然继承单 Agent 的记忆）</td></tr>
-        <tr><td>资料问答 RAG</td><td><code>POST /api/rag/chat</code></td><td><span class="badge now">未接入</span> 记忆块追加在检索片段之后，作为「用户事实」而不是「检索资料」</td></tr>
-        <tr><td>结构化输出</td><td><code>POST /api/chat/structured</code></td><td><span class="badge now">未接入</span> 结构化输出有自己的拼装逻辑，注入点独立</td></tr>
+        <tr><td>多 Agent</td><td><code>POST /api/chat/multi</code></td><td><span class="badge done">已接入</span> 路由层检索一次 → 独立 system 消息进 4 个 worker（Supervisor / Aggregate 不注入）→ aggregate 之后抽取</td></tr>
+        <tr><td>Plan-and-Execute</td><td><code>POST /api/chat/plan</code></td><td><span class="badge done">已接入</span> 路由层检索一次 → 追加小节进 planner / step / 终答 / re-plan 四处 prompt；react 兜底复用单 Agent 形态</td></tr>
+        <tr><td>资料问答 RAG</td><td><code>POST /api/rag/chat</code></td><td><span class="badge done">已接入</span> judge 后检索一次 → 追加小节放在「## 资料」之后，不进引用编号体系，检索片段不进抽取器</td></tr>
+        <tr><td>结构化输出</td><td><code>POST /api/chat/structured</code></td><td><span class="badge done">已接入</span> 路由层检索一次 → 追加小节进 system prompt 末尾，带「不得改变 JSON 形状」边界；抽取只用最后一条用户消息</td></tr>
+        <tr><td>反思复盘</td><td><code>POST /api/chat/reflection</code></td><td><span class="badge now">未接入</span> 独立端点，前端面板如实标注为「本阶段尚未接入记忆注入」</td></tr>
       </tbody>
     </table>
-    <p class="path">四条链路的接入顺序与落点见 <code>tasks/memory-chain-integration-plan.md</code>（本阶段只出计划，未改这四条链路的代码）。</p>
+    <p class="path">四条链路的接入落点、抽取输入裁剪与前端契约见 <a href="#memory-chain">§6i</a>；计划与逐条执行记录见 <code>tasks/memory-chain-integration-plan.md</code>。</p>
   </div>
 
   <div class="card">
     <h3>6h.7 本阶段文件清单（新增 18 / 修改 15）</h3>
+    <p class="path">以下是<b>阶段 8</b>（记忆内核本身）的清单；<b>阶段 9</b>（记忆接入四条链路）新增 7 / 修改 41，清单见 <a href="#memory-chain">§6i.9</a>。</p>
     <table class="map">
       <thead>
         <tr><th>分组</th><th>文件</th><th>作用</th></tr>
@@ -2175,6 +2187,264 @@ flowchart TB
       </tbody>
     </table>
     <p class="path">表中路径为工作区两级相对路径（<code>memory/</code> 指服务端记忆目录，<code>routes/</code> 指服务端路由目录，<code>api/</code>、<code>components/</code>、<code>composables/</code> 指前端对应目录）。阶段计划与执行记录：<code>tasks/memory-plan.md</code>；四链路接入计划：<code>tasks/memory-chain-integration-plan.md</code>。</p>
+  </div>
+
+  <!-- ========== 6i memory chain ========== -->
+  <h2 id="memory-chain">6i. Memory 接入四条链路（阶段 9 · 代码已完成 / 实测待补）</h2>
+  <p class="lede">阶段 8 把记忆内核做出来了，但只有 <code>POST /api/chat</code> 真正用得上——用户实际会用的 multi / plan / rag / structured 四条链路当时一条都没接。阶段 9 把同一套能力接进去：抽出公共接入层 <code>memory/bridge.ts</code>，路由层<strong>检索一次</strong>、整条链路共用同一块记忆，四份 prompt 按各自形状注入，抽取输入按链路裁剪，失败一律旁路。细泳道：<a href="./memory-chain-flow.svg">memory-chain-flow.svg</a> · 阶段说明：<a href="./memory-chain-integration.md">memory-chain-integration.md</a> · 变更记录：<a href="./memory-chain-changelog.md">memory-chain-changelog.md</a> · 计划：<code>tasks/memory-chain-integration-plan.md</code> · 索引：<a href="./flows-index.html#memory-chain">flows-index.html 0h</a></p>
+
+  <div class="card">
+    <h3>6i.1 六个设计决策（后面所有实现都由它们推导）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>决策</th><th>内容</th><th>为什么</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>D1</strong> 公共接入层</td><td>四条链路只允许依赖 <code>memory/bridge.ts</code>，不许直接调 <code>memory/retrieve.ts</code> / <code>memory/pipeline.ts</code></td><td>阈值、Top-5、预算裁剪、「资料不是指令」的口径全部收敛在一处，是「行为不漂移」的唯一保障</td></tr>
+        <tr><td><strong>D2</strong> 记忆是数据不是指令</td><td>multi 用<strong>独立 system 消息</strong>；plan / rag / structured 用<strong>追加小节</strong>，小节标题统一 <code>## 用户长期记忆</code></td><td>「记住某句话」不能变成系统命令；小节措辞逐字一致才叫同一套能力</td></tr>
+        <tr><td><strong>D3</strong> 检索只做一次</td><td>检索放在<strong>路由层</strong>，检索一次，同一块 <code>memoryBlock</code> 下传给全链路</td><td>multi 有 4 个 worker——各检索一次就是一次请求 4 次向量检索，而且同一轮注入两份不同记忆会让模型困惑</td></tr>
+        <tr><td><strong>D4</strong> 抽取输入按链路裁剪</td><td>公共口径 <span class="fn">buildExtractionInput</span>：只取最近 N 轮<strong>用户消息</strong> + 可选最终回复</td><td>喂得越杂记忆越脏；工具返回、检索片段、模型自己的输出都不是用户事实</td></tr>
+        <tr><td><strong>D5</strong> 失败即旁路</td><td>检索 / 抽取 / 落盘任一步失败 → 只发 <code>memory_failed</code>，<strong>本轮回复照常</strong></td><td>记忆是增强项，不能成为可用性风险</td></tr>
+        <tr><td><strong>D6</strong> 前端契约统一</td><td>请求体统一 <code>userId</code> + <code>allowMemory</code>；<strong>关掉时连 <code>userId</code> 一起不带</strong>；事件统一走 <code>api/memoryTrace.ts</code> 解析</td><td>服务端要求 <code>allowMemory===true</code> 且 <code>userId</code> 合法才检索——前端不带，零检索零抽取才是真的关掉</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>6i.2 公共接入层方法调用树</h3>
+    <div class="mermaid">
+flowchart TB
+  subgraph bridge["公共接入层 · memory/bridge.ts"]
+    BR["retrieveMemoryBlock(options, question)"]
+    BI["buildExtractionInput({ messages, finalReply, rounds })"]
+    BS["scheduleMemoryExtraction(options, deps) · 旁路不 await"]
+  end
+  subgraph routes["路由层 · 每请求检索一次"]
+    RQ["请求体：userId + allowMemory"]
+    RET["retrieveMemoryBlock → memoryBlock"]
+    EV["发 memory_injected（itemIds / tokens / items）"]
+    RQ --> RET --> EV
+  end
+  subgraph chains["四条链路 · 共用同一块 memoryBlock"]
+    MU["multi · 独立 system 消息 → 4 个 worker"]
+    PL["plan · 追加小节 → planner / step / 终答 / re-plan"]
+    RG["rag · 追加小节 → 「## 资料」之后"]
+    ST["structured · 追加小节 → system prompt 末尾"]
+  end
+  subgraph extract["抽取 · 旁路"]
+    EX["buildExtractionInput → scheduleMemoryExtraction"]
+  end
+  BR --> RET
+  EV --> MU
+  EV --> PL
+  EV --> RG
+  EV --> ST
+  MU --> BI
+  PL --> BI
+  RG --> BI
+  ST --> BI
+  BI --> BS
+    </div>
+    <div class="calltree"><span class="c">// 公共接入层对外只暴露四个函数，四条链路都只调这几个</span>
+<span class="m">retrieveMemoryBlock</span>(options, question)
+  ├─ allowMemory ≠ true 或 userId 非法 → 返回 null（<span class="e">不检索</span>）
+  ├─ <span class="m">retrieveRelevantFacts</span>(userId, question, { limit: <span class="fn">MEMORY_INJECT_LIMIT</span>=5 })
+  │    ├─ 过滤已软删除 / 已过期
+  │    ├─ <span class="m">tryEmbed</span>：给问题算向量，给无向量的旧记忆补算并回写
+  │    ├─ <span class="m">cosineSimilarity</span> ≥ <span class="fn">SIMILARITY_THRESHOLD</span>(0.45) → 按相似度降序取前 5
+  │    └─ 任一步失败 → 返回空数组（<span class="e">聊天照常</span>）
+  └─ <span class="m">renderMemoryBlock</span>(retrieved) → ContextMemoryBlock
+       └─ buildContext 预算裁剪（<span class="fn">MEMORY_CONTEXT_TOKEN_CAP</span>=200 / <span class="fn">MEMORY_CONTEXT_BUDGET_RATIO</span>=0.1）
+
+<span class="m">scheduleMemoryExtraction</span>(options, deps)
+  ├─ 不使用请求的 AbortSignal：客户端断开也要把偏好存下来
+  ├─ 无 API Key（mock 模式）→ 跳过
+  └─ <span class="m">extractAndStoreFacts</span>({ userId, messages, callModel, signal, timeoutMs })
+       ├─ 第一道闸 <span class="fn">redactSensitiveText</span>（送模型前脱敏）
+       ├─ <span class="m">extractMemoryFacts</span>：非法 JSON / 超时 → <span class="e">返回空数组，不抛异常</span>
+       ├─ 第二道闸 <span class="fn">containsSensitiveText</span>（模型输出后复述即拒存）
+       ├─ 置信度 &lt; <span class="fn">MIN_CONFIDENCE</span>(0.6) → 不落盘
+       └─ <span class="m">mergeIncomingFact</span> → <span class="m">writeMemory</span>
+
+<span class="m">buildExtractionInput</span>({ messages, finalReply, rounds })
+  ├─ 取最近 N 轮【用户消息】
+  ├─ 可选带上本轮最终回复（structured 不带）
+  └─ 其余（assistant 中间回复 / 工具返回 / 检索片段 / 结构化输出）一概不取
+
+<span class="m">buildMemoryInjectedEvent</span>(block) → { type: "memory_injected", itemIds, tokens, items }
+
+<span class="c">// 「提供方已处理」语义：createChatStream 的 memoryBlock</span>
+  ├─ <span class="m">options.memoryBlock !== undefined</span> → 不再检索、不再发 <code>memory_injected</code>、不再抽取
+  └─ <span class="m">options.memoryBlock === undefined</span> → 行为与阶段 8 完全一致（自己检索自己抽取）
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>6i.3 四条链路的注入点</h3>
+    <table class="map">
+      <thead>
+        <tr><th>链路</th><th>端点</th><th>检索位置</th><th>注入形态</th><th>注入点</th><th>抽取时机</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>单 Agent ReAct</td><td><code>POST /api/chat</code></td><td><code>chat.ts</code> 内部</td><td>独立 system 消息</td><td>对话之前</td><td>回复完成后</td></tr>
+        <tr><td>多 Agent</td><td><code>POST /api/chat/multi</code></td><td>路由层（judge 后）</td><td>独立 system 消息</td><td>4 个 worker 的 system；<strong>Supervisor / Aggregate 不注入</strong></td><td>aggregate 之后</td></tr>
+        <tr><td>Plan-and-Execute</td><td><code>POST /api/chat/plan</code></td><td>路由层</td><td>追加小节</td><td>planner / step / 终答 / re-plan 四处 prompt；react 兜底复用单 Agent 形态</td><td>最终回答之后</td></tr>
+        <tr><td>资料问答 RAG</td><td><code>POST /api/rag/chat</code></td><td>路由层（judge 后）</td><td>追加小节</td><td>「## 资料」之后；<strong>不进引用编号体系</strong></td><td>回答之后</td></tr>
+        <tr><td>结构化输出</td><td><code>POST /api/chat/structured</code></td><td>路由层</td><td>追加小节</td><td>system prompt 末尾；带<strong>「不得改变 JSON 形状与字段」</strong>边界</td><td><code>structured_done</code> 之后</td></tr>
+        <tr><td>反思复盘</td><td><code>POST /api/chat/reflection</code></td><td>—</td><td>—</td><td><span class="badge now">未接入</span></td><td>—</td></tr>
+      </tbody>
+    </table>
+    <ul class="compact">
+      <li><strong>检索次数一律 1</strong>：检索只出现在路由层，业务层没有第二处调用点。</li>
+      <li><strong>无记忆时 prompt 逐字不变</strong>：multi 的 worker messages、structured 的 system prompt 都保证这一点。</li>
+      <li><strong>structured 的 Mock 分支不注入</strong>：Mock 走 fixture 回放，没有真实 system prompt。</li>
+      <li><strong>RAG 的两处专门处理</strong>：记忆块明确写「不要给它编号」；检索片段绝不进抽取器。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6i.4 抽取输入裁剪（D4）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>链路</th><th>进抽取器的输入</th><th>带最终回答</th><th>为什么这样</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>multi</td><td>最近 2 轮用户消息 + aggregate 最终回复</td><td>是</td><td>中间的 assistant 回复混着 worker 工具返回与路由 JSON，是数据不是事实</td></tr>
+        <tr><td>plan</td><td>最近 2 轮用户消息 + 本轮最终回答</td><td>是</td><td>计划步骤里的工具结果同样不是用户事实</td></tr>
+        <tr><td>rag</td><td>最近 2 轮用户消息 + 本轮最终回答</td><td>是</td><td><strong>检索片段绝不进抽取器</strong>——那是别人写的笔记，不是用户说的</td></tr>
+        <tr><td>structured</td><td><strong>只有最后一条用户消息</strong></td><td><strong>否</strong></td><td>生成的 JSON / 表格是数据；拿模型自己的输出去抽取等于越聊越脏</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>6i.5 前端契约与面板三态</h3>
+    <div class="calltree"><span class="c">// 请求侧：四条链路统一（D6）</span>
+body: JSON.stringify({
+  messages, model, target,
+  <span class="e">...(allowMemory && userId ? { userId, allowMemory: true } : { allowMemory: false })</span>
+})
+<span class="c">// 关掉时连 userId 一起不带 → 服务端零检索零抽取</span>
+
+<span class="c">// 事件侧：五条链路统一走同一个解析函数（api/memoryTrace.ts）</span>
+<span class="m">parseMemoryTraceStep</span>(event) → ToolTraceStep | null
+  ├─ "memory_injected" → { kind, count, tokens, items }
+  ├─ "memory_extracted" → { kind, candidates, stored }
+  ├─ "memory_failed"    → { kind, stage: retrieve|extract|store, message }
+  └─ 其它 → null（不是记忆事件，调用方跳过）
+  <span class="c">// 脏数据一律降级（缺字段补默认值），不让流崩掉</span>
+
+<span class="c">// 面板三态文案（components/MemoryPanel.vue，带当前链路名）</span>
+  开关关闭            → 关闭说明
+  当前链路未接入        → 黄色警告（目前只有 reflection）
+  当前链路已接入        → 绿色说明
+    </div>
+    <ul class="compact">
+      <li><strong>RAG 侧栏的坑</strong>：RAG 模式下侧栏原本被「命中面板」独占，<code>ToolTracePanel</code> 整块隐藏——照原样，资料问答注入了什么记忆用户<strong>完全看不见</strong>。现在 RAG 模式只渲染记忆相关步骤，其它链路渲染全量。</li>
+      <li><strong>链路名</strong>：<span class="fn">memoryChainLabel</span> 给出 rag / structured / plan / reflection / multi / 普通对话六种人话名称。</li>
+      <li><strong>失败事件也要能看见</strong>：<span class="fn">memory_failed</span> 在过程面板单独一行，注明「不影响本轮回答」。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6i.6 失败边界</h3>
+    <table class="map">
+      <thead>
+        <tr><th>场景</th><th>行为</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>检索失败（向量服务不可用）</td><td>本轮不注入，发 <code>memory_failed(stage=retrieve)</code>，回复照常</td></tr>
+        <tr><td>抽取失败（模型超时 / 非法 JSON）</td><td>本轮不存，发 <code>memory_failed(stage=extract)</code>，回复照常</td></tr>
+        <tr><td>落盘失败</td><td>发 <code>memory_failed(stage=store)</code>，回复照常</td></tr>
+        <tr><td>用户关闭开关</td><td>五条链路一律零检索、零抽取</td></tr>
+        <tr><td><code>userId</code> 非法（不匹配 <code>anon_*</code>）</td><td>服务端按「无记忆」处理，不报错</td></tr>
+        <tr><td>记忆块过长</td><td>沿用 Top-5 上限 + 200 token / 10% 预算裁剪，不引入新的裁剪机制</td></tr>
+        <tr><td>structured 的记忆含非法 JSON 字符</td><td>记忆块不进 JSON 输出路径，只进 system prompt</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>6i.7 隐私红线（五条链路共同遵守）</h3>
+    <ul class="compact">
+      <li><strong>记忆只进 system prompt / 用户事实小节</strong>，永远不进「引用来源」「资料编号」体系。</li>
+      <li><strong>抽取输入永远排除</strong>检索片段、工具返回、结构化输出内容。</li>
+      <li><strong>记忆内容不写进日志正文</strong>——只记 id、条数、token 估算，与现有 trace 口径一致。</li>
+      <li>阶段 8 的两道敏感信息闸（送模型前脱敏、模型输出后拦一次）本阶段<strong>复用未改</strong>。</li>
+      <li>冲突仍不自动覆盖，交给用户在面板裁决。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>6i.8 实测状态（必须如实读）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>项</th><th>状态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>npm run typecheck</code></td><td><span class="badge done">通过</span></td></tr>
+        <tr><td><code>npm run build</code></td><td><span class="badge now">未运行</span>（用户要求只跑 typecheck）</td></tr>
+        <tr><td><code>npm run test:chains</code></td><td><span class="badge now">未运行</span>（用户要求跳过实测以省资源）</td></tr>
+        <tr><td><code>npm run test:memory</code></td><td><span class="badge now">未运行</span>（本阶段没跑）</td></tr>
+        <tr><td><code>scripts/test-memory-chains.ts</code></td><td><span class="badge later">未建</span>（归后续阶段）</td></tr>
+        <tr><td>单元测试</td><td><span class="badge later">未写</span>（归后续阶段）</td></tr>
+      </tbody>
+    </table>
+    <p class="path"><strong>代码层面的保证</strong>（可静态核对）：四条链路检索次数都是 1；关闭开关时前端不带 <code>userId</code>，服务端零检索零抽取；无记忆时 multi 的 worker messages 与 structured 的 system prompt 与接入前逐字一致。<br>
+    <strong>需要实测才能下结论</strong>（目前没有结论）：四条链路都能发出 <code>memory_injected</code> 且界面可见；关闭开关后确实零注入零抽取；structured 的记忆不改 JSON 形状；RAG 的记忆不被编号成引用来源；删除一条记忆后四条链路下一轮都不再注入。<br>
+    补跑方式：<code>LLM_MODEL=deepseek-v4.1-flash npm run test:chains</code>（原 <code>deepseek-v4-flash</code> 在网关上会 503；plan 链路需 <code>PLAN_TIMEOUT_MS=600000</code>）。</p>
+  </div>
+
+  <div class="card">
+    <h3>6i.9 本阶段文件清单（新增 7 / 修改 41）</h3>
+    <table class="map">
+      <thead>
+        <tr><th>分组</th><th>文件</th><th>作用</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>新增</td><td><code>memory/bridge.ts</code></td><td>公共接入层：<span class="fn">retrieveMemoryBlock</span> · <span class="fn">scheduleMemoryExtraction</span> · <span class="fn">buildExtractionInput</span> · <span class="fn">buildMemoryInjectedEvent</span></td></tr>
+        <tr><td>新增</td><td><code>memory/index.ts</code></td><td>记忆模块统一出口</td></tr>
+        <tr><td>新增</td><td><code>multi-agent/workers/memoryPrompt.ts</code></td><td>Worker 记忆拼装：<span class="fn">buildWorkerMessages</span>（无记忆时逐字不变）</td></tr>
+        <tr><td>新增</td><td><code>api/memoryTrace.ts</code></td><td>前端记忆事件统一解析：<span class="fn">parseMemoryTraceStep</span></td></tr>
+        <tr><td>新增</td><td><code>docs/memory-chain-integration.md</code> · <code>docs/memory-chain-changelog.md</code></td><td>阶段说明与变更记录</td></tr>
+        <tr><td>新增</td><td><code>docs/memory-chain-flow.svg</code></td><td>阶段 9 细泳道流程图（索引页 0h 引用）</td></tr>
+        <tr><td>修改 · 公共层</td><td><code>chat.ts</code></td><td>删两处私有实现改调 bridge；<code>CreateChatStreamOptions.memoryBlock</code> 落地为「提供方已处理」语义</td></tr>
+        <tr><td>修改 · 公共层</td><td><code>memory/context.ts</code></td><td><span class="fn">MEMORY_SECTION_TITLE</span> · <span class="fn">renderMemorySection</span>（三链路措辞逐字一致）</td></tr>
+        <tr><td>修改 · 公共层</td><td><code>memory/README.md</code></td><td>文件地图补 <code>bridge.ts</code> / <code>index.ts</code></td></tr>
+        <tr><td>修改 · multi</td><td><code>routes/chatMulti.ts</code></td><td>judge 后检索一次 → 发 <code>memory_injected</code> → 下传 → aggregate 后抽取</td></tr>
+        <tr><td>修改 · multi</td><td><code>multi-agent/graph.ts</code></td><td><code>MultiAgentGraphOptions.memoryBlock</code> 下发给 worker</td></tr>
+        <tr><td>修改 · multi</td><td><code>multi-agent/workers/types.ts</code></td><td><span class="fn">WorkerContext.memoryBlock</span></td></tr>
+        <tr><td>修改 · multi</td><td><code>multi-agent/workers/generalWorker.ts</code> · <code>kbWorker.ts</code> · <code>actionWorker.ts</code> · <code>realtimeWorker.ts</code></td><td>初始 messages 改走公共拼装；角色 prompt 未动</td></tr>
+        <tr><td>修改 · multi</td><td><code>multi-agent/README.md</code></td><td>补 <code>workers/memoryPrompt.ts</code> 与记忆下发口径</td></tr>
+        <tr><td>修改 · plan</td><td><code>routes/chatPlan.ts</code></td><td>schema 加 <code>userId</code> / <code>allowMemory</code>；路由层检索一次；react 兜底带 <code>memoryBlock</code>；统一抽取</td></tr>
+        <tr><td>修改 · plan</td><td><code>plan-execute/prompts.ts</code></td><td><span class="fn">buildMemorySection</span>；三处 prompt 共用并各加「【记忆使用边界】」</td></tr>
+        <tr><td>修改 · plan</td><td><code>plan-execute/planner.ts</code> · <code>executor.ts</code> · <code>finalReply.ts</code> · <code>replan.ts</code></td><td>context 增加 <code>memoryBlock</code> 并透传</td></tr>
+        <tr><td>修改 · plan</td><td><code>plan-execute/graph.ts</code></td><td><code>RunPlanGraphOptions.memoryBlock</code> 全图下传</td></tr>
+        <tr><td>修改 · plan</td><td><code>plan-execute/prompts.test.ts</code></td><td>新增两条断言（无记忆不出现记忆小节 / 有记忆必现且带边界）</td></tr>
+        <tr><td>修改 · plan</td><td><code>plan-execute/README.md</code></td><td>补记忆注入口径</td></tr>
+        <tr><td>修改 · rag</td><td><code>routes/ragChat.ts</code></td><td>judge 后检索一次并发事件；下传；回答后抽取（检索片段不入抽取器）</td></tr>
+        <tr><td>修改 · rag</td><td><code>rag/prompt.ts</code></td><td>「## 资料」之后追加「## 用户长期记忆」并写明「不要给它编号」</td></tr>
+        <tr><td>修改 · rag</td><td><code>rag/answer.ts</code></td><td><span class="fn">answerFromDocs</span> 第 7 参扩为 <code>options</code></td></tr>
+        <tr><td>修改 · rag</td><td><code>rag/README.md</code></td><td>补记忆注入口径</td></tr>
+        <tr><td>修改 · structured</td><td><code>routes/chatStructured.ts</code></td><td>检索一次并发事件；下传；<code>structured_done</code> 之后只抽取最后一条用户消息；记忆 usage 单独记账</td></tr>
+        <tr><td>修改 · structured</td><td><code>structured/complete.ts</code></td><td><span class="fn">buildSystemPrompt</span>(target, memoryBlock)；无记忆时 prompt 逐字不变</td></tr>
+        <tr><td>修改 · structured</td><td><code>structured/types.ts</code></td><td>schema 加可选 <code>userId</code> / <code>allowMemory</code>（<code>.strict()</code> 必须加）</td></tr>
+        <tr><td>修改 · structured</td><td><code>structured/README.md</code></td><td>SSE 事件表 / 数据流 / 长期记忆口径同步</td></tr>
+        <tr><td>修改 · 前端</td><td><code>api/chat.ts</code></td><td><span class="fn">streamPlan</span> / <span class="fn">streamStructured</span> 加 <code>userId</code> / <code>allowMemory</code>；<span class="fn">streamChat</span> 手写解析换成统一解析；<span class="fn">streamStructured</span> 加 <code>onTrace</code></td></tr>
+        <tr><td>修改 · 前端</td><td><code>api/rag.ts</code></td><td><span class="fn">askRag</span> 加 <code>userId</code> / <code>allowMemory</code>；事件类型补记忆字段；接统一解析</td></tr>
+        <tr><td>修改 · 前端</td><td><code>composables/useChat.ts</code></td><td>plan / structured / rag 三处统一传 <code>memoryUserId.value</code> / <code>allowMemory.value</code></td></tr>
+        <tr><td>修改 · 前端</td><td><code>types.ts</code></td><td><code>ToolTraceStep</code> 补 <code>memory_failed</code> 变体</td></tr>
+        <tr><td>修改 · 前端</td><td><code>App.vue</code></td><td><code>memoryInjectionSupported</code> 改为「只有 reflection 没接」；<code>memoryChainLabel</code> · <code>memoryTraceSteps</code>；RAG 侧栏接线</td></tr>
+        <tr><td>修改 · 前端</td><td><code>components/MemoryPanel.vue</code></td><td>新增 <code>chainLabel</code>；提示改三态并带链路名；新增 <code>.notice.on</code></td></tr>
+        <tr><td>修改 · 前端</td><td><code>components/ToolTracePanel.vue</code></td><td>补 <code>memory_failed</code> 分支与 <span class="fn">memoryStageText</span></td></tr>
+        <tr><td>修改 · 脚本</td><td><code>scripts/test-chat-chains.ts</code></td><td>四条链路各加三段记忆断言（开 / 关 / 抽取条数不变）</td></tr>
+        <tr><td>修改 · 文档</td><td><code>docs/flows-index.html</code> · <code>docs/flows-index.md</code></td><td>索引页新增 0h 入口与阶段 9 文件清单</td></tr>
+        <tr><td>修改 · 文档</td><td><code>docs/project-topology.html</code></td><td>本页：§6h 接入现状更新 + 新增 §6i</td></tr>
+        <tr><td>修改 · 文档</td><td><code>docs/memory-flow.svg</code></td><td>阶段 8 图的链路现状段由「四链路未接入」改为「五链路已接入」</td></tr>
+        <tr><td>修改 · 文档</td><td><code>README.md</code></td><td>能力表补长期记忆一行；目录树补 <code>memory/</code> 与 <code>memoryTrace.ts</code></td></tr>
+      </tbody>
+    </table>
+    <p class="path">表中路径为工作区两级相对路径（<code>memory/</code> 指服务端记忆目录，<code>routes/</code> 指服务端路由目录，<code>api/</code>、<code>components/</code>、<code>composables/</code> 指前端对应目录）。计划与逐条执行记录：<code>tasks/memory-chain-integration-plan.md</code>。</p>
   </div>
 
   <!-- ========== 7 ========== -->
@@ -2498,6 +2768,7 @@ flowchart LR
       <li><span class="badge done">已结</span> <strong>post-learning 优化</strong>（study-chat）：语义 C、关 thinking、chat-llm/prefetch、forceKbSearch、预热、rerank batch — 见 <a href="./post-learning-optimization-changelog.md">changelog</a></li>
       <li><span class="badge done">已结</span> 检索前意图/扩写/路由/Multi-Query/HyDE + 单元 8/9（见 <a href="#rag-enhance">§6b</a>）</li>
       <li><span class="badge now">已实现 / 未实测</span> <strong>Plan-and-Execute 计划执行</strong>：规则路由 → Planner → 顺序 Executor → 受控 Re-plan → 终态 + 观测（见 <a href="#plan">§6d</a> · <a href="./plan-and-execute.md">阶段总结</a>）；真实模型评测与浏览器点验未做</li>
+      <li><span class="badge now">已实现 / 未实测</span> <strong>Memory 接入四条链路</strong>：multi / plan / rag / structured 四条业务链路已接上跨会话记忆，公共接入层 <code>memory/bridge.ts</code>（见 <a href="#memory-chain">§6i</a> · <a href="./memory-chain-integration.md">阶段说明</a>）；<code>npm run typecheck</code> 通过，但 <code>test:chains</code> / <code>build</code> 未运行、端到端跨会话脚本与单元测试未写——界面可见性与「关闭即零注入」尚无实测结论</li>
       <li><span class="badge later">后置</span> <strong>Judge enforce 准入</strong>：真实模型评测 recall 0.684、error 15%、p95 6059ms，七条阈值未全达标 → 线上停留 <code>shadow</code>、默认 <code>off</code>（见 <a href="#judge">§6f</a> · <a href="./llm-judge-changelog.md">变更记录</a>）</li>
       <li><span class="badge later">后置</span> 最终轮真流式 · MCP schema 单一来源 · UI 双入口收敛 · 关 KB 硬剥离历史</li>
       <li><span class="badge later">后置</span> RAG 上传文档完整应用（现 <code>rag:ingest</code> + 资料问答）</li>
@@ -2510,7 +2781,8 @@ flowchart LR
     Plan-and-Execute 章节按 <code>server/plan-execute/</code> 与 <code>server/routes/chatPlan.ts</code> 同步整理（2026-11 同步）。
     工具注册表章节（§5b / §7b）按阶段 5「Tool 动态发现」改造后的 <code>server/tools/</code> 同步整理（2026-11 同步）。
     LLM-as-Judge 章节（§6f）按 <code>server/guard/judge*.ts</code> 与 <code>evals/</code> 同步整理（2026-11 同步）。
-    Memory 章节（§6h）按 <code>server/memory/</code>、<code>routes/memory.ts</code> 与 <code>chat.ts</code> 同步整理（2026-11 同步）；四条链路（multi / plan / rag / structured）的记忆接入状态按源码如实标注为「未接入」。
+    Memory 章节（§6h）按 <code>server/memory/</code>、<code>routes/memory.ts</code> 与 <code>chat.ts</code> 同步整理（2026-11 同步）。
+    Memory 链路接入章节（§6i）按 <code>server/memory/bridge.ts</code> 与四条链路的路由层同步整理（2026-11 同步）；multi / plan / rag / structured 四条链路已接入，唯一未接入的是 <code>/api/chat/reflection</code>。
     协作红线：不允许私自删除代码注释。细泳道请打开 <a href="./flows-index.html">flows-index.html</a>。
   </footer>
 </div>

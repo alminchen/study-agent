@@ -6,6 +6,7 @@
  */
 import { requestCompletion } from "../react/complete.js";
 import type { TextMessage } from "../react/types.js";
+import type { ContextMemoryBlock } from "../context/types.js";
 import { buildFinalReplySystemPrompt } from "./prompts.js";
 import type { Plan, PlanStepResult } from "./types.js";
 
@@ -14,6 +15,8 @@ export interface FinalReplyContext {
   plan: Plan;
   stepResults: PlanStepResult[];
   model: string;
+  /** 预检索好的长期记忆块；只影响表述方式，不改事实。 */
+  memoryBlock?: ContextMemoryBlock | null;
 }
 
 export type FinalReplyResult =
@@ -57,6 +60,7 @@ export function createRealFinalReplier(options: RealFinalReplierOptions): FinalR
           ...unexecuted.map((step) => ({ title: step.title, summary: "未执行" })),
         ],
         totalSteps: context.plan.steps.length,
+        memoryBlock: context.memoryBlock,
       });
 
       const messages: TextMessage[] = [

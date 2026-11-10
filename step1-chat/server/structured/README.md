@@ -87,6 +87,9 @@ parser 内部为每个 token 标三种状态：
 | `structured_done` | 最终结果，必须已通过 `StructuredResultSchema` |
 | `structured_error` | 失败，带 `code` / `retryable` / `lastRevision`（允许保留最后可安全展示的快照） |
 | `usage` | token 统计，endpoint 固定 `chat/structured` |
+| `memory_injected` | 本轮注入了哪几条长期记忆（与其它链路同形状，只进过程面板） |
+| `memory_extracted` | 本轮抽取并落盘的记忆条目 |
+| `memory_failed` | 记忆链路某一步失败（不影响结构化回复） |
 
 ## 错误码
 
@@ -101,12 +104,15 @@ parser 内部为每个 token 标三种状态：
 ```
 POST /api/chat/structured
   → StructuredChatRequestSchema 校验
+  → 长期记忆：路由层检索一次 → memory_injected?
+      └─ 记忆块追加到 system prompt 末尾（schema 约束在前、记忆在后）
   → streamStructuredCompletion（真实模型）/ streamMockStructuredChunks（Mock）
   → StructuredStreamAccumulator.append(chunk)
       └─ parseStructuredChunk → 稳定才推进 revision → structured_snapshot
   → finish()：最终结果过 StructuredResultSchema
       ├─ 通过 → structured_done
       └─ 不通过 → structured_error（invalid_final_json / schema_validation_failed）
+  → 长期记忆抽取（旁路）：只用最后一条用户消息，不带生成的 JSON
   → usage → [DONE]
 ```
 
@@ -129,6 +135,17 @@ Mock 的切点从 fixture 内容反推（如表格在列骨架、第一行、第
 `POST /api/chat/structured`（`server/routes/chatStructured.ts`）
 
 请求体由 `StructuredChatRequestSchema` 定义；`target` 取 `table` 或 `code`。
+
+可选字段 `userId` / `allowMemory` 用来接入跨会话记忆：
+关掉时前端**连 userId 一起不带**，服务端零检索、零抽取。
+
+## 长期记忆的口径
+
+- **注入点**：`complete.ts` 的 `buildSystemPrompt` **末尾**追加「## 用户长期记忆」
+  小节。schema 约束在前、记忆在后；没有记忆时 system prompt 与改造前逐字一致。
+- **边界**：记忆只能影响生成内容的**取值**，不得改变 JSON 的形状与字段。
+- **抽取点**：`structured_done` 之后触发，**只用最后一条用户消息**，
+  且**不带最终回答** —— 生成的 JSON / 表格是数据，不是用户事实。
 
 ## 边界说明
 

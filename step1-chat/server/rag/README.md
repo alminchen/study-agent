@@ -16,8 +16,8 @@
 | `retrieve.ts` | 向量检索 + 分数门槛判空 + rerank 调度 |
 | `rerank.ts` | 交叉编码器重排（bge-reranker-base）；`RERANK_BATCH_SIZE` 分批；`warmRerank` |
 | `warmup.ts` | `RAG_WARMUP` 开关下后台预热 embed + rerank |
-| `prompt.ts` | 组织 RAG prompt（检索结果 + 用户问题 → 给模型的上下文） |
-| `answer.ts` | RAG 问答入口（retrieve → prompt → LLM 生成） |
+| `prompt.ts` | 组织 RAG prompt（检索结果 + 用户问题 → 给模型的上下文）；有长期记忆时在「## 资料」之后追加独立的「## 用户长期记忆」小节 |
+| `answer.ts` | RAG 问答入口（retrieve → prompt → LLM 生成）；记忆块由路由层检索一次后经 `options.memoryBlock` 传入 |
 | `types.ts` | 类型定义（SearchHit、RetrievalJudgment 等） |
 
 ## API 端点

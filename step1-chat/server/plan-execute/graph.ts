@@ -17,6 +17,7 @@
  * - Re-plan 属于步骤 7：这里失败即终止，不自造重规划。
  */
 import { createConsecutiveFailureTracker } from "../react/toolFailure.js";
+import type { ContextMemoryBlock } from "../context/types.js";
 import { classifyTask } from "./classify.js";
 import type { ReactFallbackRunner, StepExecutor } from "./executor.js";
 import type { FinalReplier } from "./finalReply.js";
@@ -121,6 +122,11 @@ export interface RunPlanGraphOptions {
   /** 最终回答的文字出口；计划模式下只有最后一步会写这里。 */
   onDelta: (delta: string) => void;
   planId?: string;
+  /**
+   * 预检索好的长期记忆块（路由层检索一次，全图共用）。
+   * 不传则全链路不注入记忆，行为与改造前一致。
+   */
+  memoryBlock?: ContextMemoryBlock | null;
   /** 测试用：缩小整任务模型预算。 */
   maxModelCalls?: number;
 }
@@ -246,6 +252,7 @@ export async function runPlanGraph(options: RunPlanGraphOptions): Promise<PlanGr
     searchDocs: options.searchDocs ?? false,
     revision: 0,
     planId,
+    memoryBlock: options.memoryBlock,
   };
   const planned = await options.planner.plan(planContext);
   if (planned.kind === "fallback") {
@@ -323,6 +330,7 @@ export async function runPlanGraph(options: RunPlanGraphOptions): Promise<PlanGr
       completedSummaries: state.stepResults
         .filter((item) => item.status === "done")
         .map((item) => item.summary),
+      memoryBlock: options.memoryBlock,
       // Executor 的 onTrace 类型更宽（含 searchDocs/degradation 等非计划事件）；
       // 这里只转发计划模式关心的几种。
       onTrace: (event) => {
@@ -410,6 +418,7 @@ export async function runPlanGraph(options: RunPlanGraphOptions): Promise<PlanGr
         .map((item) => item.summary),
       searchDocs: options.searchDocs === true,
       model: options.model,
+      memoryBlock: options.memoryBlock,
     });
 
     const rejected: { code: PlanErrorCode; message: string } | null =
@@ -495,6 +504,7 @@ export async function runPlanGraph(options: RunPlanGraphOptions): Promise<PlanGr
     plan: activePlan,
     stepResults: state.stepResults,
     model: options.model,
+    memoryBlock: options.memoryBlock,
   });
   if (reply.kind === "failed") {
     failWithoutStep("final_reply_failed", reply.message);

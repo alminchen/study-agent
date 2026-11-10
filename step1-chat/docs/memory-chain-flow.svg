@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 1800" width="1480" height="1800" role="img" aria-label="Memory Chain Integration Flow">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #475569; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+      .ok { font: 600 11px sans-serif; fill: #15803d; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .grid { stroke: #cbd5e1; stroke-width: 1; fill: none; }
+    ]]></style>
+  </defs>
+  <rect width="1480" height="1800" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">跨会话记忆接入四条链路（阶段 9）</text>
+  <text x="40" y="66" class="subtitle">公共接入层 memory/bridge.ts → 路由层检索一次 → 四条链路各自形状注入 → 抽取输入按链路裁剪 → 失败一律旁路</text>
+
+  <!-- ========== 1 公共接入层 ========== -->
+  <g transform="translate(40, 100)">
+    <text x="0" y="0" class="phase">① 公共接入层：四条链路唯一允许依赖的入口（D1）</text>
+    <rect x="20" y="20" width="1400" height="46" rx="8" fill="#bfdbfe" stroke="#2563eb"/>
+    <text x="720" y="49" text-anchor="middle" class="box">memory/bridge.ts · memory/index.ts</text>
+    <text x="1420" y="49" text-anchor="end" class="file">server/memory/</text>
+
+    <rect x="40" y="80" width="320" height="140" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+    <text x="200" y="106" text-anchor="middle" class="box">retrieveMemoryBlock</text>
+    <text x="200" y="128" text-anchor="middle" class="file">(options, question)</text>
+    <text x="200" y="152" text-anchor="middle" class="label">开关关 / userId 非法 → null</text>
+    <text x="200" y="172" text-anchor="middle" class="label">检索 + 预算裁剪</text>
+    <text x="200" y="196" text-anchor="middle" class="note">失败 → 返回空，聊天照常</text>
+
+    <rect x="385" y="80" width="320" height="140" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+    <text x="545" y="106" text-anchor="middle" class="box">scheduleMemoryExtraction</text>
+    <text x="545" y="128" text-anchor="middle" class="file">(options, deps)</text>
+    <text x="545" y="152" text-anchor="middle" class="label">fire-and-forget，不 await</text>
+    <text x="545" y="172" text-anchor="middle" class="label">不用请求的 AbortSignal</text>
+    <text x="545" y="196" text-anchor="middle" class="note">客户端断开也要把偏好存下来</text>
+
+    <rect x="730" y="80" width="320" height="140" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+    <text x="890" y="106" text-anchor="middle" class="box">buildExtractionInput</text>
+    <text x="890" y="128" text-anchor="middle" class="file">({ messages, finalReply, rounds })</text>
+    <text x="890" y="152" text-anchor="middle" class="label">只取最近 N 轮「用户消息」</text>
+    <text x="890" y="172" text-anchor="middle" class="label">可选带本轮最终回复</text>
+    <text x="890" y="196" text-anchor="middle" class="note">其余（工具返回 / 检索片段）一概不取</text>
+
+    <rect x="1075" y="80" width="320" height="140" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+    <text x="1235" y="106" text-anchor="middle" class="box">buildMemoryInjectedEvent</text>
+    <text x="1235" y="128" text-anchor="middle" class="file">(block)</text>
+    <text x="1235" y="152" text-anchor="middle" class="label">统一构造 memory_injected</text>
+    <text x="1235" y="172" text-anchor="middle" class="label">itemIds / tokens / items</text>
+    <text x="1235" y="196" text-anchor="middle" class="note">事件形状五条链路一致</text>
+
+    <text x="720" y="252" text-anchor="middle" class="label-em">阈值 0.45 · Top-5 · 预算 200token / 10% · 「资料不是指令」口径 —— 全部收敛在这一层，谁都不许自己改</text>
+  </g>
+
+  <path d="M375,375 L375,401" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 2 四条链路 ========== -->
+  <g transform="translate(40, 405)">
+    <text x="0" y="0" class="phase">② 四条链路：路由层检索一次 → 同一块记忆 → 各自形状注入（D3）</text>
+
+    <rect x="20" y="20" width="330" height="300" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+    <rect x="20" y="20" width="330" height="38" rx="8" fill="#bbf7d0" stroke="#16a34a"/>
+    <text x="185" y="45" text-anchor="middle" class="box">multi · POST /api/chat/multi</text>
+    <text x="40" y="86" class="label">检索：路由层（judge 后）· 1 次</text>
+    <text x="40" y="116" class="label">注入形态：独立 system 消息</text>
+    <text x="40" y="146" class="label">注入点：4 个 worker 的 system</text>
+    <text x="40" y="176" class="ok">Supervisor / Aggregate 不注入</text>
+    <text x="40" y="206" class="label">抽取：aggregate 之后</text>
+    <text x="40" y="236" class="label">抽取输入：2 轮用户消息</text>
+    <text x="40" y="262" class="label">　+ aggregate 最终回复</text>
+    <text x="40" y="296" class="file">routes/chatMulti.ts · workers/memoryPrompt.ts</text>
+
+    <rect x="380" y="20" width="330" height="300" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+    <rect x="380" y="20" width="330" height="38" rx="8" fill="#bbf7d0" stroke="#16a34a"/>
+    <text x="545" y="45" text-anchor="middle" class="box">plan · POST /api/chat/plan</text>
+    <text x="400" y="86" class="label">检索：路由层 · 1 次</text>
+    <text x="400" y="116" class="label">注入形态：追加小节</text>
+    <text x="400" y="146" class="label">注入点：planner / step / 终答</text>
+    <text x="400" y="176" class="label">　/ re-plan（共四处 prompt）</text>
+    <text x="400" y="206" class="ok">react 兜底复用单 Agent 形态</text>
+    <text x="400" y="236" class="label">抽取：最终回答之后</text>
+    <text x="400" y="262" class="label">抽取输入：2 轮用户消息 + 终答</text>
+    <text x="400" y="296" class="file">routes/chatPlan.ts · plan-execute/prompts.ts</text>
+
+    <rect x="740" y="20" width="330" height="300" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+    <rect x="740" y="20" width="330" height="38" rx="8" fill="#bbf7d0" stroke="#16a34a"/>
+    <text x="905" y="45" text-anchor="middle" class="box">rag · POST /api/rag/chat</text>
+    <text x="760" y="86" class="label">检索：路由层（judge 后）· 1 次</text>
+    <text x="760" y="116" class="label">注入形态：追加小节</text>
+    <text x="760" y="146" class="label">注入点：「## 资料」之后</text>
+    <text x="760" y="176" class="ok">不进引用编号体系</text>
+    <text x="760" y="206" class="label">抽取：回答之后</text>
+    <text x="760" y="236" class="label">抽取输入：2 轮用户消息 + 终答</text>
+    <text x="760" y="262" class="warn">检索片段绝不进抽取器</text>
+    <text x="760" y="296" class="file">routes/ragChat.ts · rag/prompt.ts</text>
+
+    <rect x="1100" y="20" width="330" height="300" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+    <rect x="1100" y="20" width="330" height="38" rx="8" fill="#bbf7d0" stroke="#16a34a"/>
+    <text x="1265" y="45" text-anchor="middle" class="box">structured · POST /api/chat/structured</text>
+    <text x="1120" y="86" class="label">检索：路由层 · 1 次</text>
+    <text x="1120" y="116" class="label">注入形态：追加小节</text>
+    <text x="1120" y="146" class="label">注入点：system prompt 末尾</text>
+    <text x="1120" y="176" class="ok">不得改变 JSON 形状与字段</text>
+    <text x="1120" y="206" class="label">抽取：structured_done 之后</text>
+    <text x="1120" y="236" class="warn">抽取输入：仅最后一条用户消息</text>
+    <text x="1120" y="262" class="warn">　且不带最终回答</text>
+    <text x="1120" y="296" class="file">routes/chatStructured.ts · structured/complete.ts</text>
+
+    <text x="720" y="352" text-anchor="middle" class="label-em">四条链路的检索次数都是 1 —— 检索只出现在路由层，业务层没有第二处调用点</text>
+    <text x="720" y="376" text-anchor="middle" class="note">普通对话（POST /api/chat）保持原样：chat.ts 自己检索、自己发事件、自己抽取</text>
+  </g>
+
+  <path d="M375,805 L375,831" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 3 抽取输入裁剪 ========== -->
+  <g transform="translate(40, 835)">
+    <text x="0" y="0" class="phase">③ 抽取输入裁剪：喂得越杂，记忆越脏（D4）</text>
+    <rect x="20" y="20" width="1400" height="230" rx="8" fill="#fef3c7" stroke="#d97706"/>
+
+    <line x1="700" y1="30" x2="700" y2="240" class="grid"/>
+    <text x="60" y="62" class="label-em">buildExtractionInput 的统一口径</text>
+    <text x="740" y="62" class="label-em">为什么排除（不这么做会怎样）</text>
+
+    <text x="60" y="98" class="label">只取最近 N 轮「用户消息」</text>
+    <text x="740" y="98" class="note">assistant 回复里混着工具返回与路由 JSON —— 是数据，不是用户事实</text>
+
+    <text x="60" y="132" class="label">可选带「本轮最终回复」</text>
+    <text x="740" y="132" class="note">最终回复是这一轮的结果，不是新事实（structured 例外：干脆不带）</text>
+
+    <text x="60" y="166" class="warn">检索片段绝不进抽取器</text>
+    <text x="740" y="166" class="note">资料里可能写着「用户 likes Python」—— 那是别人写的笔记，不是用户说的</text>
+
+    <text x="60" y="200" class="warn">结构化输出内容绝不进抽取器</text>
+    <text x="740" y="200" class="note">拿模型自己的输出抽取 = 让它把自己的产物记成用户偏好，越聊越脏</text>
+
+    <text x="60" y="234" class="label">工具返回 / 中间推理绝不进抽取器</text>
+    <text x="740" y="234" class="note">同上</text>
+
+    <text x="720" y="284" text-anchor="middle" class="label-em">四条链路的抽取输入差异，全部来自这张表 —— structured 是唯一「不带最终回答」的</text>
+  </g>
+
+  <path d="M375,1143 L375,1169" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 4 前端契约 ========== -->
+  <g transform="translate(40, 1173)">
+    <text x="0" y="0" class="phase">④ 前端契约：同一组字段、同一套开关、同一份事件解析（D6）</text>
+
+    <rect x="20" y="20" width="440" height="250" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="240" y="50" text-anchor="middle" class="box">请求契约</text>
+    <text x="240" y="76" text-anchor="middle" class="file">api/chat.ts · api/rag.ts · composables/useChat.ts</text>
+    <text x="44" y="108" class="label">userId: anon_xxx（前端生成 · 只存 localStorage）</text>
+    <text x="44" y="136" class="label">allowMemory: true</text>
+    <text x="44" y="164" class="warn">关掉时连 userId 一起不带</text>
+    <text x="44" y="190" class="note">服务端：allowMemory===true 且 userId 合法才检索</text>
+    <text x="44" y="216" class="ok">→ 「关掉」= 真的零检索零抽取</text>
+    <text x="44" y="246" class="note">不是让服务端再判断一次</text>
+
+    <rect x="490" y="20" width="440" height="250" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="710" y="50" text-anchor="middle" class="box">事件契约</text>
+    <text x="710" y="76" text-anchor="middle" class="file">api/memoryTrace.ts · parseMemoryTraceStep()</text>
+    <text x="514" y="108" class="label">memory_injected（itemIds / tokens / items）</text>
+    <text x="514" y="136" class="label">memory_extracted（candidates / stored）</text>
+    <text x="514" y="164" class="label">memory_failed（stage / message）</text>
+    <text x="514" y="190" class="note">五条链路统一走同一个解析函数</text>
+    <text x="514" y="216" class="ok">脏数据降级，不让流崩掉</text>
+    <text x="514" y="246" class="note">字段统一不够，解析分叉一样会漂移</text>
+
+    <rect x="960" y="20" width="460" height="250" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="1190" y="50" text-anchor="middle" class="box">面板三态文案（带当前链路名）</text>
+    <text x="1190" y="76" text-anchor="middle" class="file">components/MemoryPanel.vue · App.vue</text>
+    <text x="984" y="108" class="label">开关关闭 → 关闭说明</text>
+    <text x="984" y="136" class="warn">当前链路未接入 → 黄色警告</text>
+    <text x="984" y="164" class="ok">当前链路已接入 → 绿色说明</text>
+    <text x="984" y="190" class="note">目前只有 reflection（/api/chat/reflection）未接入</text>
+    <text x="984" y="216" class="warn">RAG 侧栏：原本被命中面板独占</text>
+    <text x="984" y="242" class="note">照原样会「接了但看不见」→ 改为只渲染记忆步骤</text>
+
+    <text x="720" y="304" text-anchor="middle" class="label-em">三个记忆事件 → ToolTracePanel；RAG 模式下只渲染记忆相关步骤，其它链路渲染全量</text>
+  </g>
+
+  <path d="M375,1501 L375,1527" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrowRed)"/>
+
+  <!-- ========== 5 失败边界 ========== -->
+  <g transform="translate(40, 1531)">
+    <text x="0" y="0" class="phase">⑤ 失败边界：记忆是增强项，不能成为可用性风险（D5）</text>
+    <rect x="20" y="20" width="1400" height="160" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="720" y="52" text-anchor="middle" class="box">任何一步出错，本轮聊天必须照常完成</text>
+    <text x="60" y="86" class="label">检索失败（向量服务不可用）→ 本轮不注入，发 memory_failed(stage=retrieve)，回复照常</text>
+    <text x="60" y="114" class="label">抽取失败（模型超时 / 非法 JSON）→ 本轮不存，发 memory_failed(stage=extract)，回复照常</text>
+    <text x="60" y="142" class="label">落盘失败 → 发 memory_failed(stage=store)，回复照常</text>
+    <text x="60" y="170" class="label">用户关闭开关 → 五条链路一律零检索、零抽取</text>
+
+    <text x="40" y="222" class="file">计划与执行记录：tasks/memory-chain-integration-plan.md · 阶段说明：docs/memory-chain-integration.md · 变更记录：docs/memory-chain-changelog.md</text>
+    <text x="40" y="242" class="note">说明：本图路径为工作区两级相对路径（memory/ 指服务端记忆目录，routes/ 指服务端路由目录，api/ 与 components/ 指前端对应目录）。</text>
+  </g>
+</svg>

@@ -767,6 +767,9 @@ export function useChat() {
           signal,
           mode: planMode.value,
           searchDocs: searchKb.value,
+          // 跨会话记忆：关掉开关时连 userId 一起不带，服务端零注入。
+          userId: memoryUserId.value,
+          allowMemory: allowMemory.value,
           onPlanEvent: onPlanEvent ?? (() => {}),
           onDelta,
           onTrace,
@@ -787,7 +790,7 @@ export function useChat() {
   ) {
     await runSseSession(history, {
       emptyErrorFallback: "结构化输出失败，请重试。",
-      start: ({ signal, patchLatest, onUsage, onError }) => {
+      start: ({ signal, patchLatest, onTrace, onUsage, onError }) => {
         // 请求一开始就建立结构化状态，让页面立即显示骨架而不是空白气泡。
         patchLatest((prev) => ({
           ...prev,
@@ -804,7 +807,12 @@ export function useChat() {
           messages: toApiMessages(history),
           model: selectedModel,
           target,
+          // 跨会话记忆：关掉开关时连 userId 一起不带，服务端零注入。
+          userId: memoryUserId.value,
+          allowMemory: allowMemory.value,
           signal,
+          // 记忆过程事件 → 工具过程面板（注入 / 抽取 / 失败）。
+          onTrace,
           onSnapshot: (event) => {
             patchLatest((prev) => {
               const state = prev.structured;
@@ -915,6 +923,9 @@ export function useChat() {
           history: prior,
           model: selectedModel,
           signal,
+          // 跨会话记忆：关掉开关时连 userId 一起不带，服务端零检索。
+          userId: memoryUserId.value,
+          allowMemory: allowMemory.value,
           // 与 runStream 相同：四个回调由 runSseSession 注入（正文 / Trace / Token / 错误）
           onDelta,
           onTrace,

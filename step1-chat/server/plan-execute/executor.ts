@@ -12,6 +12,7 @@ import { isToolErrorResult } from "../react/toolFailure.js";
 import type { ConfirmSession } from "../react/confirmGate.js";
 import type { ProviderMessage, ToolTraceHandler } from "../react/types.js";
 import type { ConsecutiveFailureTracker } from "../react/toolFailure.js";
+import type { ContextMemoryBlock } from "../context/types.js";
 import { findTool } from "../tools/index.js";
 import type { ToolSchema } from "../tools/types.js";
 import { buildStepSystemPrompt } from "./prompts.js";
@@ -35,6 +36,8 @@ export interface StepContext {
   signal?: AbortSignal;
   /** 已完成步骤的摘要；当前步骤据此避免重复劳动。 */
   completedSummaries?: string[];
+  /** 预检索好的长期记忆块；只影响本步骤的产出内容。 */
+  memoryBlock?: ContextMemoryBlock | null;
 }
 
 export interface StepExecutor {
@@ -107,6 +110,7 @@ export function createRealExecutor(options: RealExecutorOptions): StepExecutor {
         doneWhen: step.doneWhen,
         completedSummaries: context.completedSummaries ?? [],
         allowedToolNames,
+        memoryBlock: context.memoryBlock,
       });
 
       const messages: ProviderMessage[] = [

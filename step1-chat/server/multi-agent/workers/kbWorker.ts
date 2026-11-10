@@ -36,6 +36,7 @@
 import { callLLM } from "../llm.js";
 import { runToolSafely } from "../runToolSafely.js";
 import { toolsWithTags } from "../../tools/index.js";
+import { buildWorkerMessages } from "./memoryPrompt.js";
 import type { WorkerContext, WorkerResult } from "./types.js";
 
 /**
@@ -77,10 +78,8 @@ export async function runKBWorker(ctx: WorkerContext): Promise<WorkerResult> {
    * Worker 自己的消息列表（独立于主对话历史）。
    * 只包含 system + task + 工具交互，保证上下文干净。
    */
-  const messages: { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string }[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: ctx.task },
-  ];
+  const messages: { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string }[] =
+    buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock);
 
   /**
    * 只暴露 searchDocs 的 schema 给模型。

@@ -20,13 +20,17 @@
 | `workers/kbWorker.ts` | 知识库；工具 `searchDocs` |
 | `workers/actionWorker.ts` | **起草/发送类**；工具仅 `draft_message`（需人工确认） |
 | `workers/generalWorker.ts` | 兜底闲聊；无工具 |
-| `workers/types.ts` | `WorkerContext`：含可选 `confirmSession` / `onTrace` |
+| `workers/types.ts` | `WorkerContext`：含可选 `confirmSession` / `onTrace` / `memoryBlock` |
+| `workers/memoryPrompt.ts` | 长期记忆注入：system → 记忆(system) → task；无记忆时与接入前逐字一致 |
 | `workers/index.ts` | `name → run` 注册表（含 `action`） |
 | `runToolSafely.ts` | Guard →（可选）确认 → `runToolWithTracing`；对齐单 Agent |
 | `aggregate.ts` | 汇总；单 Worker 透传；失败拼接降级；`outputGuard` |
 | `graph.ts` | LangGraph + LangSmith 节点 span（supervisor/workers/aggregate） |
 
 入口路由：[`server/routes/chatMulti.ts`](../routes/chatMulti.ts)（`ConfirmSession` + `runMultiRequestWithTracing` 根 span，invoke **进行中**写 SSE）。
+
+长期记忆：路由层检索**一次**（`memory/bridge.ts`），把同一块 `memoryBlock` 经 graph options 下发给四个 Worker；
+Supervisor（路由判断）与 Aggregate（汇总）**不注入**。详见 `tasks/memory-chain-integration-plan.md` 指令 2。
 
 ### LangSmith span 树（`LANGCHAIN_TRACING_V2=true`）
 

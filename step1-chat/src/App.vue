@@ -163,17 +163,39 @@ const emptyTitle = computed(() =>
 );
 
 /**
- * 记忆注入目前只在单 Agent 普通对话链路（/api/chat）上接通了。
- * 其余链路（RAG / 结构化 / 计划 / Reflection / 多 Agent）本阶段没接，
- * 面板必须如实说明，否则会出现「记住了但没生效」的错觉。
+ * 记忆注入目前接通了四条业务链路（multi / plan / rag / structured）
+ * 加上单 Agent 普通对话（/api/chat）。
+ * 只有反思复盘（/api/chat/reflection）还没接，面板必须如实说明，
+ * 否则会出现「记住了但没生效」的错觉。
  */
 const memoryInjectionSupported = computed(
-  () =>
-    !ragMode.value &&
-    !isStructuredMode.value &&
-    !planEnabled.value &&
-    !reflectionEnabled.value &&
-    !multiAgent.value,
+  () => !reflectionEnabled.value,
+);
+
+/** 当前链路的人话说明；面板用它说明「记忆在当前这条链路上起不生效」。 */
+const memoryChainLabel = computed(() => {
+  if (ragMode.value) return "资料问答（/api/rag/chat）";
+  if (isStructuredMode.value) return "结构化输出（/api/chat/structured）";
+  if (planEnabled.value) return "计划执行（/api/chat/plan）";
+  if (reflectionEnabled.value) return "反思复盘（/api/chat/reflection）";
+  if (multiAgent.value) return "普通对话（/api/chat/multi）";
+  return "普通对话（/api/chat）";
+});
+
+/**
+ * 资料问答模式下侧栏只展示「记忆相关」的过程事件。
+ *
+ * 原因：RAG 链路本来就把侧栏让给了命中面板，而记忆是这一轮唯一
+ * 需要让用户看见的额外信息（注入了哪几条、记住了什么）。
+ * 其它链路保持原样：工具轨迹全量展示。
+ */
+const memoryTraceSteps = computed(() =>
+  toolTrace.value.filter(
+    (step) =>
+      step.kind === "memory_injected" ||
+      step.kind === "memory_extracted" ||
+      step.kind === "memory_failed",
+  ),
 );
 
 /** 最近一次资料问答的命中（挂在助手消息上），给面板用。 */
@@ -202,6 +224,8 @@ const highlightIndex = computed(() => citeFocus.value?.n ?? null);
 /** 右侧栏有内容才展开，避免空栏挤占对话区 */
 const hasSideContent = computed(() => {
   if (ragMode.value && panelRag.value) return true;
+  // 资料问答模式下侧栏虽然让给命中面板，但记忆事件仍要能露出来。
+  if (ragMode.value && memoryTraceSteps.value.length > 0) return true;
   // 计划运行时状态存在就展示时间线，即使当前判定走的是 ReAct。
   if (!ragMode.value && planState.value) return true;
   if (!ragMode.value && toolTrace.value.length > 0) return true;
@@ -492,8 +516,7 @@ function togglePlanEnabled() {
           :requested-mode="planMode"
         />
         <ToolTracePanel
-          v-if="!ragMode"
-          :steps="toolTrace"
+          :steps="ragMode ? memoryTraceSteps : toolTrace"
           :confirm-enabled="isStreaming"
           :memory-enabled="allowMemory"
           @confirm="resolveToolConfirm"
@@ -527,6 +550,7 @@ function togglePlanEnabled() {
           :user-id="memoryUserId"
           :loading="memoryLoading"
           :error="memoryError"
+          :chain-label="memoryChainLabel"
           :injection-supported="memoryInjectionSupported"
           @update:allow-memory="setAllowMemory"
           @update-fact="(payload) => updateMemory(payload.id, payload.patch)"

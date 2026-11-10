@@ -1,13 +1,21 @@
 import type { Express } from "express";
+import { renderMemoryText } from "../context/buildContext.js";
+import { estimateMessageTokens } from "../context/tokenBudget.js";
 import { detectInjection } from "../guard/inputGuard.js";
 import { SAFE_BLOCK_TEXT } from "../guard/judgePolicy.js";
 import { runInputJudge } from "../guard/judgeRuntime.js";
+import {
+  buildExtractionInput,
+  retrieveMemoryBlock,
+  scheduleMemoryExtraction,
+} from "../memory/bridge.js";
+import { isValidUserId } from "../memory/types.js";
 import { compileMultiAgentGraph } from "../multi-agent/graph.js";
 import { ConfirmSession } from "../react/confirmGate.js";
 import type { ToolTraceHandler } from "../react/types.js";
 import { getRuntimeConfig } from "../runtimeConfig.js";
 import { runMultiRequestWithTracing } from "../tracing/langsmith.js";
-import { UsageAccumulator } from "../usage/accumulator.js";
+import { bindUsageCallback, UsageAccumulator } from "../usage/accumulator.js";
 import { setSseHeaders, writeUsageToStream } from "./sse.js";
 
 /**
@@ -26,12 +34,13 @@ import { setSseHeaders, writeUsageToStream } from "./sse.js";
  *
  * SSE 事件顺序（本 handler / graph 中途写出）：
  *   0. injection_detected（可选）— inputGuard 命中，只标记不拦截
- *   1. supervisor_route  — 路由到了哪些 Worker（invoke 中途）
- *   2.（若需确认）tool_call → pending_confirm → confirm_resolved → tool_result
- *   3. worker_done × N   — 每个 Worker 调了哪些工具（invoke 中途）
- *   4. delta             — Aggregate 后的最终回复（整段，非流式逐字；已过 outputGuard）
- *   5. usage             — Supervisor+Worker+Aggregate token 合计
- *   6. [DONE]
+ *   1. memory_injected（可选）— 本轮注入了哪几条长期记忆
+ *   2. supervisor_route  — 路由到了哪些 Worker（invoke 中途）
+ *   3.（若需确认）tool_call → pending_confirm → confirm_resolved → tool_result
+ *   4. worker_done × N   — 每个 Worker 调了哪些工具（invoke 中途）
+ *   5. delta             — Aggregate 后的最终回复（整段，非流式逐字；已过 outputGuard）
+ *   6. usage             — Supervisor+Worker+Aggregate token 合计
+ *   7. [DONE]
  *
  * 防护层（与单 Agent 对齐）：
  *   inputGuard → 本文件；toolCallGuard → Worker runToolSafely；outputGuard → aggregate
@@ -50,7 +59,7 @@ export function registerChatMultiRoutes(app: Express): void {
   app.post("/api/chat/multi", async (req, res) => {
     setSseHeaders(res);
 
-    const { messages, model, searchDocs } = req.body ?? {};
+    const { messages, model, searchDocs, userId, allowMemory } = req.body ?? {};
 
     // ---- 步骤 1：校验 messages（至少一条，含 user 角色）----
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -124,6 +133,34 @@ export function registerChatMultiRoutes(app: Express): void {
         return;
       }
 
+      // ---- 步骤 3.5：长期记忆 — 路由层检索一次，四个 Worker 共用同一块 ----
+      // 放在 judge 之后：被拦截的输入不该触发任何记忆检索。
+      // 关闭开关 / userId 非法时 retrieveMemoryBlock 直接返回 null（零检索）。
+      const memoryOptions = {
+        userId: isValidUserId(userId) ? userId : undefined,
+        allowMemory: allowMemory === true,
+        model: defaultModel,
+        onTrace,
+        onMemoryUsage: bindUsageCallback(accumulator, "memory", defaultModel),
+      };
+      const memoryBlock = await retrieveMemoryBlock(memoryOptions, userText);
+      if (memoryBlock) {
+        writeSse({
+          type: "memory_injected",
+          itemIds: memoryBlock.items.map((item) => item.id),
+          tokens: estimateMessageTokens({
+            role: "system",
+            content: renderMemoryText(memoryBlock),
+          }),
+          items: memoryBlock.items.map((item) => ({
+            id: item.id,
+            key: item.key ?? "",
+            value: item.value ?? "",
+            similarity: item.similarity,
+          })),
+        });
+      }
+
       // ---- 步骤 3：累加器在 Judge 之前已建好，这里注入 graph ----
       // graph 内每次 callLLM → parseUsage → onUsage(source) → accumulator.record()
       // 可能：Supervisor 1 次 + Worker 各 1~N 次 + Aggregate 0~1 次
@@ -139,6 +176,8 @@ export function registerChatMultiRoutes(app: Express): void {
         writeSse,
         // 勾选「搜索知识库」→ 强制带上 kb Worker（Supervisor 漏分时补上）
         forceKbSearch: searchDocs === true,
+        // 记忆块：只下发给 Worker，Supervisor / Aggregate 不注入
+        memoryBlock: memoryBlock ?? undefined,
       });
 
       await runMultiRequestWithTracing(userText, async () => {
@@ -157,6 +196,20 @@ export function registerChatMultiRoutes(app: Express): void {
         // 单 Worker 成功时可能是透传，无二次 Aggregate LLM
         const finalText = result.finalOutput ?? "";
         writeSse({ delta: finalText });
+
+        // ---- 步骤 5.5：长期记忆抽取（旁路，不阻塞本轮回复）----
+        // 抽取输入按统一口径裁剪：最近 2 轮**用户消息** + 给用户的最终回复。
+        // Worker 的工具返回、Supervisor 的路由 JSON 都不参与抽取——
+        // 那些是过程产物，不是用户事实。
+        scheduleMemoryExtraction(
+          memoryOptions,
+          buildExtractionInput({ messages, finalReply: finalText }),
+          {
+            apiKey: config.apiKey,
+            forceMock: config.forceMock,
+            baseUrl: config.baseUrl,
+          },
+        );
 
         // ---- 步骤 6：Token — 写 store + 推 usage ----
         writeUsageToStream(res, accumulator, "chat/multi", defaultModel);

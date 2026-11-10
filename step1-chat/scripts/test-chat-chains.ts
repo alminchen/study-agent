@@ -23,7 +23,12 @@
 
 import { setTimeout as delay } from "node:timers/promises";
 import dotenv from "dotenv";
-import { clearMemory } from "../server/memory/store.js";
+import {
+  clearMemory,
+  createMemoryFact,
+  readMemory,
+  upsertFacts,
+} from "../server/memory/store.js";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config({ path: ".env" });
@@ -32,6 +37,22 @@ const PORT = Number(process.env.CHAIN_TEST_PORT ?? 8899);
 const HOST = "127.0.0.1";
 const BASE_URL = `http://${HOST}:${PORT}`;
 const TEST_USER_ID = "anon_test_chain_e4";
+/**
+ * 多 Agent 记忆用例专用的匿名用户。
+ * 和 TEST_USER_ID 分开：这条用例要断言「这轮没有抽出任何新记忆」，
+ * 混在一起会被别的链路抽出来的事实污染。
+ */
+const MULTI_MEMORY_USER_ID = "anon_test_chain_multi_mem";
+/**
+ * plan 链路记忆用例专用的匿名用户。
+ * 同样与 TEST_USER_ID 分开：这条用例要断言「这轮没有抽出任何新记忆」。
+ */
+const PLAN_MEMORY_USER_ID = "anon_test_chain_plan_mem";
+/**
+ * structured 链路记忆用例专用的匿名用户。
+ * 与前两条同样分开：这条用例要断言「表格列名不会被记成记忆」。
+ */
+const STRUCTURED_MEMORY_USER_ID = "anon_test_chain_structured_mem";
 /** 只跑名字里含该子串的链路，调试单条链路时省时间。 */
 const CHAIN_FILTER = process.env.CHAIN_FILTER ?? "";
 /** plan 链路天生慢（规划 + 每步执行），单独给更长的超时。 */
@@ -231,18 +252,70 @@ async function runChains(): Promise<void> {
 
   // ---- 2. 多 Agent ----
   if (shouldRun("multi")) {
+    // 先给这条用例的匿名用户写两条与问题强相关的记忆。
+    // 没有可召回的记忆，就无从断言「注入了几条」。
+    await clearMemory(MULTI_MEMORY_USER_ID);
+    await upsertFacts(MULTI_MEMORY_USER_ID, [
+      createMemoryFact({
+        userId: MULTI_MEMORY_USER_ID,
+        key: "topic",
+        value: "Vue 3 相比 Vue 2 的主要变化",
+        source: "project_fact",
+        confidence: 0.9,
+      }),
+      createMemoryFact({
+        userId: MULTI_MEMORY_USER_ID,
+        key: "framework",
+        value: "Vue 3",
+        source: "project_fact",
+        confidence: 0.9,
+      }),
+    ]);
+
+    // 2a. 开关打开：应当注入记忆，回复照常。
     const result = await postSse("/api/chat/multi", {
       messages: [{ role: "user", content: question }],
       model,
+      userId: MULTI_MEMORY_USER_ID,
+      allowMemory: true,
     });
     const error = hasError(result.events);
+    const injected = result.events.find((event) => event.type === "memory_injected");
+    const injectedIds = Array.isArray(injected?.itemIds) ? injected.itemIds : [];
+
+    // 2b. 开关关闭：零注入，回复照常（userId 仍带，关的是开关本身）。
+    const offResult = await postSse("/api/chat/multi", {
+      messages: [{ role: "user", content: question }],
+      model,
+      userId: MULTI_MEMORY_USER_ID,
+      allowMemory: false,
+    });
+    const offError = hasError(offResult.events);
+    const offInjected = offResult.events.find((event) => event.type === "memory_injected");
+
+    // 抽取是 fire-and-forget，等它落盘再断言「没有多出事实」。
+    await delay(3_000);
+    const factsAfter = await readMemory(MULTI_MEMORY_USER_ID);
+
     record(
-      "POST /api/chat/multi（多 Agent）",
-      result.status === 200 && !error && countDeltas(result.events) > 0,
+      "POST /api/chat/multi（多 Agent + 记忆）",
+      result.status === 200 &&
+        !error &&
+        countDeltas(result.events) > 0 &&
+        injectedIds.length > 0 &&
+        offResult.status === 200 &&
+        !offError &&
+        countDeltas(offResult.events) > 0 &&
+        !offInjected &&
+        factsAfter.length === 2,
       [
         `HTTP ${result.status}`,
         `delta ${countDeltas(result.events)} 段`,
+        injectedIds.length > 0 ? `注入记忆 ${injectedIds.length} 条` : "未注入记忆",
+        offInjected ? "关闭开关仍有 memory_injected" : "关闭开关零注入",
+        factsAfter.length === 2 ? "抽取 0 条新事实" : `多出 ${factsAfter.length - 2} 条事实`,
         error ? `错误事件：${error}` : "",
+        offError ? `关闭开关错误事件：${offError}` : "",
         result.raw.includes("[DONE]") ? "正常结束" : "缺少 [DONE]",
       ]
         .filter(Boolean)
@@ -252,6 +325,26 @@ async function runChains(): Promise<void> {
 
   // ---- 3. Plan-and-Execute ----
   if (shouldRun("plan")) {
+    // 先给这条用例的匿名用户写两条与任务强相关的记忆。
+    await clearMemory(PLAN_MEMORY_USER_ID);
+    await upsertFacts(PLAN_MEMORY_USER_ID, [
+      createMemoryFact({
+        userId: PLAN_MEMORY_USER_ID,
+        key: "topic",
+        value: "Vue 3 相比 Vue 2 的主要变化",
+        source: "project_fact",
+        confidence: 0.9,
+      }),
+      createMemoryFact({
+        userId: PLAN_MEMORY_USER_ID,
+        key: "framework",
+        value: "Vue 3",
+        source: "project_fact",
+        confidence: 0.9,
+      }),
+    ]);
+
+    // 3a. 不带 userId：零检索、零注入，计划照常产出（回归基线）。
     const result = await postSse("/api/chat/plan", {
       // 故意用极小的任务：plan 模式会真的执行计划，任务越小耗时越短，
       // 这次回归只验证「接线没坏」，不验证 plan 的规划质量。
@@ -263,9 +356,40 @@ async function runChains(): Promise<void> {
     const planEvents = result.events.filter((event) =>
       String(event.type ?? "").startsWith("plan_"),
     );
+    const baseInjected = result.events.find((event) => event.type === "memory_injected");
+
+    // 3b. 开关打开：应当注入记忆，计划照常产出。
+    const memResult = await postSse("/api/chat/plan", {
+      messages: [{ role: "user", content: PLAN_TASK }],
+      model,
+      mode: "plan",
+      userId: PLAN_MEMORY_USER_ID,
+      allowMemory: true,
+    }, PLAN_TIMEOUT_MS);
+    const memError = hasError(memResult.events);
+    const memPlanEvents = memResult.events.filter((event) =>
+      String(event.type ?? "").startsWith("plan_"),
+    );
+    const memInjected = memResult.events.find((event) => event.type === "memory_injected");
+    const memInjectedIds = Array.isArray(memInjected?.itemIds) ? memInjected.itemIds : [];
+
+    // 抽取是 fire-and-forget，等它落盘再断言「没有多出事实」。
+    await delay(3_000);
+    const factsAfter = await readMemory(PLAN_MEMORY_USER_ID);
+
     record(
-      "POST /api/chat/plan（Plan-and-Execute）",
-      !result.failure && result.status === 200 && !error && planEvents.length > 0,
+      "POST /api/chat/plan（Plan-and-Execute + 记忆）",
+      !result.failure &&
+        result.status === 200 &&
+        !error &&
+        planEvents.length > 0 &&
+        !baseInjected &&
+        !memResult.failure &&
+        memResult.status === 200 &&
+        !memError &&
+        memPlanEvents.length > 0 &&
+        memInjectedIds.length > 0 &&
+        factsAfter.length === 2,
       [
         `HTTP ${result.status}`,
         result.failure ?? "",
@@ -273,7 +397,11 @@ async function runChains(): Promise<void> {
           ...new Set(planEvents.map((event) => String(event.type))),
         ].join("/") || "无"}）`,
         `delta ${countDeltas(result.events)} 段`,
+        baseInjected ? "不带 userId 仍有 memory_injected" : "不带 userId 零注入",
+        memInjectedIds.length > 0 ? `注入记忆 ${memInjectedIds.length} 条` : "未注入记忆",
+        factsAfter.length === 2 ? "抽取 0 条新事实" : `多出 ${factsAfter.length - 2} 条事实`,
         error ? `错误事件：${error}` : "",
+        memError ? `记忆链路错误事件：${memError}` : "",
         result.raw.includes("[DONE]") ? "正常结束" : "缺少 [DONE]",
       ]
         .filter(Boolean)
@@ -307,24 +435,84 @@ async function runChains(): Promise<void> {
 
   // ---- 5. 结构化输出 ----
   if (shouldRun("structured")) {
+    // 先给这条用例的匿名用户写两条与请求强相关的记忆：
+    // 内容正是「表格列名」，用来验证注入之后抽取器**不会**把列名当事实再记一遍。
+    await clearMemory(STRUCTURED_MEMORY_USER_ID);
+    await upsertFacts(STRUCTURED_MEMORY_USER_ID, [
+      createMemoryFact({
+        userId: STRUCTURED_MEMORY_USER_ID,
+        key: "表格列名",
+        value: "姓名、邮箱、角色",
+        source: "project_fact",
+        confidence: 0.9,
+      }),
+      createMemoryFact({
+        userId: STRUCTURED_MEMORY_USER_ID,
+        key: "输出语言",
+        value: "中文",
+        source: "user_explicit_preference",
+        confidence: 0.9,
+      }),
+    ]);
+
+    // 5a. 开关打开：应当注入记忆，且仍能收到 snapshot 与 done。
     const result = await postSse("/api/chat/structured", {
       messages: [
         { role: "user", content: "给出一个用户列表表格，列是：姓名、邮箱、角色。" },
       ],
       model,
       target: "table",
+      userId: STRUCTURED_MEMORY_USER_ID,
+      allowMemory: true,
     });
     const error = hasError(result.events);
     const done = result.events.find((event) => event.type === "structured_done");
     const snapshots = result.events.filter((event) => event.type === "structured_snapshot");
+    const injected = result.events.find((event) => event.type === "memory_injected");
+    const injectedIds = Array.isArray(injected?.itemIds) ? injected.itemIds : [];
+
+    // 5b. 开关关闭：零注入，结构化结果照常（userId 仍带，关的是开关本身）。
+    const offResult = await postSse("/api/chat/structured", {
+      messages: [
+        { role: "user", content: "给出一个用户列表表格，列是：姓名、邮箱、角色。" },
+      ],
+      model,
+      target: "table",
+      userId: STRUCTURED_MEMORY_USER_ID,
+      allowMemory: false,
+    });
+    const offError = hasError(offResult.events);
+    const offInjected = offResult.events.find((event) => event.type === "memory_injected");
+    const offDone = offResult.events.find((event) => event.type === "structured_done");
+
+    // 抽取是 fire-and-forget，等它落盘再断言「没有多出事实」。
+    await delay(3_000);
+    const factsAfter = await readMemory(STRUCTURED_MEMORY_USER_ID);
+
     record(
-      "POST /api/chat/structured（结构化输出）",
-      result.status === 200 && !error && Boolean(done),
+      "POST /api/chat/structured（结构化输出 + 记忆）",
+      result.status === 200 &&
+        !error &&
+        Boolean(done) &&
+        snapshots.length > 0 &&
+        injectedIds.length > 0 &&
+        offResult.status === 200 &&
+        !offError &&
+        Boolean(offDone) &&
+        !offInjected,
       [
         `HTTP ${result.status}`,
         `快照 ${snapshots.length} 次`,
         done ? "收到 structured_done" : "缺 structured_done",
+        injectedIds.length > 0 ? `注入记忆 ${injectedIds.length} 条` : "未注入记忆",
+        offInjected ? "关闭开关仍有 memory_injected" : "关闭开关零注入",
+        // 抽取是否把「列名」当成用户偏好属于模型行为，只记录不判负：
+        // 真出现多出的事实，说明共享抽取器需要单独评估（不改本指令范围）。
+        factsAfter.length === 2
+          ? "抽取 0 条新事实（列名未被当成偏好）"
+          : `多出 ${factsAfter.length - 2} 条事实（待评估）`,
         error ? `错误事件：${error}` : "",
+        offError ? `关闭开关错误事件：${offError}` : "",
         result.raw.includes("[DONE]") ? "正常结束" : "缺少 [DONE]",
       ]
         .filter(Boolean)
@@ -363,6 +551,7 @@ async function main(): Promise<void> {
     await runChains();
   } finally {
     await clearMemory(TEST_USER_ID);
+    await clearMemory(MULTI_MEMORY_USER_ID);
   }
 
   console.log("\n──────── 回归结果 ────────");

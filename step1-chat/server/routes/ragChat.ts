@@ -1,7 +1,16 @@
 import type { Express } from "express";
+import { renderMemoryText } from "../context/buildContext.js";
+import { estimateMessageTokens } from "../context/tokenBudget.js";
 import { detectInjection } from "../guard/inputGuard.js";
 import { SAFE_BLOCK_TEXT } from "../guard/judgePolicy.js";
 import { runInputJudge } from "../guard/judgeRuntime.js";
+import {
+  buildExtractionInput,
+  buildMemoryInjectedEvent,
+  retrieveMemoryBlock,
+  scheduleMemoryExtraction,
+} from "../memory/bridge.js";
+import { isValidUserId, type MemoryTraceEvent } from "../memory/types.js";
 import { answerFromDocs } from "../rag/answer.js";
 import type { RagMessage } from "../rag/prompt.js";
 import { getRuntimeConfig } from "../runtimeConfig.js";
@@ -43,7 +52,7 @@ export function registerRagChatRoutes(app: Express): void {
   app.post("/api/rag/chat", async (req, res) => {
     setSseHeaders(res);
 
-    const { question, history, model } = req.body ?? {};
+    const { question, history, model, userId, allowMemory } = req.body ?? {};
     if (typeof question !== "string" || !question.trim()) {
       res.write(`data: ${JSON.stringify({ error: "question 必须是非空字符串" })}\n\n`);
       res.end();
@@ -105,6 +114,34 @@ export function registerRagChatRoutes(app: Express): void {
       }
 
       const runAnswer = async () => {
+        // ---- 长期记忆：路由层检索一次，检索片段**不进**记忆 ----
+        // 放在 judge 之后：被拦截的输入不该触发任何记忆检索。
+        // 关闭开关 / userId 非法时 retrieveMemoryBlock 直接返回 null（零检索）。
+        const memoryOptions = {
+          userId: isValidUserId(userId) ? userId : undefined,
+          allowMemory: allowMemory === true,
+          model: defaultModel,
+          onTrace: (event: MemoryTraceEvent) => writeSse(event as unknown as Record<string, unknown>),
+          onMemoryUsage: bindUsageCallback(accumulator, "memory", defaultModel),
+        };
+        const memoryBlock = await retrieveMemoryBlock(memoryOptions, trimmedQuestion);
+        if (memoryBlock) {
+          writeSse(
+            buildMemoryInjectedEvent(
+              memoryBlock.items.map((item) => ({
+                id: item.id,
+                key: item.key,
+                value: item.value,
+                similarity: item.similarity,
+              })),
+              estimateMessageTokens({
+                role: "system",
+                content: renderMemoryText(memoryBlock),
+              }),
+            ),
+          );
+        }
+
         const result = await answerFromDocs(
           trimmedQuestion,
           safeHistory,
@@ -112,8 +149,30 @@ export function registerRagChatRoutes(app: Express): void {
           defaultModel,
           onUsage,
           (event) => writeSse(event),
-          { onRewriteUsage, onHydeUsage },
+          { onRewriteUsage, onHydeUsage, memoryBlock },
         );
+
+        // ---- 长期记忆抽取（旁路，不阻塞本轮回复）----
+        // 抽取输入按统一口径裁剪：最近 2 轮**用户消息** + 本轮最终回答。
+        // **检索到的资料片段一律不进抽取器**——那是产品资料，不是用户事实，
+        // 混进去会把文档里的人名、配置记成用户偏好，越聊越脏。
+        //
+        // 只在「模型真的答了」时抽取：空结果返回的是固定文案、
+        // 被 outputGuard 拦下时返回的是替换文案，两者都不是给用户的真实回答。
+        if (result.calledModel && !result.outputLeakBlocked) {
+          scheduleMemoryExtraction(
+            memoryOptions,
+            buildExtractionInput({
+              messages: [...safeHistory, { role: "user", content: trimmedQuestion }],
+              finalReply: result.answer,
+            }),
+            {
+              apiKey: config.apiKey,
+              forceMock: config.forceMock,
+              baseUrl: config.baseUrl,
+            },
+          );
+        }
 
         // 命中面板元数据（与 delta 分开，避免前端只靠拼字丢 hits）
         writeSse({

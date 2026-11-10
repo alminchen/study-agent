@@ -8,6 +8,7 @@
 import { callLLM } from "../llm.js";
 import { runToolSafely } from "../runToolSafely.js";
 import { toolsWithTags } from "../../tools/index.js";
+import { buildWorkerMessages } from "./memoryPrompt.js";
 import type { WorkerContext, WorkerResult } from "./types.js";
 
 const SYSTEM_PROMPT =
@@ -28,10 +29,7 @@ export async function runActionWorker(ctx: WorkerContext): Promise<WorkerResult>
     content: string | null;
     tool_calls?: unknown[];
     tool_call_id?: string;
-  }[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: ctx.task },
-  ];
+  }[] = buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock);
 
   const toolSchemas = toolsWithTags(["action"]).map((t) => t.schema);
 

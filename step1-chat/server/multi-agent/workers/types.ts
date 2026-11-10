@@ -12,6 +12,8 @@
  *   Supervisor → WorkerContext(task) → Worker 执行 → WorkerResult → Aggregate
  */
 
+import type { ContextMemoryBlock } from "../../context/types.js";
+
 /**
  * Worker 执行结果。
  * 无论成功还是失败，都用这个结构返回给 Supervisor/Aggregate。
@@ -74,4 +76,13 @@ export interface WorkerContext {
 
   /** SSE 过程事件（pending_confirm 等，invoke 进行中写出） */
   onTrace?: import("../../react/types.js").ToolTraceHandler;
+
+  /**
+   * 本轮检索出的长期记忆块。
+   *
+ * 由路由层（chatMulti）检索**一次**，再通过 graph options 下传给每个 Worker：
+   * 四个 Worker 各检索一次 = 四倍向量计算 + 四份可能不一致的注入。
+   * 未传 / 为空 = 本轮没有记忆，Worker 的消息列表与接入记忆前完全一致。
+   */
+  memoryBlock?: ContextMemoryBlock;
 }

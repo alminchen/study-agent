@@ -27,13 +27,23 @@ const props = withDefaults(
     /** 记忆操作的错误文案。 */
     error?: string | null;
     /**
-     * 当前聊天链路是否支持记忆注入。
-     * 多 Agent（/api/chat/multi）本阶段没接记忆，面板要如实说明，
+     * 当前聊天链路的人话说明，例如「资料问答（/api/rag/chat）」。
+     * 面板要如实说明「记忆在当前这条链路上到底起不生效」。
+     */
+    chainLabel?: string;
+    /**
+     * 当前聊天链路是否支持记忆注入与抽取。
+     * 反思复盘（/api/chat/reflection）本阶段没接记忆，面板要如实说明，
      * 不能让用户以为「记住了但没生效」。
      */
     injectionSupported?: boolean;
   }>(),
-  { loading: false, error: null, injectionSupported: true },
+  {
+    loading: false,
+    error: null,
+    chainLabel: "普通对话（/api/chat）",
+    injectionSupported: true,
+  },
 );
 
 const emit = defineEmits<{
@@ -179,8 +189,13 @@ async function copyId(id: string) {
       长期记忆已关闭：不会向模型注入记忆，也不会抽取新的偏好。
     </p>
     <p v-else-if="!injectionSupported" class="notice warn">
-      当前是多 Agent 链路（/api/chat/multi），本阶段尚未接入记忆注入。
-      取消勾选「多 Agent」后，记忆才会注入上下文。
+      当前链路（{{ chainLabel }}）本阶段尚未接入记忆注入：
+      这一轮既不会把记忆放进上下文，也不会从对话里抽取新事实。
+      切到其它链路即可正常生效。
+    </p>
+    <p v-else class="notice on">
+      当前链路（{{ chainLabel }}）已接入长期记忆：
+      命中的记忆会注入本轮上下文，对话里的明确偏好会在这一轮结束后被记住。
     </p>
 
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
@@ -324,6 +339,10 @@ async function copyId(id: string) {
 .notice.off {
   background: #f3f4f6;
   color: var(--muted);
+}
+.notice.on {
+  background: #ecfdf5;
+  color: #065f46;
 }
 .notice.warn {
   background: #fef3c7;

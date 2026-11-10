@@ -42,14 +42,17 @@
 | `extract.ts` | 抽取器：脱敏、提示词、结构化解析、模型调用封装 |
 | `merge.ts` | 去重合并：key 规范化、同 key 裁决、语义合并、补向量 |
 | `retrieve.ts` | 检索：余弦相似度、阈值过滤、Top-K、缺向量补算 |
-| `context.ts` | 渲染成上下文块（资料口径 + 记忆 id） |
+| `context.ts` | 渲染成上下文块（资料口径 + 记忆 id），以及追加到 prompt 末尾的「## 用户长期记忆」小节 |
 | `pipeline.ts` | 编排：抽取 → 合并 → 落盘，产出可上报的结果 |
 | `embedder.ts` | 向量化封装：本地模型、余弦相似度、失败兜底 |
+| `bridge.ts` | 链路接入层：检索、旁路抽取、抽取输入裁剪，与业务链路无关的公共口径 |
+| `index.ts` | 统一出口：业务链路只从这里取记忆能力 |
 
 端点与接线不在本目录：
 
 - `routes/memory.ts` —— `/api/memory` 的增删改查与清空；
-- `chat.ts` —— 单 Agent 链路里的检索与注入（`retrieveMemoryBlock` / `scheduleMemoryExtraction`）；
+- `bridge.ts` —— 各链路统一调用的 `retrieveMemoryBlock` / `scheduleMemoryExtraction` /
+  `buildExtractionInput`（D4 口径：只取最近 N 轮用户消息 + 本轮最终回复）；
 - `context/buildContext.ts` —— 记忆块的预算裁剪。
 
 ---

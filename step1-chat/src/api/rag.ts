@@ -9,6 +9,7 @@ import type {
   ToolTraceStep,
   UsageSnapshot,
 } from "../types";
+import { parseMemoryTraceStep } from "./memoryTrace";
 
 export interface AskRagParams {
   question: string;
@@ -16,6 +17,17 @@ export interface AskRagParams {
   history: Array<{ role: ChatRole; content: string }>;
   model: string;
   signal: AbortSignal;
+  /**
+   * 匿名用户 id（anon_xxx）：跨会话记忆的归属标识。
+   * 只在本地生成、只存 localStorage，服务端不采集任何真实身份。
+   */
+  userId?: string;
+  /**
+   * 是否允许使用长期记忆。
+   * 关掉时**不带 userId**：服务端要求 allowMemory===true 且 userId 合法才注入，
+   * 两者缺一不可——「关掉」必须是真的零检索，而不是服务端再判断一次。
+   */
+  allowMemory?: boolean;
   onDelta: (delta: string) => void;
   onTrace?: (step: ToolTraceStep) => void;
   onUsage?: (usage: UsageSnapshot) => void;
@@ -126,6 +138,8 @@ export async function askRag({
   history,
   model,
   signal,
+  userId,
+  allowMemory = false,
   onDelta,
   onTrace,
   onUsage,
@@ -137,7 +151,13 @@ export async function askRag({
     response = await fetch("/api/rag/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, history, model }),
+      body: JSON.stringify({
+        question,
+        history,
+        model,
+        // 记忆：关掉时连 userId 一起不带，服务端直接零注入。
+        ...(allowMemory && userId ? { userId, allowMemory: true } : { allowMemory: false }),
+      }),
       signal,
     });
   } catch (error) {
@@ -216,6 +236,14 @@ export async function askRag({
               estimatedCostUsd?: number;
               model?: string;
               endpoint?: UsageSnapshot["endpoint"];
+              // 记忆事件字段：注入 / 抽取 / 失败。
+              itemIds?: string[];
+              tokens?: number;
+              items?: Array<{ id?: string; key?: string; value?: string; similarity?: number }>;
+              candidates?: number;
+              stored?: Array<{ id?: string; key?: string; value?: string }>;
+              stage?: string;
+              message?: string;
             };
             if (event.error) {
               onError(event.error);
@@ -307,6 +335,9 @@ export async function askRag({
                   : [],
               });
             }
+            // 记忆事件（注入 / 抽取 / 失败）：与其它三条链路共用同一份解析。
+            const memoryStep = parseMemoryTraceStep(event);
+            if (memoryStep) onTrace?.(memoryStep);
             if (event.type === "rag_meta") {
               const row = event as Record<string, unknown>;
               onRagMeta?.({
