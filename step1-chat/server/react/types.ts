@@ -1,11 +1,34 @@
 import type { ContextCompactionEvent } from "../context/types.js";
 import type { MemoryTraceEvent } from "../memory/types.js";
+import type { ValidatedImageAttachment } from "../vision/types.js";
+
+/** 前端 / wire 协议里的图片附件形状（尚未经服务端校验）。 */
+export interface ImageAttachment {
+  /** 前端生成的唯一 id，用于去重和删除。 */
+  id: string;
+  /** image/png | image/jpeg | image/webp */
+  mimeType: string;
+  /** base64 裸串，不含 data: 前缀；由服务端组装 data URL。 */
+  data: string;
+  /** 原始文件名；剪贴板粘贴的图可能没有，为空字符串。 */
+  name: string;
+  /** 像素宽高。 */
+  width: number;
+  height: number;
+  /** base64 解码后的字节数。 */
+  byteSize: number;
+}
 
 /** ReAct 循环里发给模型的普通对话句（不含 tool 回填）。 */
 export interface TextMessage {
   role: "system" | "user" | "assistant";
   content: string;
+  /** 只有 user 消息允许带图；system/assistant 携带时服务端直接拒绝。 */
+  attachments?: ImageAttachment[];
 }
+
+/** 供应商适配层真正使用的、已通过校验的图片。 */
+export type ProviderImageAttachment = ValidatedImageAttachment;
 
 /** 模型在 message.tool_calls 里给出的一项：调哪个函数、参数是什么。 */
 export interface ProviderToolCall {

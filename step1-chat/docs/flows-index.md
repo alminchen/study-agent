@@ -22,6 +22,7 @@
 | [reflection-flow.svg](./reflection-flow.svg) | **Reflection 自我评估与重写（阶段 7）**：独立端点与三档模式 → Critic 四维评分与失败分支 → 阈值裁决 → 重写与事实守卫 → 重评回退与 trace 事件 → 与 Judge 的分层 → 离线评测准入 | [reflection.md](./reflection.md) · [reflection-changelog.md](./reflection-changelog.md) · 拓扑 [§6g](./project-topology.html#reflection) |
 | [memory-flow.svg](./memory-flow.svg) | **跨会话记忆 Memory（阶段 8）**：开关与匿名 userId → 检索阈值 0.45 / Top-5 → 注入渲染与预算裁剪 → 旁路抽取与敏感信息两道闸 → 去重合并与原子落盘 → 记忆管理接口与面板 → trace 事件 → 五链路接入现状 | [memory.md](./memory.md) · [memory-changelog.md](./memory-changelog.md) · 拓扑 [§6h](./project-topology.html#memory) |
 | [memory-chain-flow.svg](./memory-chain-flow.svg) | **跨会话记忆接入四条链路（阶段 9）**：公共接入层 memory/bridge.ts → 路由层检索一次共用同一块记忆 → multi 独立 system / plan 四处 prompt / rag「## 资料」之后 / structured system prompt 末尾 → 抽取输入按链路裁剪 → 前端统一契约与事件解析 → 失败一律旁路 | [memory-chain-integration.md](./memory-chain-integration.md) · [memory-chain-changelog.md](./memory-chain-changelog.md) · 拓扑 [§6i](./project-topology.html#memory-chain) |
+| [vision-flow.svg](./vision-flow.svg) | **Vision 图片输入（进阶学习第 4 项）**：协议升级（content 不改类型 + 独立 attachments）→ 前端压缩与快校验 → 服务端硬校验 + 模型能力判定（失败不调模型）→ 供应商 content parts 唯一转换入口 → usage 图片成本三字段 → supportsVision 下发与入口禁用 → 隐私边界与已知风险 | [vision.md](./vision.md) · [vision-changelog.md](./vision-changelog.md) · 拓扑 [§6j](./project-topology.html#vision) |
 | [messages-assembly-flow.svg](./messages-assembly-flow.svg) | messages 三层 × 三条链路总览 | [project-messages-flow.md](./project-messages-flow.md) |
 | [resilience-failure-flow.svg](./resilience-failure-flow.svg) | 失败地图与恢复策略 | [resilience-failure-map.md](./resilience-failure-map.md) |
 | [dynamic-tool-discovery-flow.svg](./dynamic-tool-discovery-flow.svg) | **工具动态发现（阶段 5 已落地）**：启动扫描 modules/* → discoverTools() 校验 → createRegistry() 派生唯一清单 → Guard / MCP / Chat / Worker 四路消费 | [dynamic-tool-discovery.md](./dynamic-tool-discovery.md) · 拓扑 [§7b](./project-topology.html#tools) |
@@ -38,6 +39,7 @@ Markdown 索引与浏览器版 [flows-index.html](./flows-index.html) 一一对�
 | [reflection.md](./reflection.md) · [reflection-changelog.md](./reflection-changelog.md) | **阶段 7 Reflection**：自我评估偏差、与 Judge 分层、默认不启用条件；变更记录 |
 | [memory.md](./memory.md) · [memory-changelog.md](./memory-changelog.md) | **阶段 8 Memory**：跨会话记忆数据模型、事实 vs 语义选型对比、实测数据、隐私设计；变更记录 |
 | [memory-chain-integration.md](./memory-chain-integration.md) · [memory-chain-changelog.md](./memory-chain-changelog.md) | **阶段 9 Memory 链路接入**：跨会话记忆接进 multi / plan / rag / structured 四条链路 · 六个设计决策 · 四链路注入点与抽取输入对照表 · 前端契约与面板三态；变更记录 |
+| [vision.md](./vision.md) | **Vision（图片输入 · 进阶学习第 4 项）**：content parts 协议（text + image_url）→ 独立 attachments 字段，supportsVision 下发，图片成本进 usage 三字段 | [vision-changelog.md](./vision-changelog.md) · 拓扑 [§6j](./project-topology.html#vision) |
 
 ## 阶段 9 文件清单
 

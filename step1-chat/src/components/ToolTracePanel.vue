@@ -48,6 +48,17 @@ const DIMENSION_TEXT: Record<string, string> = {
   clarity: "清晰度",
 };
 
+/** Vision 错误码 → 用户文案；与 ChatMessageItem 的映射表做法一致。 */
+const VISION_ERROR_TEXT: Record<string, string> = {
+  image_too_large: "图片超过 1MB 上限",
+  image_unsupported_format: "不支持的图片格式",
+  image_invalid_data: "图片数据非法",
+  image_dimensions_exceeded: "图片尺寸超限",
+  vision_model_unsupported: "模型不支持图片",
+  vision_payload_too_large: "请求体超过大小限制",
+  vision_provider_rejected: "供应商拒绝了图片请求",
+};
+
 function skipReasonText(reason: string): string {
   return SKIP_REASON_TEXT[reason] ?? reason;
 }
@@ -108,6 +119,15 @@ function titleOf(step: ToolTraceStep): string {
   }
   if (step.kind === "memory_failed") {
     return `长期记忆 · ${memoryStageText(step.stage)}失败`;
+  }
+  if (step.kind === "vision_attachment") {
+    return `视觉附件 · ${step.count} 张（估算 ${step.estimatedImageTokens} tokens）`;
+  }
+  if (step.kind === "vision_rejected") {
+    return `视觉附件 · 已拒绝（${VISION_ERROR_TEXT[step.code] ?? step.reason}）`;
+  }
+  if (step.kind === "vision_unsupported_model") {
+    return `视觉附件 · 模型 ${step.model} 不支持图片`;
   }
   return `确认结果 · ${step.name}（${step.action === "allow" ? "允许" : "拒绝"}）`;
 }
@@ -177,6 +197,20 @@ function payloadOf(step: ToolTraceStep): unknown {
   }
   if (step.kind === "memory_failed") {
     return { stage: step.stage, message: step.message };
+  }
+  if (step.kind === "vision_attachment") {
+    return {
+      count: step.count,
+      mimeTypes: step.mimeTypes,
+      totalBytes: step.totalBytes,
+      estimatedImageTokens: step.estimatedImageTokens,
+    };
+  }
+  if (step.kind === "vision_rejected") {
+    return { code: step.code, reason: step.reason };
+  }
+  if (step.kind === "vision_unsupported_model") {
+    return { model: step.model };
   }
   return { action: step.action };
 }

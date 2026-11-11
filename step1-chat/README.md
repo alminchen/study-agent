@@ -86,7 +86,7 @@ Mock 指本地模拟模型流或回答，不等于真实模型验收。多 Agent
         检索 -> 判空 -> 重排 -> RAG Prompt -> LLM -> Output Guard
 ```
 
-Vite 开发服务器会把 `/api` 代理到 `http://127.0.0.1:8787`。前端页面本身不直接访问模型。
+Vite 开发服务器会把 `/api` 代理到 `http://127.0.0.1:18787`。前端页面本身不直接访问模型。
 
 ## 快速开始
 
@@ -107,9 +107,15 @@ npm run dev
 默认地址：
 
 - 前端：http://localhost:5173
-- API：http://127.0.0.1:8787
+- API：http://127.0.0.1:18787
 
-项目当前没有 `.env.example`。请在 `step1-chat/` 下自行创建 `.env` 或 `.env.local`。服务端会先读取 `.env.local`，再读取 `.env`，且 `.env` 不会覆盖已有的 `.env.local` 值。
+仓库提供 `.env.example` 作为模板，但 `.env` 和 `.env.local` 都不在 Git 里，需要自己创建一次：
+
+```bash
+cp .env.example .env
+```
+
+服务端启动时先读 `.env.local`，再读 `.env`，且 `.env` 不会覆盖 `.env.local` 里已有的值。完整变量清单见「环境变量」一节。
 
 最小真实模型配置：
 
@@ -132,40 +138,147 @@ Plan Mock 只复述真实执行过的模拟步骤；Structured Mock 会模拟 pa
 
 ## 环境变量
 
+### 两个 env 文件的分工
+
+服务端启动时按固定顺序加载：先 `.env.local`，再 `.env`，**后加载的不会覆盖前面已经读到的值**，所以 `.env.local` 优先级更高。
+
+| 文件 | 放什么 | 是否进 Git |
+| --- | --- | --- |
+| `.env` | 可公开的通用配置：模型名、接口地址、功能开关、超时、批大小 | 否，`.gitignore` 已忽略 |
+| `.env.local` | 本机私有值：`LLM_API_KEY`、`LANGCHAIN_API_KEY` 等密钥 | 否，`.gitignore` 已忽略 `*.local` |
+
+两个文件本身都不在仓库里，仓库只提供 `.env.example` 作为模板。首次拉取后创建一次：
+
+```bash
+cp .env.example .env
+```
+
+密钥写进 `.env.local`，不要写进 `.env`，也不要把 `.env.local` 提交：
+
+```env
+LLM_API_KEY=你的 API Key
+LANGCHAIN_API_KEY=你的 LangSmith Key
+```
+
+几个容易踩的点：
+
+- 下表所有变量写在 `.env` 或 `.env.local` 都生效，同名时以 `.env.local` 为准。
+- 前端不读这两个文件里的密钥，所有模型调用都发生在服务端，浏览器里看不到 `LLM_API_KEY`。
+- dotenv 只在进程启动时读一次，改完 `.env` / `.env.local` 要重启服务才生效。
+- `.env.example` 只列变量名和默认值，不含任何真实 Key，可以直接提交。
+
+### 模型与服务
+
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `LLM_API_KEY` | 空 | OpenAI 兼容接口的 API Key |
+| `LLM_API_KEY` | 空 | OpenAI 兼容接口的 API Key；留空或 `MOCK_MODE=1` 时 chat / plan / structured 走 Mock |
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | 模型接口地址 |
-| `LLM_MODEL` | `deepseek-chat` | 默认模型名 |
-| `MOCK_MODE` | 未设置 | 设为 `1` 时强制 chat、plan、structured 使用 Mock；多 Agent 和 RAG 仍要求真实调用 |
+| `LLM_MODEL` | `deepseek-chat` | 默认模型名；Judge 未单独指定时也用它 |
+| `MOCK_MODE` | 未设置 | 设为 `1` 强制 Mock；多 Agent 和 RAG 没有 Mock 分支，仍需真实 Key |
+| `PORT` | `18787` | API 端口 |
+| `HOST` | `127.0.0.1` | API 监听地址 |
+| `NODE_ENV` | 未设置 | 设为 `test` 时不打工具发现日志，跑测试时用来压掉噪声 |
+
+### 长上下文预算
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
 | `LLM_CONTEXT_WINDOW_TOKENS` | `64000` | 上下文窗口估计值，用于计算 Token 预算 |
-| `LLM_CONTEXT_BUDGET_RATIO` | `0.5` | 预算占窗口比例，限制在有效范围内 |
+| `LLM_CONTEXT_BUDGET_RATIO` | `0.5` | 预算占窗口的比例，必须大于 `0` 且不超过 `1` |
+
+### Structured 输出
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
 | `LLM_STRUCTURED_JSON_MODE` | 开启 | 设为 `0` 时 Structured 默认改用 prompt-only 约束 |
 | `LLM_STRUCTURED_INCLUDE_USAGE` | 开启 | 设为 `0` 时不向供应商请求流末尾 usage |
-| `LLM_STRUCTURED_CONNECT_TIMEOUT_MS` | `15000` | Structured 建立连接超时；`0` 表示关闭 |
-| `LLM_STRUCTURED_FIRST_CHUNK_TIMEOUT_MS` | `30000` | Structured 等待首个内容 chunk 的超时；`0` 表示关闭 |
-| `LLM_STRUCTURED_TOTAL_TIMEOUT_MS` | `180000` | Structured 整次流式请求超时；`0` 表示关闭 |
-| `PORT` | `8787` | API 端口 |
-| `HOST` | `127.0.0.1` | API 监听地址 |
-| `LLM_TOOL_TURN_THINKING` | `disabled` | 兼容分支可设为 `keep`、`on` 或 `enabled` 保留 thinking；当前单 Agent 标准路径显式关闭，详见“安全边界与限制” |
-| `CHAT_CANDIDATE_K` | `10` | 普通聊天勾选知识库时的候选数，最大按 20 截断 |
-| `CHAT_PREFETCH_HIT_CHARS` | `800` | 普通聊天注入 system 时单段资料的最大字符数 |
-| `RAG_WARMUP` | `1` | 服务启动后后台预热 Embedding 和重排模型 |
+| `LLM_STRUCTURED_CONNECT_TIMEOUT_MS` | `15000` | 建立连接超时；`0` 表示关闭 |
+| `LLM_STRUCTURED_FIRST_CHUNK_TIMEOUT_MS` | `30000` | 等待首个内容 chunk 的超时；`0` 表示关闭 |
+| `LLM_STRUCTURED_TOTAL_TIMEOUT_MS` | `180000` | 整次流式请求超时；`0` 表示关闭 |
+
+### 输出判定（Judge）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `JUDGE_MODE` | `off` | 唯一开关：`off` / `shadow` / `enforce`；非法值回落 `off` 并告警一次 |
+| `JUDGE_MODEL` | 沿用 `LLM_MODEL` | 判定使用的模型 |
+| `JUDGE_BASE_URL` | 沿用 `LLM_BASE_URL` | 判定模型的接口地址 |
+| `JUDGE_API_KEY` | 沿用 `LLM_API_KEY` | 判定模型的 Key |
+| `JUDGE_CONNECT_TIMEOUT_MS` | `2000` | 建立连接超时；`0` 表示关闭 |
+| `JUDGE_FIRST_CHUNK_TIMEOUT_MS` | `5000` | 等待首个内容 chunk 的超时；`0` 表示关闭 |
+| `JUDGE_TOTAL_TIMEOUT_MS` | `8000` | 整次判定超时；`0` 表示关闭 |
+| `JUDGE_MAX_INPUT_CHARS` | `4000` | 送进判定的文本上限；`0` 表示不截断 |
+| `JUDGE_CONFIDENCE_THRESHOLD` | `0.6` | 置信度阈值，取值范围 `0` 到 `1`（含两端） |
+
+判定模型配置刻意与主对话模型解耦：主模型繁忙或降级时，Guard 不应该跟着变慢或失效。详见 `docs/llm-judge.md`。
+
+### 自我评估（Reflection）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `REFLECTION_MODE` | `off` | `off` / `shadow` / `enforce`；非法值回落 `off` 并告警一次 |
+
+服务端 `REFLECTION_MODE` 是上限，请求里带的模式只能往下调。详见 `docs/reflection.md`。
+
+### 多模态（Vision，实施中）
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `VISION_CAPABLE_MODELS` | 未设置 | 逗号分隔的模型白名单；一旦设置就不再走模型名启发式判断 |
+
+能力判定优先级：环境变量白名单 > 模型 id 启发式（`gpt-4o` / `gpt-5` / `vision` / `omni` / `qwen-vl` 等）> 运行期降级（带图请求被供应商拒绝时把该模型在本进程内标记为不支持）。图片字节数、像素尺寸和每次请求的图片数量当前是代码常量（1MB / 4096px / 每次 1 张），暂不可配。详见 `docs/vision.md`。
+
+### RAG 与检索
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
 | `RAG_QUERY_REWRITE` | 关闭 | 开启检索前问句扩写 |
 | `RAG_KB_ROUTE` | 关闭 | 开启知识库路由 |
 | `RAG_KB_ROUTE_FORCE` | 未设置 | 强制路由到 `notes`、`hr_policy`、`none` 或 `all` |
 | `RAG_MULTI_QUERY` | 关闭 | 开启多路召回 |
 | `RAG_HYDE` | 关闭 | 开启 HyDE 假文档检索 |
+| `RAG_WARMUP` | `1` | 服务启动后后台预热 Embedding 和重排模型 |
+| `CHAT_CANDIDATE_K` | `10` | 普通聊天勾选知识库时的候选数，最大按 20 截断 |
+| `CHAT_PREFETCH_HIT_CHARS` | `800` | 普通聊天注入 system 时单段资料的最大字符数 |
 | `RERANK_BATCH_SIZE` | `8` | 重排批大小，限制在 1 到 32 |
+
+### 工具轮
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `LLM_TOOL_TURN_THINKING` | `disabled` | 兼容分支可设为 `keep`、`on` 或 `enabled` 保留 thinking；当前单 Agent 标准路径固定关闭 thinking，该变量不覆盖标准路径，详见「安全边界与限制」 |
+
+### LangSmith 追踪
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
 | `LANGCHAIN_TRACING_V2` | 未设置 | 设为字符串 `true` 时开启 LangSmith |
 | `LANGSMITH_TRACING_V2` | 未设置 | `LANGCHAIN_TRACING_V2` 的等价别名 |
 | `LANGCHAIN_TRACING` | 未设置 | 另一个兼容开关 |
 | `LANGSMITH_TRACING` | 未设置 | 另一个兼容开关 |
 | `LANGCHAIN_API_KEY` | 空 | LangSmith API Key |
-| `LANGCHAIN_PROJECT` | 由 LangSmith SDK 决定 | LangSmith 项目名 |
+| `LANGCHAIN_PROJECT` | 由 LangSmith SDK 决定 | LangSmith 项目名，只是 trace 的分组名 |
 
-`LLM_CONTEXT_WINDOW_TOKENS` 和 Structured 超时变量只接受非负整数，非法值或负数回退默认值。
-`LLM_CONTEXT_BUDGET_RATIO` 必须大于 `0` 且不超过 `1`，否则也回退默认值。
+四个开关任意一个为 `true` 即开启 tracing。`LANGCHAIN_PROJECT` 不决定 workspace，workspace 由 API Key 决定。
+
+### 仅脚本使用
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CHAIN_TEST_PORT` | `8899` | 链路自测脚本启动的服务端口 |
+| `CHAIN_FILTER` | 空 | 只跑指定标签的链路，空表示全跑 |
+| `PLAN_TASK` | Vue 3 与 Vue 2 对比 | 链路自测里 Plan 使用的任务文本 |
+| `PLAN_TIMEOUT_MS` | `240000` | 链路自测里 Plan 的超时 |
+
+这几个只在跑链路自测脚本时生效，服务本身不读。
+
+### 取值非法时的行为
+
+- 整数型超时和上下文窗口：只接受非负整数，非法值或负数回退默认值。
+- `LLM_CONTEXT_BUDGET_RATIO`：必须大于 `0` 且不超过 `1`，否则回退默认值。
+- `JUDGE_CONFIDENCE_THRESHOLD`：必须落在 `0` 到 `1`（含两端），否则回退默认值。
+- `JUDGE_MODE` / `REFLECTION_MODE`：非法值回落到 `off`，打一条警告，不抛错、不阻塞启动。
+- `CHAT_CANDIDATE_K` / `RERANK_BATCH_SIZE`：越界时夹到合法区间，不报错。
 
 ## 页面使用
 
@@ -989,6 +1102,18 @@ npm run predawn:rerank
 - `sequence-diagrams.md`：时序图与 Mermaid 源说明
 - `diagrams/index.html`：图表导航页
 - `docs/project-topology.html`：项目拓扑与模块总览
+- `docs/llm-judge.md`：输出判定（Judge）的三档模式、判定口径和运维说明
+- `docs/llm-judge-changelog.md`：输出判定设计记录
+- `docs/reflection.md`：自我评估（Reflection）的三档模式、准入条件和降级策略
+- `docs/reflection-changelog.md`：自我评估设计记录
+- `docs/vision.md`：图片输入（Vision）的模型能力判定、图片上限和当前边界
+- `docs/memory-chain-integration.md`：记忆接入各链路的集成说明
+- `docs/memory-chain-changelog.md`：记忆链路变更记录
+- `docs/resilience-failure-map.md`：失败与降级地图
+- `docs/mcp-usage.md`：MCP 接入与使用说明
+- `docs/dynamic-tool-discovery.md`：工具动态发现机制
+- `evals/judge-comparison-report.md`：判定能力评测报告
+- `evals/reflection-comparison-report.md`：自我评估评测报告
 - `routes/README.md`
 - `structured/README.md`
 - `react/README.md`

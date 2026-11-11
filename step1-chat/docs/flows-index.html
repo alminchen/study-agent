@@ -68,6 +68,7 @@
     <a href="#reflection">0f Reflection</a>
     <a href="#memory">0g Memory</a>
     <a href="#memory-chain">0h Memory 链路接入</a>
+    <a href="#vision">0i Vision（图片输入）</a>
     <a href="#chat-react">1 单 Agent</a>
     <a href="#chat-multi">2 多 Agent</a>
     <a href="#rag-chat">3 资料问答</a>
@@ -150,6 +151,15 @@
     </div>
     <img src="./memory-chain-flow.svg" alt="跨会话记忆接入四条链路：公共接入层 memory/bridge.ts、路由层检索一次、四条链路各自形状注入、抽取输入按链路裁剪、前端契约与失败边界">
     <figcaption>memory-chain-flow.svg — 公共接入层 memory/bridge.ts（检索 / 抽取编排 / 抽取输入裁剪 / 事件构造）· 四条链路路由层各检索一次并共用同一块记忆 · multi 独立 system 消息 / plan 四处 prompt / rag「## 资料」之后 / structured system prompt 末尾 · 抽取输入按链路裁剪（structured 只取最后一条用户消息）· 前端统一 userId + allowMemory 契约与 parseMemoryTraceStep 事件解析 · 面板三态文案与 RAG 侧栏坑 · 失败一律旁路只发 memory_failed</figcaption>
+  </figure>
+
+  <figure id="vision">
+    <div class="fhead">
+      <span class="no">0i · Vision 图片输入（进阶学习第 4 项 · 步骤 0-11 完成）</span>
+      <span class="doc-link">文档 <a href="./vision.md">vision.md</a> · 变更记录 <a href="./vision-changelog.md">vision-changelog.md</a> · 拓扑 <a href="./project-topology.html#vision">§6j</a></span>
+    </div>
+    <img src="./vision-flow.svg" alt="Vision 图片输入：协议升级、前端压缩校验、服务端硬校验与能力判定、供应商 content parts 转换、usage 图片成本记账、能力下发与入口禁用、隐私边界与已知风险">
+    <figcaption>vision-flow.svg — ① 协议升级（content 不改类型 + 独立 attachments）· ② 前端三入口 + 压缩（最长边 1600px / jpeg 0.85 / 超限 1200px 重压）+ 快校验 · ③ 服务端 validateImage 逐层拒绝 + isVisionCapableModel 四级判定 + 失败不调模型 + 七个错误码 · ④ toProviderMessages 唯一转换入口（文字在前图片在后，assistant/tool 原样透传）· ⑤ recordImages + estimateImageTokens（85 + 170×块数 ×1.2）+ 三条 SSE 事件 · ⑥ supportsVision 下发 + 入口禁用 + 切模型清附件 + 8mb 请求体上限 · ⑦ 隐私边界与已知未解决风险</figcaption>
   </figure>
 
   <figure id="chat-react">
@@ -475,3 +485,87 @@
 </div>
 </body>
 </html>
+  <div class="docbox" id="vision-files">
+    <h2>13 · 阶段 4 文件清单（Vision · 图片输入，步骤 0-11 完成）</h2>
+    <p class="dnote">
+      进阶学习第 4 项 Vision。消息协议从 <code>content: string</code> 升级为
+      <code>content</code>（保留字符串）+ <code>attachments</code>（图片 parts）。
+      核心决策：<strong>不改 <code>TextMessage.content</code> 类型</strong>，附件走独立
+      <code>attachments</code> 字段；供应商协议转换由唯一入口
+      <code>server/vision/toProviderMessages.ts</code> 收口，既有按字符串消费 content
+      的代码零改动。首版仅覆盖 <code>/api/chat</code> 与 <code>/api/chat/multi</code> 两条链路，
+      不覆盖 rag / structured / plan / reflection。
+    </p>
+    <ul>
+      <li><strong>新增（13）</strong>
+        <ul>
+          <li><code>server/vision/types.ts</code> — <code>ImageAttachment</code> 类型、错误码、限制常量、校验结果</li>
+          <li><code>server/vision/validateImage.ts</code> — 服务端硬校验：MIME / 字节 / base64 / 像素 / 数量</li>
+          <li><code>server/vision/validateImage.test.ts</code> — 校验单测</li>
+          <li><code>server/vision/toProviderMessages.ts</code> — 唯一供应商协议转换入口（attachments → image_url part）</li>
+          <li><code>server/vision/toProviderMessages.test.ts</code> — 转换单测</li>
+          <li><code>server/vision/capability.ts</code> — 模型 Vision 能力判定（运行期降级 / 白名单 / env / 启发式）</li>
+          <li><code>server/vision/capability.test.ts</code> — 能力判定单测</li>
+          <li><code>server/vision/estimateImageTokens.ts</code> — 图片 token 估算（最长边 2048 / 512 分块 / ×1.2 余量）</li>
+          <li><code>server/vision/estimateImageTokens.test.ts</code> — 估算单测</li>
+          <li><code>src/vision/compressImage.ts</code> — 前端 canvas 压缩（最长边 1600px，JPEG 0.85）</li>
+          <li><code>src/vision/validateImage.ts</code> — 前端快速校验，与服务端阈值对齐</li>
+          <li><code>src/components/ImageAttachment.vue</code> — 附件条目：缩略图 + 尺寸 + 移除</li>
+          <li><code>docs/vision.md</code> — 阶段 4 学习笔记（协议、压缩、计费、能力矩阵、隐私、风险、踩坑）</li>
+        </ul>
+      </li>
+      <li><strong>修改（13）</strong>
+        <ul>
+          <li><code>server/react/types.ts</code> — 新增 <code>ImageAttachment</code> / <code>TextMessage.attachments</code></li>
+          <li><code>server/react/complete.ts</code> — 调用 <code>toProviderMessages</code> 组装 supplier messages</li>
+          <li><code>server/routes/chat.ts</code> · <code>server/routes/chatMulti.ts</code> — 附件校验、<code>vision_attachment</code> SSE 事件、<code>accumulator.recordImages()</code> 接线图片成本</li>
+          <li><code>server/routes/models.ts</code> — <code>ModelOption.supportsVision</code>；每项走 <code>isVisionCapableModel()</code> 判定</li>
+          <li><code>server/index.ts</code> — <code>/api/chat</code> 系列单独 <code>express.json({ limit: "8mb" })</code>，其余保持 1mb</li>
+          <li><code>server/usage/types.ts</code> — <code>UsageRecord</code> / <code>UsageSnapshot</code> 新增 <code>imageCount</code> / <code>imageBytes</code> / <code>estimatedImageTokens</code></li>
+          <li><code>server/usage/accumulator.ts</code> — 新增 <code>recordImages()</code>；<code>toSnapshot()</code> / <code>toRecord()</code> 带出图片三字段</li>
+          <li><code>src/types.ts</code> — <code>ChatAttachment</code> / <code>ChatMessage.attachments</code> / <code>ModelOption.supportsVision</code>；前端 <code>UsageSnapshot</code> 同步图片三字段</li>
+          <li><code>src/api/chat.ts</code> — 请求体透传 <code>attachments</code>；四处 <code>onUsage</code> 解析补图片三字段（默认 0）；解析三条 vision SSE 事件</li>
+          <li><code>src/composables/useChat.ts</code> — <code>pickedAttachments</code> 状态与增删改清；发完清空；历史只落元数据；<code>changeModel</code> 切到不支持 Vision 的模型时自动清附件</li>
+          <li><code>src/App.vue</code> — 粘贴 / 拖拽 / 选择文件三个入口；附件条；<code>visionUploadEnabled</code> 追加模型能力判断；按钮 title 区分禁用原因</li>
+          <li><code>src/components/ChatMessageItem.vue</code> — 带图消息气泡标记与错误文案映射（<code>vision_rejected</code> / <code>vision_unsupported_model</code>）</li>
+        </ul>
+      </li>
+    </ul>
+    <ul class="compact">
+      <li><strong>实测状态</strong>：
+        <ul>
+          <li><code>npm run typecheck</code> — ✅ 通过（vue-tsc + server tsc）</li>
+          <li><code>npm run build</code> — ✅ 通过（vite build，1827 模块；按要求未启动 dev/server，浏览器点验未做）</li>
+          <li><code>npx tsx --test server/vision/*.test.ts</code> — ✅ 31/31 通过（受限环境用 <code>node --import=tsx --test</code> 运行）</li>
+          <li><code>npm run eval:chat</code> / <code>npm run eval:multi</code> — 未运行（需真实 deepseek 调用）</li>
+          <li>端到端真实模型调用（UI 截图分析） — <strong>作废</strong>：步骤 11 越权调用 <code>gpt-6-sol</code>（不在 deepseek 白名单），数据不采信；正式记录待授权重跑</li>
+          <li>图片不落 <code>usage</code> 日志正文 / localStorage 不含 base64 — 代码路径已保证，待浏览器验证</li>
+        </ul>
+      </li>
+    </ul>
+    <p class="dnote">
+      明确不改：<code>server/clipMessages.ts</code>、<code>server/context/*</code>、<code>server/guard/*</code>、
+      <code>server/memory/*</code>、<code>server/react/runConversation.ts</code>、<code>server/plan-execute/*</code>、
+      <code>server/reflection/*</code>、<code>server/structured/*</code>、<code>server/routes/chatStructured.ts</code>、
+      <code>chatPlan.ts</code>、<code>chatReflection.ts</code>、<code>ragChat.ts</code>。
+    </p>
+  </div>
+
+  <div class="docbox" id="vision-note">
+    <h2>14 · 阶段 4 学习笔记</h2>
+    <p class="dnote">完整内容见 <a href="./vision.md">vision.md</a>。核心要点摘录如下。</p>
+    <ul class="compact">
+      <li><strong>content parts 协议</strong>：采用 OpenAI 形态 <code>{type:"text"}</code> + <code>{type:"image_url", image_url:{url}}</code>，文字在前图片在后；assistant/tool 消息绝不引入 parts。</li>
+      <li><strong>data URL / base64</strong>：wire 层传裸 base64，服务端拼 data URL；<code>express.json</code> 全局 1mb → <code>/api/chat</code> 系列放宽到 8mb，前端压缩目标 ≤ 700KB。</li>
+      <li><strong>图片 token 计费</strong>：估算公式 <code>ceil((85 + 170 × 块数) × 1.2)</code>，与文本 token 分开记账；usage 字段仅为成本标记，不混入文本总量。</li>
+      <li><strong>模型能力矩阵</strong>：运行期降级 &gt; 白名单 &gt; env &gt; 启发式 <code>/gpt-4o|gpt-5|vision|omni|qwen.*vl/i</code>；判定失败默认按不支持处理。</li>
+      <li><strong>隐私与留存</strong>：base64 不进 usage 日志 / trace 正文 / 错误文案；localStorage 只落元数据；图片不跨轮回传（下一轮换「图片已过期」占位文本）。</li>
+      <li><strong>不可信输入</strong>：图片文字是文本 Guard 盲区，靠提示词约束 + 输出 Judge 兜底，文档如实标注为已知未完全解决风险。</li>
+    </ul>
+  </div>
+
+  <div class="docbox" id="vision-changelog">
+    <h2>15 · 阶段 4 变更记录</h2>
+    <p class="dnote">逐项改动说明见 <a href="./vision-changelog.md">vision-changelog.md</a>。</p>
+  </div>
+

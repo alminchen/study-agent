@@ -329,6 +329,9 @@ npm run eval:chat
 
 ## 4. Vision（图片输入）
 
+> 专项执行手册：`tasks/vision-plan.md`。
+> 学习笔记：`docs/vision.md`（步骤 12 已写入，含实测数据与已踩坑记录）。
+
 **学习目标**
 
 - 理解 OpenAI 兼容多模态消息的 `text + image_url` content parts。

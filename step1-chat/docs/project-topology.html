@@ -118,6 +118,7 @@
     <a href="#reflection">6g Reflection</a>
     <a href="#memory">6h Memory</a>
     <a href="#memory-chain">6i Memory 链路接入</a>
+   <a href="#vision">6j Vision（图片输入）</a>
     <a href="#cross">7 Token/Guard/Trace</a>
     <a href="#tools">7b 工具注册表</a>
     <a href="#pending">8 未交付</a>
@@ -280,6 +281,12 @@
           <td>公共接入层：<code>memory/bridge.ts</code>（<span class="fn">retrieveMemoryBlock</span> / <span class="fn">scheduleMemoryExtraction</span> / <span class="fn">buildExtractionInput</span> / <span class="fn">buildMemoryInjectedEvent</span>）；四条链路路由层各检索一次并共用同一块记忆；前端统一 <code>userId</code> + <code>allowMemory</code> 契约与 <code>api/memoryTrace.ts</code> 事件解析</td>
           <td><a href="./memory-chain-integration.md">阶段说明</a> · <a href="./memory-chain-changelog.md">变更记录</a> · <a href="./memory-chain-flow.svg">流程图</a> · <a href="#memory-chain">§6i</a></td>
         </tr>
+       <tr>
+         <td>进阶学习第 4 项 · Vision<br/><span style="font-size:12px;color:#64748b">消息协议升级：content 字符串 + 独立 attachments 图片 parts</span></td>
+         <td><span class="badge now">代码已完成 / 未实测</span></td>
+         <td>多模态协议层：<code>server/vision/{types,validateImage,toProviderMessages,capability,estimateImageTokens}.ts</code>；<code>server/react/types.ts</code> 新增 <code>ImageAttachment</code> / <code>attachments</code>；供应商转换唯一入口 <code>toProviderMessages.ts</code>（assistant/tool 零改动）；前端 <code>src/vision/compressImage.ts</code> + <code>src/vision/validateImage.ts</code> + <code>ImageAttachment.vue</code>；模型能力下发 <code>ModelOption.supportsVision</code>；图片成本进 <code>usage/*</code> 三字段</td>
+         <td><a href="./vision.md">阶段说明</a> · <a href="./vision-changelog.md">变更记录</a> · <a href="./vision-flow.svg">流程图</a> · <a href="#vision">§6j</a></td>
+       </tr>
       </tbody>
     </table>
   </div>
@@ -2448,6 +2455,42 @@ body: JSON.stringify({
   </div>
 
   <!-- ========== 7 ========== -->
+  <!-- ========== 6j ========== -->
+  <h2 id="vision">6j. Vision（图片输入 · 进阶学习第 4 项）</h2>
+  <div class="card">
+    <h3>总览</h3>
+    <p>
+      把消息协议从 <code>content: string</code> 升级为 <code>content</code>（保留字符串）+
+      <code>attachments</code>（图片 parts）。核心决策：<strong>不改 <code>TextMessage.content</code>
+      类型</strong>，附件走独立字段；供应商协议转换由唯一入口
+      <code>server/vision/toProviderMessages.ts</code> 收口，既有按字符串消费 content
+      的代码零改动。首版仅覆盖 <code>/api/chat</code> 与 <code>/api/chat/multi</code> 两条链路，
+      不覆盖 rag / structured / plan / reflection。
+    </p>
+    <h3>方法级调用链（带图请求）</h3>
+    <div class="calltree"><span class="c">// 前端（useChat / App.vue）</span>
+<span class="m">addImages</span>(files) → <span class="m">compressImage</span>() → <span class="m">validateImage</span>() → <span class="fn">pickedAttachments</span>
+  ├─ <span class="m">send</span>() → <span class="m">streamChat</span>() 透传 <code>attachments</code> → POST /api/chat
+  └─ <span class="m">changeModel</span>() 若目标模型 <code>supportsVision === false</code> → <span class="m">clearAttachments</span>()
+
+<span class="c">// 服务端 routes/chat.ts</span>
+<span class="m">validateRequestMessages</span>() → <span class="fn">validateImage</span>()（MIME / 字节 / base64 / 像素 / 数量）
+  ├─ 校验失败 → SSE <span class="e">vision_rejected</span> + 错误文案，<strong>不建 accumulator、不调模型</strong>
+  ├─ 合法 → SSE <span class="e">vision_attachment</span>（count / mimeTypes / totalBytes / estimatedImageTokens）
+  ├─ <span class="m">isVisionCapableModel(model)</span> 判定 → 不支持则 <span class="e">vision_unsupported_model</span>，返回
+  └─ 新建 <span class="fn">UsageAccumulator</span> → <span class="m">recordImages</span>(stats) → <span class="m">toProviderMessages</span>() 拼 content parts → askModel → onUsage("askModel") → <span class="m">writeUsageToStream</span>() 推 <code>usage</code>（含 image* 三字段）+ 写 store
+</div>
+    <ul class="compact">
+      <li><strong>image*</ 三字段</strong>：<code>imageCount</code> / <code>imageBytes</code> / <code>estimatedImageTokens</code>，均可选，<strong>不含 base64、不含文件名</strong>。</li>
+      <li><strong>请求体上限</strong>：<code>/api/chat</code> 系列 <code>express.json({ limit: "8mb" })</code>，其余端点保持 1mb。</li>
+      <li><strong>能力判定</strong>：运行期降级 &gt; 白名单 &gt; env <code>VISION_CAPABLE_MODELS</code> &gt; 启发式 <code>/gpt-4o|gpt-5|vision|omni|qwen.*vl/i</code>；判定失败默认按不支持处理。</li>
+      <li><strong>隐私</strong>：图片不跨轮回传（下一轮换「图片已过期」占位文本）；localStorage 只落元数据；base64 不进 usage 日志。</li>
+      <li><strong>实测</strong>：<code>npm run typecheck</code> ✅ · <code>npm run build</code> ✅ · vision 专项测试 31/31 ✅；<code>eval:chat</code>/<code>eval:multi</code> 未运行（需真实 deepseek 调用）；步骤 11 越权调用数据已作废。</li>
+    </ul>
+    <p class="lede" style="font-size:13px">细泳道流程图见 <a href="./vision-flow.svg">vision-flow.svg</a>（索引页 <a href="./flows-index.html#vision">0i</a>）。</p>
+  </div>
+
+  <!-- ========== 7 ========== -->
   <h2 id="cross">7. 横切：Token 计费 · 安全 Guard · Trace（方法级）</h2>
   <p class="lede">Token、Guard、Trace 横切挂在普通聊天 / 多 Agent / RAG / 计划执行四条业务链上；结构化端点的 usage / LangSmith 单独见 <a href="#structured">§6c</a>。细泳道 SVG：<a href="./crosscutting-token-guard-trace-flow.svg">crosscutting-token-guard-trace-flow.svg</a></p>
 
@@ -2788,3 +2831,5 @@ flowchart LR
 </div>
 </body>
 </html>
+<span class="c">// 服务端 routes/chat.ts</span>
+<span class="m">validateRequestMessages</span>() → <span class="fn">validateImage</span>()（MIME / 字节 / base64 / 像素 / 数量）

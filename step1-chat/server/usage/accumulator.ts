@@ -61,6 +61,8 @@ export type UsageSource =
 export class UsageAccumulator {
   /** 每次 LLM 调用一条：记录 model、来源、用量 */
   private entries: { model: string; source: UsageSource; usage: TokenUsage }[] = [];
+  /** 本轮请求携带的图片汇总（无图请求保持空） */
+  private images: { count: number; totalBytes: number; estimatedTokens: number } | null = null;
 
   /**
    * 记录一次 LLM 调用的 usage。
@@ -69,6 +71,23 @@ export class UsageAccumulator {
   record(model: string, source: UsageSource, usage: TokenUsage | null | undefined): void {
     if (!usage || usage.totalTokens <= 0) return;
     this.entries.push({ model, source, usage });
+  }
+
+  /**
+   * 记录本轮请求携带的图片信息（count / 字节数 / 估算 token）。
+   * 只记数字，不记 base64 或文件名（决策六：图片不进 usage 日志正文）。
+   */
+  recordImages(opts: {
+    count: number;
+    totalBytes: number;
+    estimatedTokens: number;
+  }): void {
+    if (opts.count <= 0) return;
+    this.images = {
+      count: opts.count,
+      totalBytes: opts.totalBytes,
+      estimatedTokens: opts.estimatedTokens,
+    };
   }
 
   /** 本次请求内 LLM 调用总次数 */
@@ -124,6 +143,13 @@ export class UsageAccumulator {
       totalTokens: merged.totalTokens,
       llmCalls: this.llmCalls,
       estimatedCostUsd: this.estimatedCostUsd(),
+      ...(this.images
+        ? {
+            imageCount: this.images.count,
+            imageBytes: this.images.totalBytes,
+            estimatedImageTokens: this.images.estimatedTokens,
+          }
+        : {}),
     };
   }
 

@@ -30,12 +30,39 @@ dotenv.config({ path: ".env.local" });
 dotenv.config({ path: ".env" });
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
 
-const PORT = Number(process.env.PORT ?? 8787);
+// JSON 解析：默认 1mb；/api/chat 系列单独放宽到 8mb，
+// 给「图片 base64 撑大的请求体」留空间，其余端点不上调、不放大攻击面（决策三）。
+const parseJsonDefault = express.json({ limit: "1mb" });
+const parseJsonChat = express.json({ limit: "8mb" });
+app.use((req, res, next) => {
+  const isChatFamily =
+    req.path === "/api/chat" || req.path.startsWith("/api/chat/");
+  (isChatFamily ? parseJsonChat : parseJsonDefault)(req, res, next);
+});
+
+const PORT = Number(process.env.PORT ?? 18787);
 const HOST = process.env.HOST ?? "127.0.0.1";
 
 registerRoutes(app);
+
+// 413 兜底：明确文案，不出现裸 500（失败路径清单「请求体超限」）。
+app.use(
+  (
+    err: { type?: string; status?: number } & Error,
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    if (err?.type === "entity.too.large" || err?.status === 413) {
+      res
+        .status(413)
+        .json({ error: "请求体超过大小限制", code: "vision_payload_too_large" });
+      return;
+    }
+    next(err);
+  },
+);
 
 app.listen(PORT, HOST, () => {
   const config = getRuntimeConfig();

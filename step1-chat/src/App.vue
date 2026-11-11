@@ -4,9 +4,10 @@
  * 所有聊天、流式、持久化和结构化状态都由 useChat 管理。
  */
 import { computed, ref, watch } from "vue";
-import { Bot, Eraser, RotateCcw, Send, Square } from "@lucide/vue";
+import { Bot, Eraser, Paperclip, RotateCcw, Send, Square } from "@lucide/vue";
 import ChatMessageItem from "./components/ChatMessageItem.vue";
 import ContextCompactionNotice from "./components/ContextCompactionNotice.vue";
+import ImageAttachment from "./components/ImageAttachment.vue";
 import MemoryPanel from "./components/MemoryPanel.vue";
 import PlanTimeline from "./components/PlanTimeline.vue";
 import RagHitPanel from "./components/RagHitPanel.vue";
@@ -77,6 +78,10 @@ const {
   memoryLoading,
   memoryError,
   send,
+  pickedAttachments,
+  addImages,
+  removeAttachment,
+  clearAttachments,
   sendStructured,
   retry,
   stop,
@@ -98,6 +103,10 @@ const {
 // 输入框和滚动容器是纯视图 ref，不进入 useChat 的持久化状态。
 const input = ref("");
 const chatRef = ref<HTMLElement | null>(null);
+/** 隐藏的文件选择框；只通过附件按钮触发，不占布局。 */
+const fileInputRef = ref<HTMLInputElement | null>(null);
+/** 拖拽悬挂状态：图片拖进输入区时用边框高亮提示可放置。 */
+const dragOver = ref(false);
 // 记忆管理浮层的开关；纯视图状态，面板本身的状态在 useChat 里。
 const memoryOpen = ref(false);
 
@@ -269,6 +278,58 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+/** 附件入口只对普通对话链路开放：结构化 / RAG 链路暂不支持图片。 */
+const visionUploadEnabled = computed(
+  () =>
+    !isStructuredMode.value &&
+    !ragMode.value &&
+    !isStreaming.value &&
+    currentModelSupportsVision.value,
+);
+
+/** 当前模型是否支持图片：supportsVision 缺省按支持处理（老服务端 / 兜底列表）。 */
+const currentModelSupportsVision = computed(
+  () =>
+    modelOptions.value.find((option) => option.id === model.value)
+      ?.supportsVision !== false,
+);
+
+/** 附件按钮提示：区分「模型不支持」与其他禁用状态。 */
+const attachButtonTitle = computed(() =>
+  visionUploadEnabled.value
+    ? "添加图片"
+    : currentModelSupportsVision.value
+      ? "当前链路/流式中不支持图片"
+      : "当前模型不支持图片输入",
+);
+
+/** 粘贴：只拦截图片，纯文本粘贴仍交给 textarea 默认行为。 */
+function handlePaste(event: ClipboardEvent) {
+  if (!visionUploadEnabled.value) return;
+  const files = event.clipboardData?.files;
+  if (!files || files.length === 0) return;
+  const images = Array.from(files).filter((file) => file.type.startsWith("image/"));
+  if (images.length === 0) return;
+  // 阻止默认粘贴：把图片当文件处理，而不是把二进制塞进文本框。
+  event.preventDefault();
+  void addImages(images);
+}
+
+/** 拖拽：松手后把图片交给统一入口；文本拖拽不受影响。 */
+function handleDrop(event: DragEvent) {
+  if (!visionUploadEnabled.value) return;
+  dragOver.value = false;
+  const files = event.dataTransfer?.files;
+  if (files && files.length > 0) void addImages(Array.from(files));
+}
+
+/** 文件选择：收完立即清空 input.value，允许连续选择同一张图。 */
+function handleFilePick(event: Event) {
+  const input = event.target as HTMLInputElement;
+  if (input.files && input.files.length > 0) void addImages(Array.from(input.files));
+  input.value = "";
+}
+
 /** 模型 select 的 DOM value 直接交给 useChat 持久化。 */
 function handleModelChange(event: Event) {
   changeModel((event.target as HTMLSelectElement).value);
@@ -425,8 +486,41 @@ function togglePlanEnabled() {
         <ContextCompactionNotice :event="contextCompaction" />
 
         <!-- 输入区：流式中显示停止按钮，否则显示发送按钮。 -->
-        <footer class="composer">
+        <footer
+          class="composer"
+          :class="{ 'drag-over': dragOver }"
+          @dragenter.prevent="dragOver = true"
+          @dragover.prevent
+          @dragleave="dragOver = false"
+          @drop.prevent="handleDrop"
+        >
+          <div v-if="pickedAttachments.length" class="attachment-strip">
+            <ImageAttachment
+              v-for="attachment in pickedAttachments"
+              :key="attachment.id"
+              :attachment="attachment"
+              @remove="removeAttachment"
+            />
+            <button
+              type="button"
+              class="strip-clear"
+              title="清空待发图片"
+              @click="clearAttachments"
+            >
+              清空
+            </button>
+          </div>
           <div class="composer-row">
+            <button
+              v-if="visionUploadEnabled"
+              type="button"
+              class="icon-button attach-button"
+              :title="attachButtonTitle"
+              aria-label="添加图片"
+              @click="fileInputRef?.click()"
+            >
+              <Paperclip :size="16" />
+            </button>
             <textarea
               v-model="input"
               class="composer-input"
@@ -434,6 +528,7 @@ function togglePlanEnabled() {
               :placeholder="placeholder"
               rows="1"
               @keydown="handleKeydown"
+              @paste="handlePaste"
             />
             <button
               v-if="isStreaming"
@@ -504,6 +599,15 @@ function togglePlanEnabled() {
             </select>
           </div>
         </footer>
+        <!-- 附件选择框隐藏渲染；accept 与服务端 MIME 白名单保持一致。 -->
+        <input
+          ref="fileInputRef"
+          type="file"
+          hidden
+          accept="image/png,image/jpeg,image/webp"
+          multiple
+          @change="handleFilePick"
+        />
       </div>
 
       <!-- 侧栏只在确实有内容时出现，避免空面板挤压对话宽度。 -->

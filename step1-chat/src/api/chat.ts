@@ -16,12 +16,34 @@ import type {
   StructuredTarget,
   ToolTraceStep,
   UsageSnapshot,
+  VisionErrorCode,
 } from "../types";
 import { normalizeContextSummary } from "../types";
 import { parseMemoryTraceStep } from "./memoryTrace";
 
+/**
+ * wire 协议里的图片附件形状（步骤 7）。
+ *
+ * 字段与服务端 server/react/types.ts 的 ImageAttachment 同名同义：
+ * data 是 base64 裸串（不含 data: 前缀），previewUrl 等端内字段不跨线。
+ */
+export interface ApiImageAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  byteSize: number;
+  data: string;
+}
+
 export interface StreamChatParams {
-  messages: Array<{ role: ChatRole; content: string }>;
+  messages: Array<{
+    role: ChatRole;
+    content: string;
+    /** 当前轮携带的完整图片数据；只有最后一条 user 消息会带（决策二）。 */
+    attachments?: ApiImageAttachment[];
+  }>;
   model: string;
   signal: AbortSignal;
   /** 打开后服务端强制检索并注入本轮 system（语义 C）；不再把 searchDocs 交给模型。 */
@@ -426,6 +448,14 @@ export async function streamPlan({
                 typeof event.estimatedCostUsd === "number"
                   ? event.estimatedCostUsd
                   : 0,
+              imageCount:
+                typeof event.imageCount === "number" ? event.imageCount : 0,
+              imageBytes:
+                typeof event.imageBytes === "number" ? event.imageBytes : 0,
+              estimatedImageTokens:
+                typeof event.estimatedImageTokens === "number"
+                  ? event.estimatedImageTokens
+                  : 0,
             });
             continue;
           }
@@ -701,6 +731,14 @@ export async function streamReflection({
                 typeof event.estimatedCostUsd === "number"
                   ? event.estimatedCostUsd
                   : 0,
+              imageCount:
+                typeof event.imageCount === "number" ? event.imageCount : 0,
+              imageBytes:
+                typeof event.imageBytes === "number" ? event.imageBytes : 0,
+              estimatedImageTokens:
+                typeof event.estimatedImageTokens === "number"
+                  ? event.estimatedImageTokens
+                  : 0,
             });
             continue;
           }
@@ -921,6 +959,13 @@ export async function streamChat({
               level?: string;
               rules?: string[];
               matchedFingerprints?: string[];
+              code?: string;
+              count?: number;
+              mimeTypes?: unknown[];
+              totalBytes?: number;
+              imageCount?: number;
+              imageBytes?: number;
+              estimatedImageTokens?: number;
               mode?: string;
               surface?: string;
               guard?: { level?: string; rules?: string[] };
@@ -959,6 +1004,9 @@ export async function streamChat({
                 totalTokens: event.totalTokens,
                 llmCalls: event.llmCalls ?? 1,
                 estimatedCostUsd: event.estimatedCostUsd ?? 0,
+                imageCount: event.imageCount ?? 0,
+                imageBytes: event.imageBytes ?? 0,
+                estimatedImageTokens: event.estimatedImageTokens ?? 0,
               });
             }
             if (event.type === "tool_call" && event.name) {
@@ -1034,6 +1082,33 @@ export async function streamChat({
                 matchedFingerprints: Array.isArray(event.matchedFingerprints)
                   ? event.matchedFingerprints
                   : [],
+              });
+            }
+            if (event.type === "vision_attachment") {
+              onTrace?.({
+                kind: "vision_attachment",
+                count: typeof event.count === "number" ? event.count : 0,
+                mimeTypes: Array.isArray(event.mimeTypes)
+                  ? event.mimeTypes.filter((item): item is string => typeof item === "string")
+                  : [],
+                totalBytes: typeof event.totalBytes === "number" ? event.totalBytes : 0,
+                estimatedImageTokens:
+                  typeof event.estimatedImageTokens === "number"
+                    ? event.estimatedImageTokens
+                    : 0,
+              });
+            }
+            if (event.type === "vision_rejected" && typeof event.code === "string") {
+              onTrace?.({
+                kind: "vision_rejected",
+                code: event.code as VisionErrorCode,
+                reason: typeof event.reason === "string" ? event.reason : "图片被拒绝",
+              });
+            }
+            if (event.type === "vision_unsupported_model") {
+              onTrace?.({
+                kind: "vision_unsupported_model",
+                model: typeof event.model === "string" ? event.model : model,
               });
             }
             // 记忆事件（注入 / 抽取 / 失败）：与其它三条链路共用同一份解析。
@@ -1245,6 +1320,14 @@ export async function streamStructured({
               estimatedCostUsd:
                 typeof event.estimatedCostUsd === "number"
                   ? event.estimatedCostUsd
+                  : 0,
+              imageCount:
+                typeof event.imageCount === "number" ? event.imageCount : 0,
+              imageBytes:
+                typeof event.imageBytes === "number" ? event.imageBytes : 0,
+              estimatedImageTokens:
+                typeof event.estimatedImageTokens === "number"
+                  ? event.estimatedImageTokens
                   : 0,
             });
             continue;

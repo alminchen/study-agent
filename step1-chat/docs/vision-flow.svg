@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 2350" width="1480" height="2350" role="img" aria-label="Vision Flow">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#059669"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .phase { font: 700 14px sans-serif; fill: #1e293b; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+      .card-t { font: 700 13px sans-serif; fill: #0f172a; }
+    ]]></style>
+  </defs>
+  <rect width="1480" height="2350" fill="#f8fafc"/>
+
+  <text x="40" y="42" class="title">Vision 图片输入（进阶学习第 4 项）</text>
+  <text x="40" y="66" class="subtitle">协议升级：content 保持字符串 + 独立 attachments → 前端压缩校验 → 服务端硬校验与能力判定 → 供应商 content parts → usage 图片成本 → 能力下发</text>
+
+  <!-- ========== 1 协议升级 ========== -->
+  <g transform="translate(40, 100)">
+    <text x="0" y="0" class="phase">① 协议升级：content 不改类型，附件走独立字段</text>
+    <rect x="20" y="24" width="680" height="176" rx="10" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="40" y="52" class="box">内部消息模型（改造后）</text>
+    <text x="40" y="80" class="box-sub">TextMessage.content : string　—— 类型不变</text>
+    <text x="40" y="102" class="box-sub">TextMessage.attachments? : ImageAttachment[]</text>
+    <text x="40" y="124" class="box-sub">ImageAttachment = { id, mimeType, data, name, width, height, byteSize }</text>
+    <text x="40" y="152" class="file">server/react/types.ts · src/types.ts（前后端同名同义）</text>
+    <text x="40" y="180" class="label-em">按字符串消费 content 的既有文件零改动</text>
+
+    <rect x="740" y="24" width="700" height="176" rx="10" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="760" y="52" class="box">wire 协议 → 供应商请求</text>
+    <text x="760" y="80" class="box-sub">messages[].attachments[]：base64 裸串（不带 data: 前缀）</text>
+    <text x="760" y="102" class="box-sub">缺省 attachments = 与今天的请求体逐字节一致</text>
+    <text x="760" y="124" class="box-sub">provider content : [ {type:"text"} , {type:"image_url"} ]</text>
+    <text x="760" y="152" class="file">server/vision/toProviderMessages.ts（唯一转换入口）</text>
+    <text x="760" y="180" class="label-em">禁止各调用点自己拼 parts</text>
+
+    <line x1="700" y1="112" x2="736" y2="112" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <text x="718" y="102" text-anchor="middle" class="label-em">映射</text>
+  </g>
+
+  <path d="M380,300 L380,336" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 2 前端采集与压缩 ========== -->
+  <g transform="translate(40, 340)">
+    <text x="0" y="0" class="phase">② 前端采集与压缩：先压到能过，再发出去</text>
+    <rect x="20" y="24" width="280" height="196" rx="10" fill="#ffffff" stroke="#2563eb"/>
+    <text x="40" y="50" class="card-t">三个入口</text>
+    <text x="40" y="78" class="box-sub">textarea paste（只拦图片）</text>
+    <text x="40" y="100" class="box-sub">输入区拖拽</text>
+    <text x="40" y="122" class="box-sub">隐藏 file input</text>
+    <text x="40" y="152" class="note">结构化 / RAG 链路不开放</text>
+    <text x="40" y="174" class="note">流式中禁新增</text>
+    <text x="40" y="200" class="file">App.vue · useChat.ts</text>
+
+    <rect x="360" y="24" width="340" height="196" rx="10" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="380" y="50" class="box">compressImage()</text>
+    <text x="380" y="78" class="box-sub">createImageBitmap + OffscreenCanvas</text>
+    <text x="380" y="100" class="box-sub">最长边 1600px 降采样</text>
+    <text x="380" y="122" class="box-sub">透明 → webp/png，否则 jpeg 0.85</text>
+    <text x="380" y="150" class="warn">仍超 1MB → 1200px 重压一次</text>
+    <text x="380" y="174" class="warn">再超就拒绝（不无限压）</text>
+    <text x="380" y="200" class="file">src/vision/compressImage.ts</text>
+
+    <rect x="760" y="24" width="320" height="196" rx="10" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="780" y="50" class="box">validateImage()（前端快校验）</text>
+    <text x="780" y="78" class="box-sub">顺序与服务端对齐：</text>
+    <text x="780" y="100" class="box-sub">data → MIME → 像素 → 字节</text>
+    <text x="780" y="122" class="box-sub">阈值共用同一组常量</text>
+    <text x="780" y="152" class="label-em">失败给具体 code，不静默丢图</text>
+    <text x="780" y="200" class="file">src/vision/validateImage.ts</text>
+
+    <rect x="1140" y="24" width="300" height="196" rx="10" fill="#ecfdf5" stroke="#059669"/>
+    <text x="1160" y="50" class="box">ChatAttachment</text>
+    <text x="1160" y="78" class="box-sub">data：base64 裸串（内存态）</text>
+    <text x="1160" y="100" class="box-sub">previewUrl：objectURL（不持久化）</text>
+    <text x="1160" y="122" class="box-sub">pickedAttachments[] 挂载</text>
+    <text x="1160" y="152" class="note">组件卸载时 revokeObjectURL</text>
+    <text x="1160" y="200" class="file">components/ImageAttachment.vue</text>
+
+    <line x1="300" y1="122" x2="356" y2="122" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrowBlue)"/>
+    <line x1="700" y1="122" x2="756" y2="122" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrowBlue)"/>
+    <line x1="1080" y1="122" x2="1136" y2="122" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrowBlue)"/>
+  </g>
+
+  <path d="M380,560 L380,596" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 3 服务端校验与能力判定 ========== -->
+  <g transform="translate(40, 600)">
+    <text x="0" y="0" class="phase">③ 服务端硬校验 + 模型能力判定：不通过就不调模型</text>
+    <rect x="20" y="24" width="560" height="196" rx="10" fill="#d1fae5" stroke="#059669"/>
+    <text x="40" y="50" class="box">validateImage()　逐层拒绝</text>
+    <text x="40" y="76" class="box-sub">1 必需字段齐全 → image_invalid_data</text>
+    <text x="40" y="98" class="box-sub">2 MIME ∈ {png, jpeg, webp} → image_unsupported_format</text>
+    <text x="40" y="120" class="box-sub">3 base64 正则 + 解码非空 → image_invalid_data</text>
+    <text x="40" y="142" class="box-sub">4 像素 ≤ 4096×4096 → image_dimensions_exceeded</text>
+    <text x="40" y="164" class="box-sub">5 解码字节 ≤ 1MB → image_too_large</text>
+    <text x="40" y="186" class="box-sub">6 一次请求 ≤ 1 张 → image_invalid_data</text>
+    <text x="40" y="210" class="file">server/vision/validateImage.ts</text>
+
+    <rect x="620" y="24" width="400" height="196" rx="10" fill="#fef3c7" stroke="#d97706"/>
+    <text x="640" y="50" class="box">isVisionCapableModel()</text>
+    <text x="640" y="76" class="box-sub">1 运行期降级集合（被供应商拒过）</text>
+    <text x="640" y="98" class="box-sub">2 调用方显式白名单</text>
+    <text x="640" y="120" class="box-sub">3 env VISION_CAPABLE_MODELS</text>
+    <text x="640" y="142" class="box-sub">4 启发式 gpt-4o|gpt-5|vision|omni|qwen.*vl</text>
+    <text x="640" y="168" class="label-em">判定失败 → 默认当作不支持</text>
+    <text x="640" y="192" class="warn">已知：gpt-6 / claude 不命中启发式</text>
+    <text x="640" y="210" class="file">server/vision/capability.ts</text>
+
+    <rect x="1060" y="24" width="380" height="196" rx="10" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="1080" y="50" class="box">失败分支</text>
+    <text x="1080" y="76" class="box-sub">校验失败 → SSE vision_rejected</text>
+    <text x="1080" y="98" class="box-sub">模型不支持 → vision_unsupported_model</text>
+    <text x="1080" y="120" class="box-sub">请求体超限 → 413 + 文案</text>
+    <text x="1080" y="150" class="label-em">不建 UsageAccumulator、不调模型</text>
+    <text x="1080" y="172" class="label-em">省 token，不出现裸 500</text>
+    <text x="1080" y="200" class="file">routes/chat.ts · routes/chatMulti.ts</text>
+
+    <line x1="580" y1="122" x2="616" y2="122" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <line x1="1020" y1="122" x2="1056" y2="122" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+    <rect x="20" y="236" width="1420" height="70" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="40" y="262" class="box">七个错误码（由服务端定死，前端只映射文案、不重写）</text>
+    <text x="40" y="288" class="box-sub">image_too_large · image_unsupported_format · image_invalid_data · image_dimensions_exceeded · vision_model_unsupported · vision_payload_too_large · vision_provider_rejected</text>
+  </g>
+
+  <path d="M380,906 L380,942" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 4 供应商协议转换 ========== -->
+  <g transform="translate(40, 946)">
+    <text x="0" y="0" class="phase">④ 供应商协议转换：唯一入口，assistant / tool 零改动</text>
+    <rect x="20" y="24" width="440" height="146" rx="10" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="40" y="50" class="box">输入（内部形状）</text>
+    <text x="40" y="80" class="box-sub">{ role: "user", content: "看这张图",</text>
+    <text x="40" y="102" class="box-sub">  attachments: [ { mimeType, data, … } ] }</text>
+    <text x="40" y="132" class="note">data 是 base64 裸串</text>
+
+    <rect x="520" y="24" width="440" height="146" rx="10" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="540" y="50" class="box">toProviderMessages()</text>
+    <text x="540" y="80" class="box-sub">content: [ {type:"text", text},</text>
+    <text x="540" y="102" class="box-sub">  {type:"image_url", image_url:{url}} ]</text>
+    <text x="540" y="132" class="label-em">文字在前、图片在后；data URL 服务端拼</text>
+
+    <rect x="1020" y="24" width="420" height="146" rx="10" fill="#ecfdf5" stroke="#059669"/>
+    <text x="1040" y="50" class="box">其余消息原样透传</text>
+    <text x="1040" y="78" class="box-sub">system / 纯文本 user</text>
+    <text x="1040" y="100" class="box-sub">assistant（带 tool_calls）</text>
+    <text x="1040" y="122" class="box-sub">tool</text>
+    <text x="1040" y="150" class="label-em">绝不引入 parts（保护 tool_calls 协议）</text>
+
+    <line x1="460" y1="97" x2="516" y2="97" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <line x1="960" y1="97" x2="1016" y2="97" stroke="#059669" stroke-width="1.6" marker-end="url(#arrowGreen)"/>
+
+    <rect x="20" y="186" width="1420" height="52" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="40" y="212" class="box-sub">不带图时行为与今天完全一致：content 仍是字符串；只有「user 消息且带附件」才走 content parts。</text>
+  </g>
+
+  <path d="M380,1184 L380,1220" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 5 usage 图片成本 ========== -->
+  <g transform="translate(40, 1224)">
+    <text x="0" y="0" class="phase">⑤ usage 图片成本记账：只记数字，不记 base64</text>
+    <rect x="20" y="24" width="440" height="186" rx="10" fill="#d1fae5" stroke="#059669"/>
+    <text x="40" y="50" class="box">accumulator.recordImages()</text>
+    <text x="40" y="78" class="box-sub">count / totalBytes / estimatedTokens</text>
+    <text x="40" y="100" class="box-sub">toSnapshot() / toRecord() 带出三字段</text>
+    <text x="40" y="128" class="label-em">不记 base64、不记文件名</text>
+    <text x="40" y="156" class="note">usage 日志会长期保存 → 图片不进正文</text>
+    <text x="40" y="198" class="file">server/usage/accumulator.ts · usage/types.ts</text>
+
+    <rect x="520" y="24" width="440" height="186" rx="10" fill="#fef3c7" stroke="#d97706"/>
+    <text x="540" y="50" class="box">estimateImageTokens()</text>
+    <text x="540" y="78" class="box-sub">最长边 2048 等比缩放 → 512×512 分块</text>
+    <text x="540" y="100" class="box-sub">tokens = ceil((85 + 170 × 块数) × 1.2)</text>
+    <text x="540" y="122" class="box-sub">例：800×600 → 4 块 → 918</text>
+    <text x="540" y="150" class="warn">估算值 ≠ 供应商真实计费</text>
+    <text x="540" y="198" class="file">server/vision/estimateImageTokens.ts</text>
+
+    <rect x="1020" y="24" width="420" height="186" rx="10" fill="#ffffff" stroke="#059669"/>
+    <text x="1040" y="50" class="box">usage 事件与面板</text>
+    <text x="1040" y="78" class="box-sub">imageCount / imageBytes / estimatedImageTokens</text>
+    <text x="1040" y="100" class="box-sub">与文本 token 分开记，不混入 totalTokens</text>
+    <text x="1040" y="122" class="box-sub">GET /api/usage 的 recent 记录可见</text>
+    <text x="1040" y="150" class="label-em">成本面板能识别带图请求</text>
+    <text x="1040" y="198" class="file">routes/sse.ts · src/api/chat.ts · src/types.ts</text>
+
+    <line x1="460" y1="116" x2="516" y2="116" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <line x1="960" y1="116" x2="1016" y2="116" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+    <rect x="20" y="226" width="1420" height="58" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+    <text x="40" y="250" class="box">三条 SSE 事件（均不含 base64、不含文件名）</text>
+    <text x="40" y="272" class="box-sub">vision_attachment（count / mimeTypes / totalBytes / estimatedImageTokens）· vision_rejected（code / reason）· vision_unsupported_model（model）</text>
+  </g>
+
+  <path d="M380,1508 L380,1544" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 6 能力下发与入口禁用 ========== -->
+  <g transform="translate(40, 1548)">
+    <text x="0" y="0" class="phase">⑥ 能力下发与入口禁用：不让不支持的模型跑到 API 才炸</text>
+    <rect x="20" y="24" width="440" height="164" rx="10" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="40" y="50" class="box">GET /api/models</text>
+    <text x="40" y="78" class="box-sub">ModelOption 新增 supportsVision</text>
+    <text x="40" y="100" class="box-sub">兜底列表与上游列表统一走能力判定</text>
+    <text x="40" y="128" class="label-em">旧字段不删，纯新增</text>
+    <text x="40" y="176" class="file">server/routes/models.ts</text>
+
+    <rect x="520" y="24" width="440" height="164" rx="10" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="540" y="50" class="box">前端入口禁用</text>
+    <text x="540" y="78" class="box-sub">visionUploadEnabled 追加模型能力判断</text>
+    <text x="540" y="100" class="box-sub">按钮 title 区分「模型不支持」</text>
+    <text x="540" y="122" class="box-sub">与「链路 / 流式中禁用」</text>
+    <text x="540" y="176" class="file">src/App.vue</text>
+
+    <rect x="1020" y="24" width="420" height="164" rx="10" fill="#fef3c7" stroke="#d97706"/>
+    <text x="1040" y="50" class="box">切换模型自动清附件</text>
+    <text x="1040" y="78" class="box-sub">changeModel → supportsVision === false</text>
+    <text x="1040" y="100" class="box-sub">→ clearAttachments()</text>
+    <text x="1040" y="128" class="note">避免把图片发给不支持的模型</text>
+    <text x="1040" y="176" class="file">src/composables/useChat.ts</text>
+
+    <line x1="460" y1="106" x2="516" y2="106" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrowBlue)"/>
+    <line x1="960" y1="106" x2="1016" y2="106" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrowBlue)"/>
+
+    <rect x="20" y="204" width="1420" height="58" rx="8" fill="#fff7ed" stroke="#d97706"/>
+    <text x="40" y="228" class="box">请求体上限：1mb 装不下 base64</text>
+    <text x="40" y="250" class="box-sub">/api/chat 系列 express.json({ limit: "8mb" })；其余端点保持 1mb 不放大攻击面；超限回 vision_payload_too_large</text>
+  </g>
+
+  <path d="M380,1810 L380,1846" stroke="#334155" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== 7 隐私与风险 ========== -->
+  <g transform="translate(40, 1850)">
+    <text x="0" y="0" class="phase">⑦ 隐私边界与已知未解决风险</text>
+    <rect x="20" y="24" width="680" height="176" rx="10" fill="#ecfdf5" stroke="#059669"/>
+    <text x="40" y="50" class="box">隐私边界</text>
+    <text x="40" y="78" class="box-sub">base64 不进 usage 日志 / trace 正文 / 错误文案</text>
+    <text x="40" y="100" class="box-sub">localStorage 只落元数据（id / name / mimeType / width / height / byteSize）</text>
+    <text x="40" y="122" class="box-sub">图片不跨轮回传：下一轮换「图片已过期」占位文本</text>
+    <text x="40" y="144" class="box-sub">清空会话 / 切链路时释放 objectURL</text>
+    <text x="40" y="180" class="note">刷新后历史只显示「当时带了一张图」的标记</text>
+
+    <rect x="740" y="24" width="700" height="176" rx="10" fill="#fee2e2" stroke="#dc2626"/>
+    <text x="760" y="50" class="box">已知未解决风险（如实记录，不假装解决）</text>
+    <text x="760" y="78" class="box-sub">多图对比推理（首版只允许 1 张）</text>
+    <text x="760" y="100" class="box-sub">OCR 精度：图片 token 与清晰度是硬约束，小字可能读不清</text>
+    <text x="760" y="122" class="box-sub">图片内指令注入：文本 Guard 扫不到 → 提示词约束 + 输出 Judge 兜底</text>
+    <text x="760" y="144" class="box-sub">跨轮图片引用 / 服务端抓远程 URL（SSRF）不在范围</text>
+    <text x="760" y="180" class="note">详见 docs/vision.md §8</text>
+
+    <rect x="20" y="216" width="1420" height="52" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="40" y="248" class="box-sub">范围：仅 POST /api/chat 与 POST /api/chat/multi 两条链路；rag / structured / plan / reflection 首版不带图。</text>
+  </g>
+
+  <text x="40" y="2148" class="legend">读法：① 协议升级（content 不改类型）→ ② 前端压缩校验 → ③ 服务端硬校验 + 能力判定（失败不调模型）→ ④ 供应商 content parts → ⑤ 图片成本记账 → ⑥ 能力下发与入口禁用 → ⑦ 隐私边界与已知风险。</text>
+  <text x="40" y="2172" class="note">实测：npm run typecheck ✅ · npm run build ✅ · vision 专项测试 31/31 ✅ · eval:chat / eval:multi 未运行（需真实 deepseek 调用）· 步骤 11 越权调用数据已作废。</text>
+  <text x="740" y="2216" text-anchor="middle" class="subtitle">docs/vision-flow.svg</text>
+</svg>

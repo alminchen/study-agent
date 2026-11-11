@@ -17,6 +17,7 @@ import {
   streamPlan,
   streamReflection,
   streamStructured,
+  type ApiImageAttachment,
 } from "../api/chat";
 import { fetchModelCatalog } from "../api/models";
 import {
@@ -29,7 +30,10 @@ import { askRag } from "../api/rag";
 import { fetchUsageSummary } from "../api/usage";
 import {
   FALLBACK_MODEL_OPTIONS,
+  type ChatAttachment,
+  type ChatAttachmentMeta,
   type ChatMessage,
+  type ChatRole,
   type ContextCompactionEvent,
   type ContextSummary,
   type MemoryFact,
@@ -43,6 +47,11 @@ import {
   type UsageSummary,
 } from "../types";
 import { normalizeContextSummary } from "../types";
+import { compressImage } from "../vision/compressImage";
+import {
+  isAllowedImageMime,
+  MAX_IMAGES_PER_REQUEST,
+} from "../vision/validateImage";
 
 // 普通对话和 RAG 分开存储；模型/开关也各自持久化，刷新后恢复用户选择。
 const HISTORY_KEY = "step1-chat:history";
@@ -80,10 +89,16 @@ const MEMORY_USER_ID_PATTERN = /^anon_[A-Za-z0-9_-]{1,64}$/;
  */
 function generateMemoryUserId(): string {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return `anon_${crypto.randomUUID().replace(/-/g, "").slice(0, 8).toLowerCase()}`;
   }
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.getRandomValues === "function"
+  ) {
     const bytes = crypto.getRandomValues(new Uint8Array(8));
     return `anon_${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
   }
@@ -118,14 +133,92 @@ function loadMemoryUserId(): string {
 let idCounter = 0;
 const createId = () => `msg_${Date.now()}_${idCounter++}`;
 
-/** 只把最终结构化结果带到下一轮模型上下文，不把 partial snapshot 当历史。 */
-function toApiMessages(history: ChatMessage[]) {
-  return history.flatMap(({ role, content, structured }) => {
-    // 普通文本消息保持原样；结构化消息必须已经完成才能进入模型上下文。
-    if (!structured) return [{ role, content }];
-    if (structured.status !== "completed" || !structured.result) return [];
-    return [{ role, content: JSON.stringify(structured.result) }];
+/**
+ * 组装发给供应商的 API 消息（决策二：图片只在带图的那一轮出现）。
+ *
+ * - 当前轮（最后一条 user 消息 + liveAttachments）→ 完整附件随行；
+ * - 历史里其它带图消息 → 降级成「图片已过期」占位文本，attachments 省略。
+ * 结构化消息仍只把最终结果带给模型，不把 partial snapshot 当历史。
+ */
+function toApiMessages(
+  history: ChatMessage[],
+  liveAttachments?: ChatAttachment[],
+): Array<{
+  role: ChatRole;
+  content: string;
+  attachments?: ApiImageAttachment[];
+}> {
+  const lastUserIndex = history.reduce(
+    (last, message, index) => (message.role === "user" ? index : last),
+    -1,
+  );
+  return history.flatMap((message, index) => {
+    // 结构化消息：未完成 / 失败不进模型上下文。
+    if (message.structured) {
+      if (
+        message.structured.status !== "completed" ||
+        !message.structured.result
+      ) {
+        return [];
+      }
+      return [
+        {
+          role: message.role,
+          content: JSON.stringify(message.structured.result),
+        },
+      ];
+    }
+    // 历史里带过图的消息：图片不跨轮回传，只留文字 + 过期占位。
+    if (message.attachments?.length && index !== lastUserIndex) {
+      return [
+        { role: message.role, content: `${message.content}\n[图片已过期]` },
+      ];
+    }
+    const base = { role: message.role, content: message.content };
+    if (index === lastUserIndex && liveAttachments?.length) {
+      return [{ ...base, attachments: liveAttachments.map(toApiAttachment) }];
+    }
+    return [base];
   });
+}
+
+/** 完整附件 → wire 形状：只带线协议字段，previewUrl 不跨线。 */
+function toApiAttachment(attachment: ChatAttachment): ApiImageAttachment {
+  return {
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    width: attachment.width,
+    height: attachment.height,
+    byteSize: attachment.byteSize,
+    data: attachment.data,
+  };
+}
+
+/** 附件 → 历史元数据：剥掉 base64 数据，只留展示与统计所需字段。 */
+function toAttachmentMeta(attachment: ChatAttachment): ChatAttachmentMeta {
+  return {
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    width: attachment.width,
+    height: attachment.height,
+    byteSize: attachment.byteSize,
+  };
+}
+
+/** 防御性规范化：无论消息里挂的是 meta 还是完整附件，落盘只留 meta。 */
+function metaOnly(
+  attachment: ChatAttachmentMeta | ChatAttachment,
+): ChatAttachmentMeta {
+  return {
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    width: attachment.width,
+    height: attachment.height,
+    byteSize: attachment.byteSize,
+  };
 }
 
 /** 流式中的结构化消息可以展示，但落盘时必须降级为最终结果或直接移除。 */
@@ -133,10 +226,18 @@ function persistableHistory(history: ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = [];
   for (const message of history) {
     if (!message.structured) {
-      result.push(message);
+      // 附件只落元数据：base64 与 objectURL 永不进 localStorage（隐私）。
+      result.push(
+        message.attachments?.length
+          ? { ...message, attachments: message.attachments.map(metaOnly) }
+          : message,
+      );
       continue;
     }
-    if (message.structured.status !== "completed" || !message.structured.result) {
+    if (
+      message.structured.status !== "completed" ||
+      !message.structured.result
+    ) {
       // 未完成、失败和中止的结构化结果不能污染刷新后的历史。
       continue;
     }
@@ -162,7 +263,8 @@ function loadHistory(key: string): ChatMessage[] {
       // 兼容旧版本可能写入的半成品结构化消息；读取时直接丢弃。
       if (
         message.structured &&
-        (message.structured.status !== "completed" || !message.structured.result)
+        (message.structured.status !== "completed" ||
+          !message.structured.result)
       ) {
         return [];
       }
@@ -244,7 +346,9 @@ export function useChat() {
   );
   const messages = ref<ChatMessage[]>(loadHistory(historyKey(ragMode.value)));
   const modelOptions = ref<ModelOption[]>([...FALLBACK_MODEL_OPTIONS]);
-  const model = ref(localStorage.getItem(MODEL_KEY) ?? FALLBACK_MODEL_OPTIONS[0].id);
+  const model = ref(
+    localStorage.getItem(MODEL_KEY) ?? FALLBACK_MODEL_OPTIONS[0].id,
+  );
   const isStreaming = ref(false);
   const error = ref<string | null>(null);
   /** 过程面板：tool_call / pending_confirm / injection_detected …（SSE onTrace） */
@@ -275,6 +379,8 @@ export function useChat() {
   const memoryLoading = ref(false);
   /** 记忆操作（读/改/删/清空）的错误文案。 */
   const memoryError = ref<string | null>(null);
+  /** 待发送的图片附件（内存态，含 base64 + objectURL）；base64 永不落盘。 */
+  const pickedAttachments = ref<ChatAttachment[]>([]);
   /** 当前进行中的 SSE 请求；stop() 对其 abort */
   let abortController: AbortController | null = null;
   /** 每次会话递增，旧请求的迟到回调不得污染新消息或全局状态。 */
@@ -285,13 +391,13 @@ export function useChat() {
     void fetchHealth().then((info) => {
       serverMode.value = info?.mode ?? "unknown";
     });
-    void loadModelOptions();
+    // void loadModelOptions();
     void refreshUsageSummary();
     void refreshMemoryFacts();
   });
 
   /** 顶栏模型列表以服务端 /api/models 为准；失败时保留兜底列表。 */
-  async function loadModelOptions() {
+  async function _loadModelOptions() {
     const catalog = await fetchModelCatalog();
     if (!catalog || catalog.models.length === 0) return;
 
@@ -318,7 +424,8 @@ export function useChat() {
       memoryFacts.value = await fetchMemoryFacts(memoryUserId.value);
       memoryError.value = null;
     } catch (error) {
-      memoryError.value = error instanceof Error ? error.message : "读取记忆失败";
+      memoryError.value =
+        error instanceof Error ? error.message : "读取记忆失败";
     } finally {
       memoryLoading.value = false;
     }
@@ -369,7 +476,8 @@ export function useChat() {
       memoryError.value = null;
     } catch (error) {
       memoryFacts.value = previous;
-      memoryError.value = error instanceof Error ? error.message : "更新记忆失败";
+      memoryError.value =
+        error instanceof Error ? error.message : "更新记忆失败";
     }
   }
 
@@ -382,7 +490,8 @@ export function useChat() {
       memoryError.value = null;
     } catch (error) {
       memoryFacts.value = previous;
-      memoryError.value = error instanceof Error ? error.message : "删除记忆失败";
+      memoryError.value =
+        error instanceof Error ? error.message : "删除记忆失败";
     }
   }
 
@@ -395,7 +504,8 @@ export function useChat() {
       memoryError.value = null;
     } catch (error) {
       memoryFacts.value = previous;
-      memoryError.value = error instanceof Error ? error.message : "清空记忆失败";
+      memoryError.value =
+        error instanceof Error ? error.message : "清空记忆失败";
     }
   }
 
@@ -416,7 +526,9 @@ export function useChat() {
   }
 
   /** 按计划里的步骤生成初始步骤状态。 */
-  function pendingSteps(plan: PlanRuntimeState["plan"]): PlanRuntimeState["stepResults"] {
+  function pendingSteps(
+    plan: PlanRuntimeState["plan"],
+  ): PlanRuntimeState["stepResults"] {
     if (!plan) return [];
     return plan.steps.map((step) => ({
       stepId: step.id,
@@ -458,14 +570,16 @@ export function useChat() {
         return;
 
       case "plan_step_started":
-        if (event.planId !== state.planId || event.revision < state.revision) return;
+        if (event.planId !== state.planId || event.revision < state.revision)
+          return;
         state.stepResults = state.stepResults.map((row) =>
           row.stepId === event.stepId ? { ...row, status: "running" } : row,
         );
         return;
 
       case "plan_step_done":
-        if (event.planId !== state.planId || event.revision < state.revision) return;
+        if (event.planId !== state.planId || event.revision < state.revision)
+          return;
         state.stepResults = state.stepResults.map((row) =>
           row.stepId === event.stepId
             ? {
@@ -479,7 +593,8 @@ export function useChat() {
         return;
 
       case "plan_step_failed":
-        if (event.planId !== state.planId || event.revision < state.revision) return;
+        if (event.planId !== state.planId || event.revision < state.revision)
+          return;
         // stepId 为空表示步骤级之外的失败（如最终回答失败），不改步骤状态。
         if (!event.stepId) {
           state.planError = { code: event.code, message: event.message };
@@ -489,15 +604,23 @@ export function useChat() {
           // 同一个步骤可能先收到根因失败、再收到计划级收尾失败；
           // 步骤上保留第一条（根因），后续消息不覆盖。
           row.stepId === event.stepId && row.status !== "failed"
-            ? { ...row, status: "failed", summary: event.message, errorCode: event.code }
+            ? {
+                ...row,
+                status: "failed",
+                summary: event.message,
+                errorCode: event.code,
+              }
             : row,
         );
         return;
 
       case "plan_replanned": {
-        if (event.planId !== state.planId || event.revision <= state.revision) return;
+        if (event.planId !== state.planId || event.revision <= state.revision)
+          return;
         // 已完成步骤原样保留；新计划多出来的步骤重新置为 pending。
-        const doneRows = state.stepResults.filter((row) => row.status === "done");
+        const doneRows = state.stepResults.filter(
+          (row) => row.status === "done",
+        );
         state.planHistory = [...state.planHistory, event.plan];
         state.revision = event.revision;
         state.plan = event.plan;
@@ -522,7 +645,10 @@ export function useChat() {
         return;
 
       case "plan_fallback":
-        state.fallback = { reasonCode: event.reasonCode, message: event.message };
+        state.fallback = {
+          reasonCode: event.reasonCode,
+          message: event.message,
+        };
         return;
     }
   }
@@ -631,7 +757,10 @@ export function useChat() {
         if (step.kind === "confirm_resolved") {
           // 只更新对应 pending 状态，不再追加一条，避免面板重复
           toolTrace.value = toolTrace.value.map((row) => {
-            if (row.kind === "pending_confirm" && row.toolCallId === step.toolCallId) {
+            if (
+              row.kind === "pending_confirm" &&
+              row.toolCallId === step.toolCallId
+            ) {
               return { ...row, status: step.action };
             }
             return row;
@@ -668,7 +797,10 @@ export function useChat() {
         contextCompaction.value = event;
         if (!event.summary) return;
         contextSummary.value = event.summary;
-        localStorage.setItem(CONTEXT_SUMMARY_KEY, JSON.stringify(event.summary));
+        localStorage.setItem(
+          CONTEXT_SUMMARY_KEY,
+          JSON.stringify(event.summary),
+        );
       },
     });
 
@@ -687,8 +819,9 @@ export function useChat() {
           structured: {
             ...latest.structured,
             status: controller.signal.aborted ? "incomplete" : "error",
-            errorCode:
-              controller.signal.aborted ? undefined : "model_stream_interrupted",
+            errorCode: controller.signal.aborted
+              ? undefined
+              : "model_stream_interrupted",
           },
         };
         if (!controller.signal.aborted) {
@@ -706,9 +839,16 @@ export function useChat() {
       latest = { ...latest, content: "已停止生成。" };
     }
     if (!done && !controller.signal.aborted && latest.content.trim() === "") {
-      latest = { ...latest, content: error.value ?? options.emptyErrorFallback };
+      latest = {
+        ...latest,
+        content: error.value ?? options.emptyErrorFallback,
+      };
     }
-    if (done || controller.signal.aborted || (!done && latest.content.trim() !== "")) {
+    if (
+      done ||
+      controller.signal.aborted ||
+      (!done && latest.content.trim() !== "")
+    ) {
       messages.value = messages.value.map((message) =>
         message.id === assistantId ? latest : message,
       );
@@ -721,12 +861,23 @@ export function useChat() {
    * - multiAgent false → POST /api/chat
    * searchDocs 只进请求体，不参与选路（与「多 Agent」开关解耦）。
    */
-  async function runStream(history: ChatMessage[], selectedModel: string) {
+  async function runStream(
+    history: ChatMessage[],
+    selectedModel: string,
+    attachments?: ChatAttachment[],
+  ) {
     await runSseSession(history, {
       emptyErrorFallback: "请求失败，请重试。",
-      start: ({ signal, onDelta, onTrace, onUsage, onError, onContextCompacted }) =>
+      start: ({
+        signal,
+        onDelta,
+        onTrace,
+        onUsage,
+        onError,
+        onContextCompacted,
+      }) =>
         streamChat({
-          messages: toApiMessages(history),
+          messages: toApiMessages(history, attachments),
           model: selectedModel,
           signal,
           searchDocs: searchKb.value,
@@ -863,7 +1014,10 @@ export function useChat() {
                 structured: {
                   ...state,
                   status: "error",
-                  revision: Math.max(state.revision, structuredError.lastRevision),
+                  revision: Math.max(
+                    state.revision,
+                    structuredError.lastRevision,
+                  ),
                   errorCode: structuredError.code,
                 },
               };
@@ -884,7 +1038,9 @@ export function useChat() {
    * - 过程事件（工具轨迹 + 评分/重写/跳过）统一进 ToolTracePanel。
    */
   async function runReflection(history: ChatMessage[], selectedModel: string) {
-    const lastUser = [...history].reverse().find((message) => message.role === "user");
+    const lastUser = [...history]
+      .reverse()
+      .find((message) => message.role === "user");
     const question = lastUser?.content.trim() ?? "";
     if (!question) return;
     await runSseSession(history, {
@@ -910,7 +1066,9 @@ export function useChat() {
    * 服务端先 toolGuard(searchDocs) → 检索判空再决定是否调模型。
    */
   async function runRag(history: ChatMessage[], selectedModel: string) {
-    const lastUser = [...history].reverse().find((message) => message.role === "user");
+    const lastUser = [...history]
+      .reverse()
+      .find((message) => message.role === "user");
     const question = lastUser?.content.trim() ?? "";
     // 当前问句已经在 history 末尾，传给后端的 history 必须去掉它，避免拼 prompt 时重复。
     const prior = toApiMessages(history.slice(0, -1));
@@ -956,14 +1114,21 @@ export function useChat() {
   async function send(content: string) {
     const trimmed = content.trim();
     if (!trimmed || isStreaming.value) return;
+    // 完整附件先复制出来交给请求；历史里只留元数据。
+    const liveAttachments = [...pickedAttachments.value];
     const userMessage: ChatMessage = {
       id: createId(),
       role: "user",
       content: trimmed,
       createdAt: Date.now(),
+      ...(liveAttachments.length
+        ? { attachments: liveAttachments.map(toAttachmentMeta) }
+        : {}),
     };
     const history = [...messages.value, userMessage];
     messages.value = history;
+    // 附件已复制进请求参数：清空待发区并释放预览 objectURL。
+    clearAttachments();
     persistCurrentHistory();
     if (ragMode.value) {
       await runRag(history, model.value);
@@ -977,7 +1142,7 @@ export function useChat() {
       await runReflection(history, model.value);
       return;
     }
-    await runStream(history, model.value);
+    await runStream(history, model.value, liveAttachments);
   }
 
   /** 结构化发送入口；本步骤只做表格/代码基础模式，页面体验在后续任务完善。 */
@@ -1003,10 +1168,13 @@ export function useChat() {
     const lastMessage = current[current.length - 1];
     // 重试结构化消息时沿用原 target，避免用户切换选择器后重跑成另一种类型。
     const structuredTarget =
-      lastMessage?.role === "assistant" ? lastMessage.structured?.target : undefined;
+      lastMessage?.role === "assistant"
+        ? lastMessage.structured?.target
+        : undefined;
     const history =
       lastMessage?.role === "assistant" ? current.slice(0, -1) : current;
-    if (history.length === 0 || history[history.length - 1]?.role !== "user") return;
+    if (history.length === 0 || history[history.length - 1]?.role !== "user")
+      return;
     if (structuredTarget) {
       // 先去掉失败 assistant，再用最后一条 user 重新发起结构化请求。
       await runStructured(history, model.value, structuredTarget);
@@ -1055,7 +1223,10 @@ export function useChat() {
     action: "allow" | "deny";
   }) {
     toolTrace.value = toolTrace.value.map((row) => {
-      if (row.kind === "pending_confirm" && row.toolCallId === payload.toolCallId) {
+      if (
+        row.kind === "pending_confirm" &&
+        row.toolCallId === payload.toolCallId
+      ) {
         return { ...row, status: "resolving" };
       }
       return row;
@@ -1066,12 +1237,63 @@ export function useChat() {
       error.value = err instanceof Error ? err.message : "确认请求失败";
       // 解开失败：恢复可点，便于重试
       toolTrace.value = toolTrace.value.map((row) => {
-        if (row.kind === "pending_confirm" && row.toolCallId === payload.toolCallId) {
+        if (
+          row.kind === "pending_confirm" &&
+          row.toolCallId === payload.toolCallId
+        ) {
           return { ...row, status: "pending" };
         }
         return row;
       });
     }
+  }
+
+  /**
+   * 把用户粘贴 / 拖拽 / 选择的图片压缩成待发附件。
+   *
+   * 规则：
+   * - 只收白名单 MIME（png/jpeg/webp），其它格式立即拒绝并给原因；
+   * - 首版单请求最多 1 张，超出部分拒绝；
+   * - 压缩失败（解码失败 / 压完仍超 1MB）写入 error，不进入待发列表。
+   * 流式中不允许新增附件，避免半途改变本轮请求内容。
+   */
+  async function addImages(files: FileList | File[]) {
+    if (isStreaming.value) return;
+    for (const file of Array.from(files)) {
+      if (pickedAttachments.value.length >= MAX_IMAGES_PER_REQUEST) {
+        error.value = `图片最多同时上传 ${MAX_IMAGES_PER_REQUEST} 张`;
+        return;
+      }
+      if (!isAllowedImageMime(file.type)) {
+        error.value = `不支持的图片格式：${file.name || "未知文件"}（仅支持 png/jpeg/webp）`;
+        continue;
+      }
+      const result = await compressImage(file);
+      if (!result.ok) {
+        error.value = `图片「${file.name || "粘贴图片"}」${result.reason}`;
+        continue;
+      }
+      pickedAttachments.value = [...pickedAttachments.value, result.attachment];
+    }
+  }
+
+  /** 移除一张待发图片，并释放它的预览 objectURL。 */
+  function removeAttachment(id: string) {
+    const target = pickedAttachments.value.find(
+      (attachment) => attachment.id === id,
+    );
+    if (target) URL.revokeObjectURL(target.previewUrl);
+    pickedAttachments.value = pickedAttachments.value.filter(
+      (attachment) => attachment.id !== id,
+    );
+  }
+
+  /** 清空全部待发图片并释放预览 objectURL。 */
+  function clearAttachments() {
+    for (const attachment of pickedAttachments.value) {
+      URL.revokeObjectURL(attachment.previewUrl);
+    }
+    pickedAttachments.value = [];
   }
 
   function clear() {
@@ -1081,6 +1303,7 @@ export function useChat() {
     abortController = null;
     isStreaming.value = false;
     messages.value = [];
+    clearAttachments();
     error.value = null;
     toolTrace.value = [];
     lastUsage.value = null;
@@ -1096,6 +1319,11 @@ export function useChat() {
     // 模型选择只影响后续请求；当前流式请求不会被切换动作重写。
     model.value = nextModel;
     localStorage.setItem(MODEL_KEY, nextModel);
+    // 切到不支持 Vision 的模型时清掉待发附件，避免图片发出去报错。
+    const option = modelOptions.value.find((item) => item.id === nextModel);
+    if (option && option.supportsVision === false) {
+      clearAttachments();
+    }
   }
 
   function setSearchKb(next: boolean) {
@@ -1134,6 +1362,8 @@ export function useChat() {
     ragMode.value = next;
     localStorage.setItem(RAG_MODE_KEY, next ? "1" : "0");
     messages.value = loadHistory(historyKey(next));
+    // 附件只属于当前输入会话；切换链路后清空，避免图片串到另一条历史里。
+    clearAttachments();
     error.value = null;
     toolTrace.value = [];
     lastUsage.value = null;
@@ -1144,6 +1374,7 @@ export function useChat() {
 
   return {
     messages,
+    pickedAttachments,
     model,
     modelOptions,
     ragMode,
@@ -1167,6 +1398,9 @@ export function useChat() {
     memoryLoading,
     memoryError,
     send,
+    addImages,
+    removeAttachment,
+    clearAttachments,
     sendStructured,
     retry,
     stop,

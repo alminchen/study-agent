@@ -1,9 +1,12 @@
 import type { Express } from "express";
 import { getRuntimeConfig } from "../runtimeConfig.js";
+import { isVisionCapableModel } from "../vision/capability.js";
 
 interface ModelOption {
   id: string;
   label: string;
+  /** 该模型是否支持图片输入；前端据此禁用上传入口。 */
+  supportsVision: boolean;
 }
 
 /** 常见模型的可读名称；上游返回的其他 id 直接原样展示。 */
@@ -16,9 +19,9 @@ const KNOWN_MODEL_LABELS: Record<string, string> = {
 
 /** 上游 /models 不可用时仍保留原下拉的三项，避免页面突然空白。 */
 const FALLBACK_MODELS: ModelOption[] = [
-  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
-  { id: "gpt-5.4-mini", label: "GPT 5.4 mini" },
-  { id: "gpt-5.6-sol", label: "GPT 5.6 sol" },
+  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", supportsVision: false },
+  { id: "gpt-5.4-mini", label: "GPT 5.4 mini", supportsVision: true },
+  { id: "gpt-5.6-sol", label: "GPT 5.6 sol", supportsVision: true },
 ];
 
 const MODEL_LIST_TIMEOUT_MS = 8_000;
@@ -52,7 +55,11 @@ function isImageModel(id: string): boolean {
 function fallbackModels(defaultModel: string): ModelOption[] {
   const models = [...FALLBACK_MODELS];
   if (!models.some((model) => model.id === defaultModel)) {
-    models.unshift({ id: defaultModel, label: modelLabel(defaultModel) });
+    models.unshift({
+      id: defaultModel,
+      label: modelLabel(defaultModel),
+      supportsVision: isVisionCapableModel(defaultModel),
+    });
   }
   return models;
 }
@@ -112,7 +119,11 @@ export function registerModelRoutes(app: Express): void {
       }
 
       res.json({
-        models: modelIds.map((id) => ({ id, label: modelLabel(id) })),
+        models: modelIds.map((id) => ({
+          id,
+          label: modelLabel(id),
+          supportsVision: isVisionCapableModel(id),
+        })),
         source: "api",
       });
     } catch {

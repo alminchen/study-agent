@@ -112,6 +112,17 @@ Judge 与 Reflection 都用模型，都拿模型输出当输入，但**目的、
 服务端语义是**上限**：请求只能把模式往下调（`off` / `shadow`），不能往上抬。
 `resolveReflectionMode` 负责这条约束。
 
+### 4.1.1 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `REFLECTION_MODE` | `off` | 唯一开关，取值 `off` / `shadow` / `enforce` |
+
+- 取值非法时回落到 `off`，打一条警告，不抛错、不阻塞启动。
+- 服务端读到的 `REFLECTION_MODE` 是**上限**：请求只能往下调（`off` / `shadow`），不能往上抬。
+- 切换方式：`export REFLECTION_MODE=shadow` 后重启服务即可；配置每次请求都会重新读环境变量，不带缓存。
+- 相关但独立：`JUDGE_MODE` 管「输出能不能放出去」，`REFLECTION_MODE` 管「答案要不要回头改」，两者互不替代。
+
 ### 4.2 为什么默认是 off
 
 1. **收益未被证明**：离线 A/B 报告 `evals/reflection-comparison-report.md` 目前基于 mock 数据，

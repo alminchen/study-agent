@@ -47,6 +47,12 @@ export interface UsageRecord {
   llmCalls: number;
   /** 按 MODEL_PRICING 估算的美元成本（非平台真实账单） */
   estimatedCostUsd: number;
+  /** 本轮请求携带的图片张数；无图请求缺省或 0 */
+  imageCount?: number;
+  /** 图片 base64 解码后的总字节数；不进日志正文，只记数字 */
+  imageBytes?: number;
+  /** 图片按尺寸估算的 token（与文本 token 分开记账，参见 estimateImageTokens） */
+  estimatedImageTokens?: number;
 }
 
 /**
@@ -86,4 +92,7 @@ export interface UsageSnapshot {
   totalTokens: number;
   llmCalls: number;
   estimatedCostUsd: number;
+  imageCount?: number;
+  imageBytes?: number;
+  estimatedImageTokens?: number;
 }

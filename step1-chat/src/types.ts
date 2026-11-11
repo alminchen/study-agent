@@ -2,6 +2,41 @@
 export type ChatRole = "user" | "assistant";
 
 /**
+ * 前端持久化的图片附件元数据。
+ *
+ * 与 wire 协议里携带 base64 的完整附件分开：历史记录只存这份元数据，
+ * base64 不落 localStorage（隐私），刷新后图片不再回传模型（决策二）。
+ */
+export interface ChatAttachmentMeta {
+  id: string;
+  name: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  byteSize: number;
+}
+
+/**
+ * 发送中的图片附件：包含 base64 数据。
+ * 只有尚未发送 / 正在发送的用户消息才持有 data；历史里只有 ChatAttachmentMeta。
+ */
+export interface ChatAttachment extends ChatAttachmentMeta {
+  data: string;
+  /** 本地预览用 objectURL；仅存在于内存，不持久化。 */
+  previewUrl: string;
+}
+
+/** 服务端图片校验失败码；与 server/vision/types.ts 同名同义。 */
+export type VisionErrorCode =
+  | "image_too_large"
+  | "image_unsupported_format"
+  | "image_invalid_data"
+  | "image_dimensions_exceeded"
+  | "vision_model_unsupported"
+  | "vision_payload_too_large"
+  | "vision_provider_rejected";
+
+/**
  * 前端使用的结构化输出线协议类型。
  * 字段需与服务端 server/structured/types.ts 保持一致。
  */
@@ -91,6 +126,8 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   createdAt: number;
+  /** 历史只存元数据；base64 永不落盘。 */
+  attachments?: ChatAttachmentMeta[];
   /** 仅资料问答的助手气泡会带：是否判空、有没有调模型、Top1 分数 */
   rag?: RagMeta;
   /** 结构化消息只保存最终结果到历史；生成中的 snapshot 仅存在于内存。 */
@@ -306,7 +343,12 @@ export type ToolTraceStep =
       /** 记忆层占用的估算 token。 */
       tokens: number;
       /** 注入明细（预算裁剪后真正留下的那几条）。 */
-      items: Array<{ id: string; key: string; value: string; similarity: number }>;
+      items: Array<{
+        id: string;
+        key: string;
+        value: string;
+        similarity: number;
+      }>;
     }
   | {
       kind: "memory_extracted";
@@ -321,6 +363,23 @@ export type ToolTraceStep =
       stage: "retrieve" | "extract" | "store";
       /** 失败原因（人可读）。 */
       message: string;
+    }
+  | {
+      kind: "vision_attachment";
+      /** 本轮合法附件张数。 */
+      count: number;
+      mimeTypes: string[];
+      totalBytes: number;
+      estimatedImageTokens: number;
+    }
+  | {
+      kind: "vision_rejected";
+      code: VisionErrorCode;
+      reason: string;
+    }
+  | {
+      kind: "vision_unsupported_model";
+      model: string;
     };
 
 /** 单次请求的 token 用量摘要（来自 SSE usage 事件） */
@@ -338,6 +397,10 @@ export interface UsageSnapshot {
   totalTokens: number;
   llmCalls: number;
   estimatedCostUsd: number;
+  /** 无图请求缺省或 0 */
+  imageCount?: number;
+  imageBytes?: number;
+  estimatedImageTokens?: number;
 }
 
 /** 单个口径（全部 / 当天）的用量汇总；两个模块字段含义一致。 */
@@ -347,8 +410,14 @@ export interface UsageScopeSummary {
   totalCompletionTokens: number;
   totalTokens: number;
   totalCostUsd: number;
-  byEndpoint: Record<string, { requests: number; totalTokens: number; costUsd: number }>;
-  byModel: Record<string, { requests: number; totalTokens: number; costUsd: number }>;
+  byEndpoint: Record<
+    string,
+    { requests: number; totalTokens: number; costUsd: number }
+  >;
+  byModel: Record<
+    string,
+    { requests: number; totalTokens: number; costUsd: number }
+  >;
 }
 
 export interface UsageSummary extends UsageScopeSummary {
@@ -359,6 +428,8 @@ export interface UsageSummary extends UsageScopeSummary {
 export interface ModelOption {
   id: string;
   label: string;
+  /** 该模型是否支持图片输入；来自服务端能力判定，前端据此禁用上传入口。 */
+  supportsVision?: boolean;
 }
 
 /** 模型目录；正常来自 GET /api/models，source 用于区分是否成功读取上游。 */
@@ -369,9 +440,7 @@ export interface ModelCatalog {
 
 /** 仅在 /api/models 请求失败时兜底，正常列表以接口返回为准。 */
 export const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
-  { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
-  { id: "gpt-5.4-mini", label: "GPT 5.4 mini" },
-  { id: "gpt-5.6-sol", label: "GPT 5.6 sol" },
+  { id: "deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" },
 ];
 
 /**
@@ -380,7 +449,11 @@ export const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
  */
 export type PlanMode = "auto" | "react" | "plan";
 
-export type PlanToolName = "getWeather" | "getCurrentTime" | "searchDocs" | "draft_message";
+export type PlanToolName =
+  | "getWeather"
+  | "getCurrentTime"
+  | "searchDocs"
+  | "draft_message";
 
 export interface PlanStep {
   id: string;
@@ -500,7 +573,12 @@ export type PlanEvent =
  * 前端维护的步骤状态。
  * 与服务端 PlanStepStatus 同义：前端不能因为收到 done 就自行推断后续步骤成功。
  */
-export type PlanStepState = "pending" | "running" | "done" | "failed" | "skipped";
+export type PlanStepState =
+  | "pending"
+  | "running"
+  | "done"
+  | "failed"
+  | "skipped";
 
 export interface PlanStepStateView {
   stepId: string;
@@ -527,7 +605,11 @@ export interface PlanRuntimeState {
   planHistory: Plan[];
   /** 当前版本的步骤状态；Re-plan 后只保留已完成步骤并补上新步骤。 */
   stepResults: PlanStepStateView[];
-  route: { mode: "react" | "plan"; reasonCode: PlanRouteReason; signals: string[] } | null;
+  route: {
+    mode: "react" | "plan";
+    reasonCode: PlanRouteReason;
+    signals: string[];
+  } | null;
   fallback: { reasonCode: PlanErrorCode; message: string } | null;
   /** 计划级失败（如 Re-plan 未被采纳）：与步骤失败分开，保留根因。 */
   planError: { code: PlanErrorCode; message: string } | null;
@@ -636,11 +718,17 @@ export function normalizeContextSummary(raw: unknown): ContextSummary | null {
     for (const entry of value) {
       if (!entry || typeof entry !== "object") continue;
       const fact = entry as Record<string, unknown>;
-      if (typeof fact.key !== "string" || typeof fact.value !== "string") continue;
+      if (typeof fact.key !== "string" || typeof fact.value !== "string")
+        continue;
       const key = fact.key.trim();
       const text = fact.value.trim();
-      if (!key || !text || typeof fact.sourceMessageIndex !== "number") continue;
-      kept.push({ key, value: text, sourceMessageIndex: fact.sourceMessageIndex });
+      if (!key || !text || typeof fact.sourceMessageIndex !== "number")
+        continue;
+      kept.push({
+        key,
+        value: text,
+        sourceMessageIndex: fact.sourceMessageIndex,
+      });
     }
     return kept;
   };

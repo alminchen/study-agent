@@ -617,6 +617,40 @@ button {
   gap: 10px;
 }
 
+.attachment-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.strip-clear {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.strip-clear:hover {
+  color: var(--danger);
+  border-color: #fca5a5;
+  background: var(--danger-soft);
+}
+
+.attach-button {
+  flex: none;
+}
+
+/* 图片拖进输入区时用 accent 边框提示可放置。 */
+.composer.drag-over .composer-input {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 .composer-opts {
   display: flex;
   flex-wrap: wrap;

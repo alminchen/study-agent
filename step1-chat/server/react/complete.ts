@@ -2,6 +2,7 @@ import { toolSchemasForChat } from "../tools/index.js";
 import type { ToolSchema } from "../tools/types.js";
 import { parseUsageFromResponse } from "../usage/parseUsage.js";
 import type { TokenUsage } from "../usage/types.js";
+import { toProviderMessages } from "../vision/toProviderMessages.js";
 import type { ProviderChoice, ProviderMessage, ReactLoopOptions } from "./types.js";
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
@@ -57,7 +58,8 @@ export async function requestCompletion(
 
   const body: Record<string, unknown> = {
     model,
-    messages,
+    // 唯一转换入口：user + 带图 → content parts；其余消息原样透传。
+    messages: toProviderMessages(messages),
     tools: extras?.tools ?? toolSchemasForChat(includeSearchDocs, includeConfirmTools),
     tool_choice: "auto",
     stream: false,

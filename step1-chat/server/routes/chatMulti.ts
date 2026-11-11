@@ -16,6 +16,9 @@ import type { ToolTraceHandler } from "../react/types.js";
 import { getRuntimeConfig } from "../runtimeConfig.js";
 import { runMultiRequestWithTracing } from "../tracing/langsmith.js";
 import { bindUsageCallback, UsageAccumulator } from "../usage/accumulator.js";
+import { isVisionCapableModel } from "../vision/capability.js";
+import { estimateImageTokens } from "../vision/estimateImageTokens.js";
+import { validateRequestMessages } from "../vision/validateRequestMessages.js";
 import { setSseHeaders, writeUsageToStream } from "./sse.js";
 
 /**
@@ -68,6 +71,22 @@ export function registerChatMultiRoutes(app: Express): void {
       return;
     }
 
+    // ---- 步骤 1.1：图片附件二次校验（不信前端）----
+    // 校验失败：不建 UsageAccumulator、不进 graph，直接回 vision_rejected。
+    const attachmentCheck = validateRequestMessages(messages);
+    if (!attachmentCheck.ok) {
+      res.write(
+        `data: ${JSON.stringify({
+          type: "vision_rejected",
+          code: attachmentCheck.code,
+          reason: attachmentCheck.reason,
+        })}\n\n`,
+      );
+      res.write(`data: ${JSON.stringify({ error: attachmentCheck.reason })}\n\n`);
+      res.end();
+      return;
+    }
+
     // 多 Agent 图只吃「当前这一轮」的用户问句，history 暂不传入 Supervisor
     const lastUser = [...messages].reverse().find((m: { role: string }) => m.role === "user");
     if (!lastUser || !lastUser.content) {
@@ -103,6 +122,53 @@ export function registerChatMultiRoutes(app: Express): void {
       const config = getRuntimeConfig();
       const defaultModel = typeof model === "string" && model ? model : config.model;
 
+      // ---- 步骤 2.5.5：Vision 事件（有合法附件才推；无图完全静默）----
+      let visionStats: {
+        count: number;
+        totalBytes: number;
+        estimatedTokens: number;
+      } | null = null;
+      const withImages = messages.filter(
+        (message: { attachments?: unknown[] }) =>
+          Array.isArray(message.attachments) && message.attachments.length > 0,
+      );
+      if (withImages.length > 0) {
+        const attachments = withImages.flatMap(
+          (message: {
+            attachments: Array<{
+              mimeType?: string;
+              byteSize?: number;
+              width?: number;
+              height?: number;
+            }>;
+          }) => message.attachments ?? [],
+        );
+        visionStats = {
+          count: attachments.length,
+          totalBytes: attachments.reduce(
+            (sum, a) => sum + (a.byteSize ?? 0),
+            0,
+          ),
+          estimatedTokens: attachments.reduce(
+            (sum, a) => sum + estimateImageTokens(a.width ?? 0, a.height ?? 0),
+            0,
+          ),
+        };
+        writeSse({
+          type: "vision_attachment",
+          count: attachments.length,
+          mimeTypes: [...new Set(attachments.map((a) => a.mimeType ?? ""))],
+          totalBytes: visionStats.totalBytes,
+          estimatedImageTokens: visionStats.estimatedTokens,
+        });
+        if (!isVisionCapableModel(defaultModel)) {
+          writeSse({ type: "vision_unsupported_model", model: defaultModel });
+          writeSse({ error: `当前模型 ${defaultModel} 不支持图片输入` });
+          res.end();
+          return;
+        }
+      }
+
       // ---- 步骤 2.6：inputGuard — 只标记不拦截（与单 Agent chat 链路一致）----
       const injection = detectInjection(userText);
       if (injection.level !== "none") {
@@ -116,6 +182,10 @@ export function registerChatMultiRoutes(app: Express): void {
 
       // ---- Token 累加器（先建好，Judge 拦截时也能写一份 0 用量）----
       const accumulator = new UsageAccumulator();
+      // ---- 步骤 9：图片成本进 usage（只记数字，不记 base64）----
+      if (visionStats) {
+        accumulator.recordImages(visionStats);
+      }
 
       // ---- LLM-as-Judge：默认 off 不调用 ----
       // - shadow：只写 judge_shadow 事件，主回答不变

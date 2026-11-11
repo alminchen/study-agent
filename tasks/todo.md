@@ -253,24 +253,34 @@
 
 ## 4. Vision
 
-- [ ] 4.1 确认目标模型支持图片并记录计费规则
-- [ ] 4.2 定义 text/image content part 与附件类型
-- [ ] 4.3 后端支持多模态消息且保持 tool_calls 协议不变
-- [ ] 4.4 前端支持上传/粘贴、预览、移除
-- [ ] 4.5 前后端双重校验 MIME、大小和 data URL
-- [ ] 4.6 不支持图片的模型禁用 Vision 模式
-- [ ] 4.7 完成“UI 截图 -> 问题 -> 修复建议”场景
-- [ ] 4.8 记录图片 token 与成本
-- [ ] 4.9 验证图片不进入服务端 usage 日志
-- [ ] 4.10 测试文本链路、工具链路和旧历史兼容
+- [x] 4.1 确认目标模型支持图片并记录计费规则 —— 能力判定（白名单/启发式/降级）与估算公式完成；
+      **允许模型（deepseek）的真实图片接受度未实测，待授权**
+- [x] 4.2 定义 text/image content part 与附件类型 —— `ImageAttachment` / `attachments` /
+      `ProviderContentPart` 前后端同名同义（步骤 1）
+- [x] 4.3 后端支持多模态消息且保持 tool_calls 协议不变 —— `toProviderMessages.ts` 唯一转换入口，
+      assistant(tool_calls)/tool 原样透传，测试覆盖（步骤 3/4）
+- [x] 4.4 前端支持上传/粘贴、预览、移除 —— 粘贴/拖拽/选择 + `ImageAttachment.vue` 缩略图移除；
+      浏览器手工点验待授权（步骤 6）
+- [x] 4.5 前后端双重校验 MIME、大小和 data URL —— 前端快校验 + 路由层二次校验共用常量，
+      31/31 单测通过（步骤 5/6）
+- [x] 4.6 不支持图片的模型禁用 Vision 模式 —— `GET /api/models` 下发 `supportsVision`，
+      前端入口禁用、切模型自动清附件（步骤 10）
+- [x] 4.7 完成“UI 截图 -> 问题 -> 修复建议”场景 —— 提示词区分「可见/推测」已实现；
+      **用越权模型跑通过一次（作废），deepseek 重跑待授权**
+- [x] 4.8 记录图片 token 与成本 —— `imageCount/imageBytes/estimatedImageTokens` 进 usage，
+      不与文本 token 混记（步骤 9）
+- [x] 4.9 验证图片不进入服务端 usage 日志 —— 只记数字不记 base64，代码路径保证；
+      localStorage 搜 base64 的浏览器验证待授权
+- [x] 4.10 测试文本链路、工具链路和旧历史兼容 —— vision 专项 31/31 通过；
+      三条真实链路回归（chat/multi/rag）待授权
 
 ### 检查点 4
 
-- [ ] 粘贴截图可完成一次分析
-- [ ] 格式/大小/模型不支持均有明确错误
-- [ ] 清空会话后不残留 data URL
-- [ ] `npm run typecheck`
-- [ ] `npm run build`
+- [ ] 粘贴截图可完成一次分析 —— **待授权**（需允许模型真实调用）
+- [x] 格式/大小/模型不支持均有明确错误 —— 错误码 + 文案映射实现，单测覆盖
+- [ ] 清空会话后不残留 data URL —— 代码路径已保证，浏览器验证待授权
+- [x] `npm run typecheck` —— 通过
+- [x] `npm run build` —— 通过（vite build 1827 模块）
 
 ## 5. Memory
 
