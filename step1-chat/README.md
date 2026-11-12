@@ -49,6 +49,11 @@
 | Plan-and-Execute | `server/plan-execute/` | 规则路由、Planner、顺序 Executor、受控 Re-plan 和计划时间线 |
 | 长上下文管理 | `server/context/`、`server/chat.ts` | Token 预算、结构化摘要、工具消息配对和摘要失败回退 |
 | MCP Server | `server/mcp/` | 通过 stdio 暴露天气、时间和知识库工具 |
+| LLM-as-Judge 语义判定 | `server/guard/` | 输入 / 检索片段 / 输出三个判定面，off / shadow / enforce 三档 |
+| Reflection 自我评估 | `server/reflection/` | 独立端点，四维评分与达标重写，默认关闭不影响日常聊天 |
+| 图片输入（Vision） | `server/vision/` | 前端压缩 → 服务端硬校验 → 模型能力判定 → 供应商 content parts 转换 |
+| 检索前查询增强 | `server/rag/queryEnhance/` | 意图拆解、问句扩写、多知识库路由、Multi-Query 和 HyDE |
+| 记忆管理接口 | `server/routes/memory.ts` | 用户可查看、改值、软删除和清空自己的记忆 |
 | 回归评测 | `evals/` | 分别评测单 Agent 和多 Agent |
 
 ### 功能入口与 Mock 范围
@@ -60,6 +65,8 @@
 | Streaming Structured | `/api/chat/structured` | 选择表格或代码；普通输出不选目标 | 支持 | 普通聊天历史中只保存完整结果 |
 | 多 Agent | `/api/chat/multi` | 保持多 Agent 开启，使用普通文本输出且不开启计划 | 不支持 | 普通聊天历史 |
 | RAG 资料问答 | `/api/rag/chat` | 切换到“资料问答” | 不支持 | 独立 RAG 历史 |
+| Reflection 复盘 | `/api/chat/reflection` | 独立复盘入口 | 不支持 | 不持久化 |
+| 图片输入 | `/api/chat`、`/api/chat/multi` | 开启图片输入开关后粘贴或选择图片 | 随主链路，Mock 不真正识图 | 只存图片元数据，不存 base64 |
 
 Mock 指本地模拟模型流或回答，不等于真实模型验收。多 Agent 和 RAG 都必须有真实
 `LLM_API_KEY`，且 `MOCK_MODE != 1`。上表来自当前源码和文档的静态核对；本轮 README
@@ -709,6 +716,72 @@ Streaming 结构化输出，响应类型为 `text/event-stream`。当前只支�
 
 调试接口，列出指定确认会话当前挂起的工具调用。
 
+### `POST /api/chat/reflection`
+
+独立反思端点，响应类型为 `text/event-stream`。先出一版答案，再回头评分，必要时重写。
+
+请求体：
+
+```json
+{
+  "question": "为什么改了切分还要重新入库？",
+  "sessionId": "session-1",
+  "model": "deepseek-chat",
+  "mode": "shadow",
+  "searchDocs": false
+}
+```
+
+请求约束：
+
+- `question` 必填；`sessionId`、`model`、`searchDocs` 可选。
+- `mode` 只能是 `shadow` 或 `enforce`，而且**只能把服务端模式往下调**（`enforce` → `shadow`），不能往上抬。最终生效的模式看服务端日志。
+- 请求体非法时返回 HTTP 400 JSON，不会建立 SSE 流。
+- 生成阶段失败时降级返回初版答案，不会把整个请求打挂。
+
+这个端点**不在默认聊天链路里**，是实验能力。日常聊天不受 `REFLECTION_MODE` 影响。
+
+### `GET /api/memory`
+
+列出当前生效的记忆（已过滤过期与软删除，按最近更新排序）。必须带 `userId`：
+
+```bash
+GET /api/memory?userId=anon_xxxxxxxx
+```
+
+`userId` 必须形如 `anon_` 加 1～64 位字母数字下划线连字符，缺失或非法返回 400。
+
+### `POST /api/memory`
+
+手动写入一条记忆。同 key 同值合并；同 key 不同值**不自动覆盖**，旧记录被标上 `conflict`，由用户在面板里裁决。
+
+```json
+{
+  "userId": "anon_xxxxxxxx",
+  "key": "preferred_stack",
+  "value": "Vue 3",
+  "source": "manual",
+  "confidence": 0.9
+}
+```
+
+响应里 `fact` 是最终记录，顶层 `conflict` 布尔方便前端不用钻进 `fact` 里找。
+
+### `PATCH /api/memory/:id`
+
+修改一条记忆的 `value` / `confidence` / `expiresAt`。
+
+- 传了不可改字段（`key`、`source`）直接返回 400 并说明原因，**不静默忽略**——静默忽略会让前端以为改成功了。
+- 找不到记录和跨用户访问都返回 404，分不清「不存在」和「不是你的」，否则这条接口就成了探测别人记忆 id 的工具。
+
+### `DELETE /api/memory/:id`
+
+软删除一条记忆。记录仍保留在磁盘上，可审计。
+
+### `DELETE /api/memory`
+
+清空全部记忆，**必须显式带 `confirm=all`**，否则返回 400。清空对用户来说不可撤销，少一个确认键比多一个麻烦安全。
+
 ### `GET /api/usage`
 
 返回按两个时间口径分开的统计：**全部** 和 **当天**（本地时区当天 00:00 起）。
@@ -970,7 +1043,13 @@ npm run test:long-context -- --mode=summary-ok --backend=real
 | `npm run eval:chat` | 运行单 Agent 评测 |
 | `npm run eval:multi` | 运行多 Agent 评测 |
 | `npm run eval:plan` | 运行 Plan 离线 Mock 评测；加 `--compare` 切到真实模型对比 |
+| `npm run eval:judge` | 运行 LLM-as-Judge 离线评测管线 |
+| `npm run judge:check` | 校验 Judge 评测数据集质量 |
 | `npm run test:long-context` | 运行长上下文验收，默认 stub 后端 |
+| `npm run test:memory` | 运行 Memory 端到端校验 |
+| `npm run test:chains` | 运行五链路回归，确认记忆改造没波及既有链路 |
+
+脚本的完整清单和每支脚本的用途见 `scripts/README.md`。
 
 带参数调用 npm script 时必须使用 `--`：
 
@@ -984,23 +1063,30 @@ npm run eval:chat -- --id weather-gz
 
 ```text
 step1-chat/
-├── src/
-│   ├── api/                 前端 SSE 请求与事件解析（记忆事件见 memoryTrace.ts）
-│   ├── components/          聊天、工具轨迹、命中、用量面板
-│   ├── composables/         聊天状态、切换、重试、持久化
-│   └── rag/                 前端引用工具
-├── server/
+├── src/                     前端：Vue 3 + TypeScript
+│   ├── api/                 SSE 请求与事件解析、记忆 / 模型 / 用量客户端
+│   ├── components/          聊天、工具轨迹、命中、用量、记忆、计划面板
+│   ├── composables/         聊天状态中枢 useChat：发流、重试、事件归并
+│   ├── rag/                 引用切分
+│   └── vision/              图片压缩与快速校验
+├── server/                  服务端
 │   ├── routes/              Express 路由和 SSE 封装
+│   ├── chat.ts              单轮对话内核：system、上下文、Guard、记忆、编排
 │   ├── react/               单 Agent ReAct / LangGraph
 │   ├── multi-agent/         Supervisor、Worker、Aggregate
 │   ├── rag/                 RAG 检索、重排、Prompt 和回答
+│   │   └── queryEnhance/    意图、扩写、路由、多路召回、HyDE
 │   ├── context/             Token 预算、上下文裁剪和结构化摘要
 │   ├── memory/              跨会话长期记忆：数据模型、检索、抽取、公共接入层
 │   ├── structured/          Structured 协议、partial 解析和流式快照
 │   ├── plan-execute/        Plan 路由、Planner、Executor 和 Re-plan
-│   ├── guard/               输入、工具、输出防护
+│   ├── reflection/          自我评估：评分与重写
+│   ├── guard/               输入、工具、输出防护 + LLM Judge
+│   ├── answer-style/        知识库回答风格收敛
+│   ├── vision/              图片校验、能力判定、协议转换
 │   ├── tools/               工具 Schema 和本地实现
 │   ├── mcp/                 MCP Server
+│   ├── mock/                无 Key 时的假流式回复
 │   ├── tracing/             LangSmith 跟踪
 │   └── usage/               Token 统计、存储和估价
 ├── scripts/                 RAG、MCP、图表和评测脚本
@@ -1012,6 +1098,9 @@ step1-chat/
 ├── .chroma/                 本地向量库，已忽略
 └── data/                    用量日志，已忽略
 ```
+
+每个子目录都有自己的 README，讲清那条链路的具体机制；
+`server/README.md` 和 `src/README.md` 是两张总地图。
 
 ## 安全边界与限制
 
@@ -1083,42 +1172,75 @@ npm run predawn:rerank
 
 ## 相关文档
 
-- `docs/flows-index.md`：流程索引
-- `docs/flows-index.html`：浏览器版流程索引
-- `docs/structured-output.md`：Streaming 结构化输出阶段总结
-- `docs/structured-output-flow.svg`：Streaming 结构化输出全链路图
-- `docs/plan-and-execute.md`：Plan-and-Execute 架构、事件、确认边界和验收状态
-- `docs/plan-and-execute-flow.svg`：Plan-and-Execute 全链路图
-- `docs/long-context.md`：长上下文预算、结构化摘要、降级和压缩提示
-- `docs/long-context-flow.svg`：长上下文管理全链路图
+### 总地图
+
+- `server/README.md`：服务端分层总览与模块地图
+- `src/README.md`：前端分层总览、组件与状态中枢说明
+- `scripts/README.md`：本地验证脚本清单与用法
+- `evals/README.md`：评测数据集与两套判分体系
+
+### 模块说明（每个目录一份）
+
+- `server/routes/README.md`：HTTP 端点总表与两种响应风格
+- `server/react/README.md`：单 Agent ReAct 循环与人工确认闸门
+- `server/multi-agent/README.md`：Supervisor、Worker、Aggregate
+- `server/plan-execute/README.md`：Planner、Executor 与 Re-plan
+- `server/structured/README.md`：结构化输出的协议与状态机
+- `server/reflection/README.md`：自我评估的评分与重写
+- `server/guard/README.md`：输入、工具、输出三道防护
+- `server/memory/README.md`：跨会话记忆的数据模型与链路
+- `server/context/README.md`：Token 预算、上下文裁剪与摘要
+- `server/rag/README.md`：检索、重排、拼 prompt 与生成
+- `server/rag/queryEnhance/README.md`：检索前查询增强五个单元
+- `server/answer-style/README.md`：知识库回答风格收敛
+- `server/vision/README.md`：图片输入的服务端校验与协议转换
+- `src/vision/README.md`：前端图片压缩与快速校验
+- `server/tools/README.md`：工具注册表与本地实现
+- `server/mcp/README.md`：MCP Server
+- `server/mock/README.md`：无 Key 时的假流式回复
+- `server/tracing/README.md`：LangSmith 追踪与 span 结构
+- `server/usage/README.md`：Token 统计与成本估算
+
+### 专题说明
+
+- `docs/llm-judge.md`：输出判定（Judge）的三档模式、判定口径和运维说明
+- `docs/reflection.md`：自我评估（Reflection）的三档模式、准入条件和降级策略
+- `docs/vision.md`：图片输入（Vision）的模型能力判定、图片上限和当前边界
 - `docs/memory.md`：跨会话记忆阶段总结（数据模型、事实 vs 语义选型、实测数据、隐私设计）
-- `docs/memory-changelog.md`：跨会话记忆变更记录
-- `docs/memory-flow.svg`：跨会话记忆全链路图
+- `docs/memory-chain-integration.md`：记忆接入各链路的集成说明
+- `docs/long-context.md`：长上下文预算、结构化摘要、降级和压缩提示
 - `docs/project-messages-flow.md`：消息组装与调用链
 - `docs/rag-query-enhance-notes.md`：RAG 查询增强
+- `docs/dynamic-tool-discovery.md`：工具动态发现机制
+- `docs/mcp-usage.md`：MCP 接入与使用说明
+- `docs/resilience-failure-map.md`：失败与降级地图
+- `docs/structured-output.md`：Streaming 结构化输出阶段总结
+- `docs/plan-and-execute.md`：Plan-and-Execute 架构、事件、确认边界和验收状态
+
+### 改造记录
+
+- `docs/llm-judge-changelog.md`：输出判定设计记录
+- `docs/reflection-changelog.md`：自我评估设计记录
+- `docs/vision-changelog.md`：图片输入变更记录
+- `docs/memory-changelog.md`：跨会话记忆变更记录
+- `docs/memory-chain-changelog.md`：记忆链路变更记录
 - `docs/human-confirm-changelog.md`：人工确认设计记录
 - `docs/multi-agent-human-confirm-changelog.md`：多 Agent 确认流程
 - `docs/rag-input-output-guard-changelog.md`：RAG 防护改造
-- `sequence-diagrams.md`：时序图与 Mermaid 源说明
-- `diagrams/index.html`：图表导航页
+- `docs/post-learning-optimization-changelog.md`：后学习优化记录
+
+### 图表与流程
+
+- `docs/flows-index.md`：流程索引
+- `docs/flows-index.html`：浏览器版流程索引
 - `docs/project-topology.html`：项目拓扑与模块总览
-- `docs/llm-judge.md`：输出判定（Judge）的三档模式、判定口径和运维说明
-- `docs/llm-judge-changelog.md`：输出判定设计记录
-- `docs/reflection.md`：自我评估（Reflection）的三档模式、准入条件和降级策略
-- `docs/reflection-changelog.md`：自我评估设计记录
-- `docs/vision.md`：图片输入（Vision）的模型能力判定、图片上限和当前边界
-- `docs/memory-chain-integration.md`：记忆接入各链路的集成说明
-- `docs/memory-chain-changelog.md`：记忆链路变更记录
-- `docs/resilience-failure-map.md`：失败与降级地图
-- `docs/mcp-usage.md`：MCP 接入与使用说明
-- `docs/dynamic-tool-discovery.md`：工具动态发现机制
+- `diagrams/index.html`：图表导航页
+- `sequence-diagrams.md`：时序图与 Mermaid 源说明
+- `docs/structured-output-flow.svg`、`docs/plan-and-execute-flow.svg`、
+  `docs/long-context-flow.svg`、`docs/memory-flow.svg`：各链路全链路图
+
+### 评测报告
+
 - `evals/judge-comparison-report.md`：判定能力评测报告
+- `evals/judge-comparison-report.smoke.md`：判定能力冒烟报告
 - `evals/reflection-comparison-report.md`：自我评估评测报告
-- `routes/README.md`
-- `structured/README.md`
-- `react/README.md`
-- `multi-agent/README.md`
-- `rag/README.md`
-- `usage/README.md`
-- `mcp/README.md`
-- `memory/README.md`

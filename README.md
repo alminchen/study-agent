@@ -102,6 +102,11 @@ npm run dev
 | [step1-chat/docs/long-context.md](step1-chat/docs/long-context.md) | 长上下文管理：Token 预算、结构化摘要、降级和压缩提示 |
 | [step1-chat/docs/dynamic-tool-discovery.md](step1-chat/docs/dynamic-tool-discovery.md) | 工具静态注册与动态发现方案 |
 | [step1-chat/docs/resilience-failure-map.md](step1-chat/docs/resilience-failure-map.md) | 失败地图、恢复策略和降级行为 |
+| [step1-chat/docs/llm-judge.md](step1-chat/docs/llm-judge.md) | LLM-as-Judge 语义判定：三档模式、判定口径与评测 |
+| [step1-chat/docs/reflection.md](step1-chat/docs/reflection.md) | Reflection 自我评估：三档模式、准入条件与降级 |
+| [step1-chat/docs/memory.md](step1-chat/docs/memory.md) | 跨会话记忆：数据模型、选型对比与隐私设计 |
+| [step1-chat/docs/memory-chain-integration.md](step1-chat/docs/memory-chain-integration.md) | 记忆接入四条链路的集成说明 |
+| [step1-chat/docs/vision.md](step1-chat/docs/vision.md) | 图片输入：模型能力判定、图片上限与当前边界 |
 | [step1-chat/docs/human-confirm-changelog.md](step1-chat/docs/human-confirm-changelog.md) | 单 Agent 人工确认的修改记录和回归表 |
 | [step1-chat/docs/multi-agent-human-confirm-changelog.md](step1-chat/docs/multi-agent-human-confirm-changelog.md) | 多 Agent 人工确认的修改记录 |
 | [step1-chat/docs/rag-input-output-guard-changelog.md](step1-chat/docs/rag-input-output-guard-changelog.md) | RAG Guard、SSE Trace 和 LangSmith 修改记录 |
@@ -112,6 +117,10 @@ npm run dev
 
 | 文档 | 说明 |
 | --- | --- |
+| [step1-chat/server/README.md](step1-chat/server/README.md) | 服务端分层总览与模块地图 |
+| [step1-chat/src/README.md](step1-chat/src/README.md) | 前端分层总览、组件与状态中枢 |
+| [step1-chat/scripts/README.md](step1-chat/scripts/README.md) | 本地验证脚本清单与用法 |
+| [step1-chat/evals/README.md](step1-chat/evals/README.md) | 评测数据集与两套判分体系 |
 | [step1-chat/server/routes/README.md](step1-chat/server/routes/README.md) | HTTP 路由拆分与 SSE 端点 |
 | [step1-chat/server/react/README.md](step1-chat/server/react/README.md) | 单 Agent ReAct 循环 |
 | [step1-chat/server/multi-agent/README.md](step1-chat/server/multi-agent/README.md) | Supervisor-Worker 多 Agent 编排 |
@@ -121,6 +130,16 @@ npm run dev
 | [step1-chat/server/mcp/README.md](step1-chat/server/mcp/README.md) | MCP Server 与 stdio 工具暴露 |
 | [step1-chat/server/tracing/README.md](step1-chat/server/tracing/README.md) | LangSmith Tracing 接入 |
 | [step1-chat/server/usage/README.md](step1-chat/server/usage/README.md) | Token 统计、成本估算与用量接口 |
+| [step1-chat/server/structured/README.md](step1-chat/server/structured/README.md) | 结构化输出的协议与状态机 |
+| [step1-chat/server/plan-execute/README.md](step1-chat/server/plan-execute/README.md) | Planner、Executor 与 Re-plan |
+| [step1-chat/server/reflection/README.md](step1-chat/server/reflection/README.md) | 自我评估的评分与重写 |
+| [step1-chat/server/memory/README.md](step1-chat/server/memory/README.md) | 跨会话记忆的数据模型与链路 |
+| [step1-chat/server/context/README.md](step1-chat/server/context/README.md) | Token 预算、上下文裁剪与摘要 |
+| [step1-chat/server/rag/queryEnhance/README.md](step1-chat/server/rag/queryEnhance/README.md) | 检索前查询增强五个单元 |
+| [step1-chat/server/answer-style/README.md](step1-chat/server/answer-style/README.md) | 知识库回答风格收敛 |
+| [step1-chat/server/vision/README.md](step1-chat/server/vision/README.md) | 图片输入的服务端校验与协议转换 |
+| [step1-chat/src/vision/README.md](step1-chat/src/vision/README.md) | 前端图片压缩与快速校验 |
+| [step1-chat/server/mock/README.md](step1-chat/server/mock/README.md) | 无 Key 时的假流式回复 |
 
 ### 教学样例
 
