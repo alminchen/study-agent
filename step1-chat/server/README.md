@@ -22,6 +22,7 @@ server/
 ├── guard/              输入 / 工具 / 输出三道防护 + LLM Judge
 ├── memory/             跨会话长期记忆：抽取、合并、检索、注入
 ├── rag/                检索增强：切分、向量化、检索、重排、拼 prompt
+├── kb/                 动态知识库：上传、切片、向量化、分类、检索、删除
 ├── answer-style/       知识库回答风格收敛（清洗检索元信息）
 ├── tools/              工具 schema 与本地实现
 ├── mcp/                MCP Server（对外暴露同一套工具）
@@ -45,6 +46,7 @@ server/
 | `memory/` | 跨会话记住用户偏好与事实 | `memory/README.md` |
 | `context/` | 按 token 预算裁剪与摘要历史 | `context/README.md` |
 | `rag/` | 检索 + 重排 + 拼 prompt + 生成 | `rag/README.md` |
+| `kb/` | 动态知识库：上传 → 切片 → 向量化 → 可检索 | `kb/README.md` |
 | `tools/` | 工具注册表与具体工具实现 | `tools/README.md` |
 | `mcp/` | 用标准协议对外提供工具 | `mcp/README.md` |
 | `tracing/` | 把每一步打进 LangSmith | `tracing/README.md` |

@@ -69,6 +69,7 @@
     <a href="#memory">0g Memory</a>
     <a href="#memory-chain">0h Memory 链路接入</a>
     <a href="#vision">0i Vision（图片输入）</a>
+    <a href="#rag-kb-merge">0j RAG 双库合并</a>
     <a href="#chat-react">1 单 Agent</a>
     <a href="#chat-multi">2 多 Agent</a>
     <a href="#rag-chat">3 资料问答</a>
@@ -160,6 +161,15 @@
     </div>
     <img src="./vision-flow.svg" alt="Vision 图片输入：协议升级、前端压缩校验、服务端硬校验与能力判定、供应商 content parts 转换、usage 图片成本记账、能力下发与入口禁用、隐私边界与已知风险">
     <figcaption>vision-flow.svg — ① 协议升级（content 不改类型 + 独立 attachments）· ② 前端三入口 + 压缩（最长边 1600px / jpeg 0.85 / 超限 1200px 重压）+ 快校验 · ③ 服务端 validateImage 逐层拒绝 + isVisionCapableModel 四级判定 + 失败不调模型 + 七个错误码 · ④ toProviderMessages 唯一转换入口（文字在前图片在后，assistant/tool 原样透传）· ⑤ recordImages + estimateImageTokens（85 + 170×块数 ×1.2）+ 三条 SSE 事件 · ⑥ supportsVision 下发 + 入口禁用 + 切模型清附件 + 8mb 请求体上限 · ⑦ 隐私边界与已知未解决风险</figcaption>
+  </figure>
+
+  <figure id="rag-kb-merge">
+    <div class="fhead">
+      <span class="no">0j · 动态知识库 · RAG 双库合并衔接（方案 B）</span>
+      <span class="doc-link">文档 <a href="./rag-kb-merge.md">rag-kb-merge.md</a> · 计划 <a href="../../rag-full-search-plan.md">rag-full-search-plan.md</a> · 拓扑 <a href="./project-topology.html#rag-kb-merge">§6k</a></span>
+    </div>
+    <img src="./rag-kb-merge-flow.svg" alt="动态知识库 RAG 双库合并衔接：前端分类可选、路由透传 category、retrieve 合并离线 notes 与动态库、kbHitToSearchHit 适配、按分数排序截断、判空闸门与重排不变、命中面板分类标签">
+    <figcaption>rag-kb-merge-flow.svg — ① 前端分类下拉（「全部」= 不带 category → 全库；选具体 → 带上硬过滤）· ② 路由透传 answerFromDocs → retrieveForAnswer 三个调用点 · ③ retrieve 合并：离线 LocalVectorStore.search（空库不抛错）+ 动态 askKnowledge（有值 searchByCategory / 无值 searchAll）· ④ kbHitToSearchHit 适配（id/source 带 category__ 前缀，embedding 置空，category 冗余）· ⑤ 按 score desc 排序 + slice(topK) · ⑥ judgeRetrieval + rerankHits（逻辑不改）· ⑦ RagHitPanel splitSource 拆分类标签（离线无前缀保持文件名）</figcaption>
   </figure>
 
   <figure id="chat-react">

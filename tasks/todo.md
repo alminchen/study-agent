@@ -341,25 +341,32 @@
 
 ## 7. Reflection
 
-- [ ] 7.1 定义相关性/完整性/依据/清晰度 rubric
-- [ ] 7.2 定义结构化 `CritiqueSchema`
-- [ ] 7.3 新增独立 `/api/chat/reflection`
-- [ ] 7.4 实现 draft -> critic -> 最多一次 revise
-- [ ] 7.5 第二次不优于第一次时停止
-- [ ] 7.6 重写禁止引入工具事实之外的新内容
-- [ ] 7.7 推送评分、重写、跳过 trace
-- [ ] 7.8 对比原答案与 Reflection 的质量、延迟、成本
-- [ ] 7.9 Evals 无收益时不并入默认链路
-- [ ] 7.10 文档说明自评偏差
+- [x] 7.1 定义相关性/完整性/依据/清晰度 rubric
+- [x] 7.2 定义结构化 `CritiqueSchema`
+- [x] 7.3 新增独立 `/api/chat/reflection`
+- [x] 7.4 实现 draft -> critic -> 最多一次 revise
+- [x] 7.5 第二次不优于第一次时停止
+- [x] 7.6 重写禁止引入工具事实之外的新内容
+- [x] 7.7 推送评分、重写、跳过 trace
+- [x] 7.8 对比原答案与 Reflection 的质量、延迟、成本
+- [x] 7.9 Evals 无收益时不并入默认链路
+- [x] 7.10 文档说明自评偏差
+
+> 2026-11-16 对齐：阶段 7 代码、文档、端点、开关与 A/B 数据集均已实现，
+> 详见 `docs/reflection-changelog.md`。已知缺口保留：单测未补齐、
+> 真实模型 A/B 为 mock、未接入 plan/multi 链路。
 
 ### 检查点 7
 
-- [ ] 最多一次修订
-- [ ] 无改进立即停止
-- [ ] trace 可解释
-- [ ] 有质量/成本对比
-- [ ] `npm run typecheck`
-- [ ] `npm run build`
+- [x] 最多一次修订
+- [x] 无改进立即停止
+- [x] trace 可解释
+- [x] 有质量/成本对比
+- [x] `npm run typecheck`
+- [x] `npm run build`
+
+> 检查点验证：单测未补齐，但 tsc 与 A/B CLI 已通过；
+> 真实模型对比为 mock，质量收益结论暂不成立。
 
 ## 8. Tool 动态发现
 

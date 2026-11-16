@@ -1043,5 +1043,82 @@
     "totalTokens": 1928,
     "llmCalls": 3,
     "estimatedCostUsd": 0.0004594
+  },
+  {
+    "id": "usage_1794813828466_i85fko",
+    "timestamp": 1794813828466,
+    "endpoint": "chat/multi",
+    "model": "deepseek-v4.1-flash",
+    "promptTokens": 1809,
+    "completionTokens": 122,
+    "totalTokens": 1931,
+    "llmCalls": 3,
+    "estimatedCostUsd": 0.0004594
+  },
+  {
+    "id": "usage_1794819762741_ck8c53",
+    "timestamp": 1794819762741,
+    "endpoint": "rag/chat",
+    "model": "deepseek-v4.1-flash",
+    "promptTokens": 268,
+    "completionTokens": 382,
+    "totalTokens": 650,
+    "llmCalls": 1,
+    "estimatedCostUsd": 0.00035920000000000006
+  },
+  {
+    "id": "usage_1794822018940_fq945q",
+    "timestamp": 1794822018940,
+    "endpoint": "rag/chat",
+    "model": "deepseek-v4.1-flash",
+    "promptTokens": 1391,
+    "completionTokens": 330,
+    "totalTokens": 1721,
+    "llmCalls": 2,
+    "estimatedCostUsd": 0.0005422000000000001
+  },
+  {
+    "id": "usage_1794824440994_qwz6ju",
+    "timestamp": 1794824440994,
+    "endpoint": "rag/chat",
+    "model": "deepseek-v4.1-flash",
+    "promptTokens": 259,
+    "completionTokens": 207,
+    "totalTokens": 466,
+    "llmCalls": 1,
+    "estimatedCostUsd": 0.00021740000000000003
+  },
+  {
+    "id": "usage_1794824657876_3j7w75",
+    "timestamp": 1794824657876,
+    "endpoint": "rag/chat",
+    "model": "deepseek-v4.1-flash",
+    "promptTokens": 1338,
+    "completionTokens": 876,
+    "totalTokens": 2214,
+    "llmCalls": 2,
+    "estimatedCostUsd": 0.0009684
+  },
+  {
+    "id": "usage_1794824752228_kg9lxu",
+    "timestamp": 1794824752228,
+    "endpoint": "rag/chat",
+    "model": "deepseek-v4.1-flash",
+    "promptTokens": 2147,
+    "completionTokens": 1242,
+    "totalTokens": 3389,
+    "llmCalls": 2,
+    "estimatedCostUsd": 0.0014230000000000002
+  },
+  {
+    "id": "usage_1794824863920_4l2byw",
+    "timestamp": 1794824863920,
+    "endpoint": "rag/chat",
+    "model": "deepseek-v4.1-flash",
+    "promptTokens": 274,
+    "completionTokens": 375,
+    "totalTokens": 649,
+    "llmCalls": 1,
+    "estimatedCostUsd": 0.00035480000000000006
   }
 ]

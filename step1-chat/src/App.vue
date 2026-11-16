@@ -3,11 +3,14 @@
  * 页面壳层只负责模式选择、输入和面板布局。
  * 所有聊天、流式、持久化和结构化状态都由 useChat 管理。
  */
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { Bot, Eraser, Paperclip, RotateCcw, Send, Square } from "@lucide/vue";
+// 分类列表数据源（步骤 6）：下拉框的「具体分类」选项来自动态知识库
+import { listKbCategories, type KbCategory } from "./api/kb";
 import ChatMessageItem from "./components/ChatMessageItem.vue";
 import ContextCompactionNotice from "./components/ContextCompactionNotice.vue";
 import ImageAttachment from "./components/ImageAttachment.vue";
+import KbPanel from "./components/KbPanel.vue";
 import MemoryPanel from "./components/MemoryPanel.vue";
 import PlanTimeline from "./components/PlanTimeline.vue";
 import RagHitPanel from "./components/RagHitPanel.vue";
@@ -59,6 +62,8 @@ const {
   model,
   modelOptions,
   ragMode,
+  ragCategory,
+  setRagCategory,
   searchKb,
   multiAgent,
   planEnabled,
@@ -109,11 +114,40 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const dragOver = ref(false);
 // 记忆管理浮层的开关；纯视图状态，面板本身的状态在 useChat 里。
 const memoryOpen = ref(false);
+// 知识库管理浮层的开关；独立于聊天主链路，打开时不影响流式状态
+const kbOpen = ref(false);
+/** 资料问答下拉框的分类选项（步骤 6）：后端 /api/kb/categories，只读列表不缓存。 */
+const kbCategories = ref<KbCategory[]>([]);
+
+/** 拉取分类列表；失败静默置空（只影响下拉选项，不阻塞聊天主链路）。 */
+async function loadKbCategories() {
+  try {
+    // 拿分类列表填下拉框；服务端坏了也不让问答入口失败
+    const data = await listKbCategories();
+    kbCategories.value = data.categories;
+  } catch {
+    kbCategories.value = [];
+  }
+}
+
+/** 下拉切换分类：交给 useChat 的记录，下次 /api/rag/chat 请求自动带上（空串 = 全部）。 */
+function handleRagCategoryChange(event: Event) {
+  setRagCategory((event.target as HTMLSelectElement).value);
+}
+
+// 首屏加载一次分类列表；分类在知识库浮层里新增后，刷新页面即可看到
+onMounted(() => {
+  void loadKbCategories();
+});
 
 /** 打开记忆面板时顺手刷新一次列表：可能刚刚在聊天里存了新记忆。 */
 function openMemoryPanel() {
   memoryOpen.value = true;
   void refreshMemoryFacts();
+}
+/** 打开知识库面板：入口在顶栏，打开时不触发任何请求（KbPanel 自己 onMounted 拉）。 */
+function openKbPanel() {
+  kbOpen.value = true;
 }
 // text 保持原有普通聊天；table/code 切换到独立结构化协议。
 const structuredTarget = ref<StructuredTarget | "text">("text");
@@ -423,6 +457,14 @@ function togglePlanEnabled() {
         >
           记忆{{ allowMemory ? "开" : "关" }}
         </button>
+        <!-- 知识库入口：常驻顶栏，打开浮层面板操作上传/任务/检索 -->
+        <button
+          class="mode-toggle kb-toggle"
+          title="知识库管理（上传 / 任务状态 / 块预览 / 分类检索）"
+          @click="openKbPanel"
+        >
+          知识库
+        </button>
         <button
           class="icon-button"
           :disabled="isStreaming || messages.length === 0"
@@ -598,6 +640,30 @@ function togglePlanEnabled() {
               </option>
             </select>
           </div>
+          <!-- 资料问答模式：分类下拉（步骤 6）。「全部」= 不带 category，走全库检索两套库。 -->
+          <div v-if="ragMode" class="composer-opts">
+            <label class="kb-opt" for="rag-category-select">分类</label>
+            <select
+              id="rag-category-select"
+              class="model-select plan-mode-select"
+              :value="ragCategory"
+              :disabled="isStreaming"
+              title="选择资料问答分类；「全部」= 全库检索离线 + 动态两套库"
+              aria-label="选择资料问答分类"
+              @change="handleRagCategoryChange"
+            >
+              <!-- 空 value 表示全库：服务端不收到 category 字段 → searchAll -->
+              <option value="">全部</option>
+              <!-- 具体分类：请求带上 category → 动态库硬过滤该分类 -->
+              <option
+                v-for="category in kbCategories"
+                :key="category.id"
+                :value="category.name"
+              >
+                {{ category.name }}
+              </option>
+            </select>
+          </div>
         </footer>
         <!-- 附件选择框隐藏渲染；accept 与服务端 MIME 白名单保持一致。 -->
         <input
@@ -664,6 +730,24 @@ function togglePlanEnabled() {
         />
       </div>
     </div>
+
+    <!-- 知识库管理浮层：结构与记忆浮层一致，内容为 KbPanel 组件 -->
+    <div v-if="kbOpen" class="kb-overlay" @click.self="kbOpen = false">
+      <div class="kb-dialog" role="dialog" aria-label="知识库管理">
+        <header class="dialog-head">
+          <strong>知识库管理</strong>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="关闭知识库管理"
+            @click="kbOpen = false"
+          >
+            ×
+          </button>
+        </header>
+        <KbPanel />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -697,6 +781,31 @@ function togglePlanEnabled() {
 .memory-dialog {
   width: min(560px, 100%);
   max-height: min(82vh, 720px);
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+}
+/* 知识库入口按钮：与其他顶栏按钮并列，无需状态色 */
+.kb-toggle {
+  color: var(--muted);
+}
+/* 知识库浮层：与记忆浮层同一套遮罩风格 */
+.kb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.35);
+}
+/* 知识库浮层面板：比记忆面板宽，容纳四个区块 */
+.kb-dialog {
+  width: min(780px, 100%);
+  max-height: min(88vh, 820px);
   overflow-y: auto;
   padding: 14px 16px 16px;
   border-radius: 12px;

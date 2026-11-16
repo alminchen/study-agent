@@ -6,6 +6,7 @@ import { registerChatPlanRoutes } from "./chatPlan.js";
 import { registerChatReflectionRoutes } from "./chatReflection.js";
 import { registerChatStructuredRoutes } from "./chatStructured.js";
 import { registerHealthRoutes } from "./health.js";
+import { registerKbRoutes } from "./kb.js";
 import { registerMemoryRoutes } from "./memory.js";
 import { registerModelRoutes } from "./models.js";
 import { registerRagChatRoutes } from "./ragChat.js";
@@ -17,6 +18,7 @@ export function registerRoutes(app: Express): void {
   registerHealthRoutes(app);
   registerModelRoutes(app);
   registerRagChatRoutes(app);
+  registerKbRoutes(app);
   // 结构化输出使用独立端点，和普通聊天/RAG 路由并行挂载，互不改写协议。
   registerChatStructuredRoutes(app);
   registerChatRoutes(app);

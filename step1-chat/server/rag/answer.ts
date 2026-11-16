@@ -112,6 +112,11 @@ export async function answerFromDocs(
     onRewriteUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
     onHydeUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
     /**
+     * 动态知识库分类（可选，步骤 3 透传通道，步骤 4 合并时消费）：
+     * 有值 → 只在该分类内检索；无值 → 动态库全库搜。
+     */
+    category?: string | null;
+    /**
      * 预检索好的长期记忆块。
      *
      * 由路由层检索一次后传进来，在 prompt 的「## 用户长期记忆」小节注入。
@@ -146,6 +151,8 @@ export async function answerFromDocs(
       signal,
       onRewriteUsage: options?.onRewriteUsage,
       onHydeUsage: options?.onHydeUsage,
+      // category 原样透传给检索层（当前检索层先收货，步骤 4 才真正消费）
+      category: options?.category,
     });
     return {
       ...result,

@@ -24,6 +24,7 @@ import dotenv from "dotenv";
 import { getRuntimeConfig } from "./runtimeConfig.js";
 import { registerRoutes } from "./routes/index.js";
 import { warmRagModels } from "./rag/warmup.js";
+import { startKbWorker } from "./kb/worker.js";
 
 // 先 .env.local（本机密钥）再 .env（可提交的默认项）；后者不覆盖前者已有值
 dotenv.config({ path: ".env.local" });
@@ -74,4 +75,6 @@ app.listen(PORT, HOST, () => {
   }
   // 不阻塞端口：后台加载本地 ONNX，消灭首次检索冷启动
   void warmRagModels();
+  // 动态知识库：上传只建任务，切片/入库在后台循环里推进
+  startKbWorker();
 });

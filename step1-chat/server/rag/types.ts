@@ -30,6 +30,11 @@ export interface StoredChunk {
   text: string;
   seq: number;
   embedding: number[];
+  /**
+   * 可选：来源分类（步骤 4 合并动态知识库时冗余写入，步骤 5 前端展示分类标签用）。
+   * 离线 notes 的块没有此字段，保持 undefined，前端据此区分两套来源的展示方式。
+   */
+  category?: string;
 }
 
 export interface SearchHit {

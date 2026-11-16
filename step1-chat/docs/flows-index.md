@@ -2,7 +2,44 @@
 
 与 `human-confirm-flow.svg` 同风格的泳道流程图（含方法名与调用链）。
 
-**浏览器一页浏览全部图：** [flows-index.html](./flows-index.html)
+## 两个 HTML 页面
+
+这两个文件是**纯静态产物**，本身没有任何框架依赖，可以直接在浏览器打开预览：
+
+| 文件 | 它是什么 | 怎么看 |
+| --- | --- | --- |
+| `flows-index.html` | 一页集中展示所有流程 SVG：每个 `<figure>` 是一张泳道流程图，`<img>` 引用同目录的 `.svg`，`<figcaption>` 挂对应文档链接和拓扑锚点 | 浏览器直接打开，或 IDE 右键 `Open in Browser`；`#memory` 这类锚点会滚到对应图区 |
+| `project-topology.html` | 「学习计划 ↔ 项目落点」的方法级拓扑：Mermaid 图 + 文件清单 + 调用链，按 `0` 学习阶段、`1` 进程启动、`2` 前端入口、`3` 单 Agent、`4` 多 Agent、`5` 确认、`6` 横切、`7` 工具/动态发现等分节 | 浏览器打开。它**需要联网**：`<script>` 从 jsDelivr CDN 拉 Mermaid 11，离线打不开会只看到源码块 |
+
+### 在 Git 里预览
+
+这两个文件都在仓库里（`git ls-files` 能查到），不是生成物缓存。最省事的三种打开方式：
+
+```bash
+# 1. 直接用浏览器打开本地文件（file:// 协议）
+open docs/flows-index.html
+open docs/project-topology.html
+
+# 2. 起一个静态文件服务器，用 http://127.0.0.1:8080/docs/ 访问
+cd step1-chat && python3 -m http.server 8080
+
+# 3. 用 vs code live server 或 IDE 内置预览，任选其一
+```
+
+`flows-index.html` 用 `file://` 直接打开就能看到全部 SVG（SVG 是本地 `<img>` 引用，无跨域问题）。
+`project-topology.html` 必须走 HTTP 且**联网**，因为 Mermaid 是 CDN 引入；`file://` 下脚本照样能跑，
+但离线环境会失败。
+
+如果你在 GitHub 网页上想看，两种方式：
+
+- 仓库网页 → 点进 `step1-chat/docs/` → 点文件名，浏览器会渲染成网页，而不是给你看源码。
+- 也可以复制 GitHub 上该文件的 raw URL 到 [htmlpreview.github.io](https://htmlpreview.github.io/) 之类工具，但没必要——GitHub 原生能渲染。
+
+> 注意：这两个文件不是手写维护的。`flows-index.html` / `project-topology.html` 与 `flows-index.md` 由阶段变更记录配套生成或手工同步，改 SVg 或结构后要记得同步它们，否则索引和实际图会脱节。
+
+## 流程 SVG 一览
+
+**一页浏览全部图：** [flows-index.html](./flows-index.html)
 
 **学习计划 ↔ 项目方法级拓扑：** [project-topology.html](./project-topology.html)
 
@@ -23,6 +60,7 @@
 | [memory-flow.svg](./memory-flow.svg) | **跨会话记忆 Memory（阶段 8）**：开关与匿名 userId → 检索阈值 0.45 / Top-5 → 注入渲染与预算裁剪 → 旁路抽取与敏感信息两道闸 → 去重合并与原子落盘 → 记忆管理接口与面板 → trace 事件 → 五链路接入现状 | [memory.md](./memory.md) · [memory-changelog.md](./memory-changelog.md) · 拓扑 [§6h](./project-topology.html#memory) |
 | [memory-chain-flow.svg](./memory-chain-flow.svg) | **跨会话记忆接入四条链路（阶段 9）**：公共接入层 memory/bridge.ts → 路由层检索一次共用同一块记忆 → multi 独立 system / plan 四处 prompt / rag「## 资料」之后 / structured system prompt 末尾 → 抽取输入按链路裁剪 → 前端统一契约与事件解析 → 失败一律旁路 | [memory-chain-integration.md](./memory-chain-integration.md) · [memory-chain-changelog.md](./memory-chain-changelog.md) · 拓扑 [§6i](./project-topology.html#memory-chain) |
 | [vision-flow.svg](./vision-flow.svg) | **Vision 图片输入（进阶学习第 4 项）**：协议升级（content 不改类型 + 独立 attachments）→ 前端压缩与快校验 → 服务端硬校验 + 模型能力判定（失败不调模型）→ 供应商 content parts 唯一转换入口 → usage 图片成本三字段 → supportsVision 下发与入口禁用 → 隐私边界与已知风险 | [vision.md](./vision.md) · [vision-changelog.md](./vision-changelog.md) · 拓扑 [§6j](./project-topology.html#vision) |
+| [rag-kb-merge-flow.svg](./rag-kb-merge-flow.svg) | **动态知识库 · RAG 双库合并衔接（方案 B）**：前端分类可选 → 路由透传 category → retrieve 合并离线 notes + 动态库 → kbHitToSearchHit 适配 → 按分数排序截断 → 判空闸门 + 重排不变 → 命中面板分类标签 | [rag-kb-merge.md](./rag-kb-merge.md) · 拓扑 [§6k](./project-topology.html#rag-kb-merge) |
 | [messages-assembly-flow.svg](./messages-assembly-flow.svg) | messages 三层 × 三条链路总览 | [project-messages-flow.md](./project-messages-flow.md) |
 | [resilience-failure-flow.svg](./resilience-failure-flow.svg) | 失败地图与恢复策略 | [resilience-failure-map.md](./resilience-failure-map.md) |
 | [dynamic-tool-discovery-flow.svg](./dynamic-tool-discovery-flow.svg) | **工具动态发现（阶段 5 已落地）**：启动扫描 modules/* → discoverTools() 校验 → createRegistry() 派生唯一清单 → Guard / MCP / Chat / Worker 四路消费 | [dynamic-tool-discovery.md](./dynamic-tool-discovery.md) · 拓扑 [§7b](./project-topology.html#tools) |
@@ -40,6 +78,7 @@ Markdown 索引与浏览器版 [flows-index.html](./flows-index.html) 一一对�
 | [memory.md](./memory.md) · [memory-changelog.md](./memory-changelog.md) | **阶段 8 Memory**：跨会话记忆数据模型、事实 vs 语义选型对比、实测数据、隐私设计；变更记录 |
 | [memory-chain-integration.md](./memory-chain-integration.md) · [memory-chain-changelog.md](./memory-chain-changelog.md) | **阶段 9 Memory 链路接入**：跨会话记忆接进 multi / plan / rag / structured 四条链路 · 六个设计决策 · 四链路注入点与抽取输入对照表 · 前端契约与面板三态；变更记录 |
 | [vision.md](./vision.md) | **Vision（图片输入 · 进阶学习第 4 项）**：content parts 协议（text + image_url）→ 独立 attachments 字段，supportsVision 下发，图片成本进 usage 三字段 | [vision-changelog.md](./vision-changelog.md) · 拓扑 [§6j](./project-topology.html#vision) |
+| [rag-kb-merge.md](./rag-kb-merge.md) | **动态知识库 · RAG 双库合并衔接（方案 B）**：分类可选（空=全库）→ 适配函数统一两套命中 → 空库不再抛错 → 候选一致合并截断 → 命中面板分类标签；含文件级改动清单与验收清单 | [rag-kb-merge-flow.svg](./rag-kb-merge-flow.svg) · 拓扑 [§6k](./project-topology.html#rag-kb-merge) |
 
 ## 阶段 9 文件清单
 

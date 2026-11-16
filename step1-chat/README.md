@@ -53,6 +53,7 @@
 | Reflection 自我评估 | `server/reflection/` | 独立端点，四维评分与达标重写，默认关闭不影响日常聊天 |
 | 图片输入（Vision） | `server/vision/` | 前端压缩 → 服务端硬校验 → 模型能力判定 → 供应商 content parts 转换 |
 | 检索前查询增强 | `server/rag/queryEnhance/` | 意图拆解、问句扩写、多知识库路由、Multi-Query 和 HyDE |
+| 动态知识库 | `server/kb/` | 上传 → 切片 → 异步入库 → 可检索；分类硬边界 + RAG 双库合并衔接（全库搜 / 分类过滤） |
 | 记忆管理接口 | `server/routes/memory.ts` | 用户可查看、改值、软删除和清空自己的记忆 |
 | 回归评测 | `evals/` | 分别评测单 Agent 和多 Agent |
 
@@ -441,6 +442,114 @@ npm run dev
 
 同一 `source` 重新入库时会先替换该来源的旧记录。修改切分方式或文档内容后，需要重新运行 `rag:ingest`。
 
+### 动态知识库
+
+动态知识库是独立于 `.chroma/my_notes.json` 的第二套本地库，位于 `server/kb/`，
+与静态离线库并存。它的特点是**上传后异步切片、异步入库**，用户可实时看到任务进度，
+并按**分类硬边界**检索；步骤 4 起 RAG 采用「离线库 + 动态库」**双库合并式召回**，
+两套候选按分数合并排序后统一走判空闸门与重排。
+
+数据层（`data/kb/`）四张表 + 原件目录：
+
+| 层 | 文件 | 内容 |
+| --- | --- | --- |
+| 分类表 | `data/kb/categories.json` | `id` / `name` / `createdAt`，分类是检索硬边界 |
+| 任务表 | `data/kb/tasks.json` | 上传任务记录与状态机当前节点 |
+| 块表 | `data/kb/chunks.json` | Markdown 切块原文，按 `docId` 归属 |
+| 向量表 | `data/kb/vectors.json` | 每块的 1024 维 embedding |
+| 原件目录 | `data/kb/uploads/{docId}/` | 上传的原始 Markdown 文件 |
+
+#### 上传链路（写，秒回）
+
+`POST /api/kb/upload` 只做「收件」：校验文件名（取 basename 防路径穿越）、
+扩展名（只收 `.md`）、大小（1MB）、分类非空，然后落盘原件、登记一条
+`queued` 任务，立即返回任务记录。**切片与 embedding 不在请求里做**，否则
+「传个文件」会变成「等模型跑完」，上传是可感知的同步操作，必须秒回。
+
+上传走 JSON + base64（项目无 multer 依赖，零新增依赖），请求体：
+
+```json
+{
+  "filename": "notes.md",
+  "content": "<base64>",
+  "category": "学习计划"
+}
+```
+
+#### 后台推进（状态机）
+
+`server/kb/worker.ts` 每 2 秒跑一轮，按状态机推进：
+
+```text
+queued -> chunking -> chunked -> embedding -> searchable
+   |          |          |           |            |
+   +----------+----------+-----------+------------+-> failed(read / chunk / embed)
+```
+
+每个状态的含义与推进者：
+
+| 状态 | 含义 | 谁推进 |
+| --- | --- | --- |
+| `queued` | 上传刚落盘原件，在排队 | worker 认领 |
+| `chunking` | 已被认领，正在切 Markdown | 切片阶段 |
+| `chunked` | 已切完、块已落块表，但无向量 | worker 认领（块预览专用中间态） |
+| `embedding` | 正在逐批 embedding | 入库阶段 |
+| `searchable` | 向量已入库，可被检索命中 | 完成态 |
+| `failed` | 停在 `read` / `chunk` / `embed` 某一层 | 用户点重试 |
+
+设计要点：
+
+- **认领即置位**：worker 取活时把任务从 `queued` / `chunked` 原子改为处理中，
+  天然防重入，别的循环实例不会重复取同一任务。
+- **失败可定位**：每步失败都落 `stage` + `error` 到任务上，绝不吞异常让任务
+  永远停在排队；重试把任务复位 `queued`，`docId` 不变，不会重复建文档。
+- **分批 embed**：单批 32 块，防止几百块一次性塞给 embedding 打爆内存或触发限流。
+- **全部 embed 完才一次写盘**：中途失败不落半个文档，库里永远只有完整版。
+- **替换语义**：同「分类 + 文件名」复用同一 `docId`，入库先清旧块再写新块。
+
+#### 分类管理
+
+`GET /api/kb/categories` 列出全部类，`POST /api/kb/categories` 建类。
+分类名去空白后不能为空，同名去重（重复建返回已有 `id`）。分类是检索的
+**硬边界**，不靠 prompt 约束：上传必须选一个类，块与向量都按类归属。
+
+#### 检索链路（读，供 RAG / 知识库搜索）
+
+`server/kb/search.ts` 的 `askKnowledge({ question, category, topK })`：
+
+1. 校验问题非空，`topK` 收敛到 1..20（缺省 5）。
+2. 只 embed 提问这一句（绝不 embed 整库）。
+3. 分支：`category` 有值 → `searchByCategory` 硬过滤；无值/空串 → `searchAll` 全库扫。
+4. 命中映射为对外形状（丢弃 1024 维向量，省流量），带 `category` / `source` / `seq`。
+
+`POST /api/kb/search` 暴露给前端做知识库页检索；RAG 内部走 `askKnowledge` 而非该端点。
+
+#### RAG 双库合并衔接
+
+`server/rag/retrieve.ts` 的 `retrieve()` 采用**合并式**：
+
+```text
+question
+  -> embed 一次给离线库
+  -> 离线库 LocalVectorStore.search(topK)        （空库 -> []）
+  -> 动态库 askKnowledge({ question, category, topK })   （空库 -> []）
+  -> kbHitToSearchHit 适配成 SearchHit（id/source = 分类__文件名__块序号）
+  -> 两套候选按 score 降序合并，截断到 topK
+  -> 判空闸门 -> 重排
+```
+
+`category` 由 `/api/rag/chat` 请求体可选字段透传：有值 → 动态库只在该分类内搜，
+无值 → 动态库全库搜。`kbHitToSearchHit` 把 `KbAskHit` 适配成 `SearchHit`，
+`id` / `source` 用「分类__文件名__块序号」拼接，与离线 `source` 天然不撞、
+可逆拆回；前端 `RagHitPanel.vue` 的 `splitSource()` 按 `__` 拆出分类标签展示。
+
+#### 任务管理端点
+
+`GET /api/kb/tasks` 返回任务列表 + 每篇文档实时块数；`GET /api/kb/chunks?docId=`
+预览块；`POST /api/kb/delete` 按 `docId` 四环事务删除（向量 → 块 → 任务 → 原件，
+先清「可被搜到的数据」再清元数据，避免留下「搜得到但文档没了」的幽灵）；
+`POST /api/kb/retry` 把失败任务复位 `queued` 由 worker 续跑。
+
 ## 单 Agent 实现
 
 入口链路：
@@ -700,11 +809,56 @@ Streaming 结构化输出，响应类型为 `text/event-stream`。当前只支�
     { "role": "user", "content": "上一个问题" },
     { "role": "assistant", "content": "上一条回答" }
   ],
-  "model": "deepseek-chat"
+  "model": "deepseek-chat",
+  "category": "学习计划"
 }
 ```
 
-`history` 只能包含 `user` 和 `assistant`。system prompt 由服务端生成，前端不能覆盖。
+`history` 只能包含 `user` 和 `assistant`。`category` 可选：传了 → 动态知识库只在该
+分类内搜；不传/空 → 动态库全库搜（离线库不受影响）。system prompt 由服务端生成，
+前端不能覆盖。
+
+### 知识库管理接口
+
+#### `POST /api/kb/upload`
+
+上传一份 Markdown，只做「收件」，立即返回 `queued` 任务，切片与入库由后台
+worker 推进。请求体 `{ filename, content(base64), category }`，限制 1MB、只收
+`.md`、分类非空；文件名取 basename 防路径穿越。校验失败返回 400 + 可读文案。
+
+#### `GET /api/kb/tasks`
+
+返回全部任务（`createdAt` 倒序）+ 每篇文档的实时块数。块数不冗余在任务里，
+由块表实时统计，避免状态字段过期。
+
+#### `GET /api/kb/chunks`
+
+按 `?docId=xxx` 返回该文档全部块（按 `seq` 排序），用于块预览。只读块表，
+不触发切片、不触发向量化。
+
+#### `GET /api/kb/categories`
+
+返回全部分类（新分类在前），前端下拉框数据源。
+
+#### `POST /api/kb/categories`
+
+建分类，请求体 `{ name }`。名字去空白后不能为空，同名去重（重复建返回已有
+分类记录），不产生「无名分类」脏数据。
+
+#### `POST /api/kb/search`
+
+按分类检索，请求体 `{ question, category, topK? }`。问句 embed 后在指定分类里
+取 TopK（分类空则全库搜）；返回命中数组，前端直接渲染原文 + 分数。
+
+#### `POST /api/kb/delete`
+
+按 `docId` 删除一篇文档，四环事务：删向量 → 删块 → 删任务 → 删磁盘原件目录。
+先清「可被搜到的数据」再清元数据，任一环失败都不会留下「搜得到但文档没了」的幽灵。
+
+#### `POST /api/kb/retry`
+
+重试一条失败任务，请求体 `{ id }`。把任务复位 `queued`，由后台循环重新拾起；
+`docId` 不变，重试不会重复建文档。
 
 ### `POST /api/chat/confirm`
 
@@ -1191,6 +1345,7 @@ npm run predawn:rerank
 - `server/memory/README.md`：跨会话记忆的数据模型与链路
 - `server/context/README.md`：Token 预算、上下文裁剪与摘要
 - `server/rag/README.md`：检索、重排、拼 prompt 与生成
+- `server/kb/README.md`：动态知识库的上传、状态机、分类、检索与 RAG 衔接
 - `server/rag/queryEnhance/README.md`：检索前查询增强五个单元
 - `server/answer-style/README.md`：知识库回答风格收敛
 - `server/vision/README.md`：图片输入的服务端校验与协议转换
@@ -1232,12 +1387,14 @@ npm run predawn:rerank
 ### 图表与流程
 
 - `docs/flows-index.md`：流程索引
-- `docs/flows-index.html`：浏览器版流程索引
-- `docs/project-topology.html`：项目拓扑与模块总览
+- `docs/flows-index.html`：浏览器版流程索引（纯静态，直接打开；一页看全部 SVG 泳道图）
+- `docs/project-topology.html`：项目拓扑与模块总览（Mermaid 图 + 方法级调用链，需联网加载 Mermaid）
 - `diagrams/index.html`：图表导航页
 - `sequence-diagrams.md`：时序图与 Mermaid 源说明
 - `docs/structured-output-flow.svg`、`docs/plan-and-execute-flow.svg`、
   `docs/long-context-flow.svg`、`docs/memory-flow.svg`：各链路全链路图
+
+两个 HTML 页面怎么在浏览器 / IDE / Git 里预览，见 `docs/flows-index.md` 开头的「两个 HTML 页面」一节。
 
 ### 评测报告
 

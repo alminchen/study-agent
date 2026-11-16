@@ -13,6 +13,8 @@ import {
   resolveHydeQuery,
 } from "./queryEnhance/hyde.js";
 import type { HydeMeta, KbRoute, MultiQueryMeta } from "./queryEnhance/types.js";
+// 动态知识库检索入口：分类可选（步骤 1/2 已支持），合并式方案的第二路召回
+import { askKnowledge, type KbAskHit } from "../kb/search.js";
 import { rerankHits, rerankerReady } from "./rerank.js";
 import { LocalVectorStore } from "./vectorStore.js";
 import type { RetrievalJudgment, SearchHit } from "./types.js";
@@ -37,11 +39,45 @@ export const MIN_TOP_SCORE = 0.6;
 export interface RetrieveOptions {
   /** 单元 5：只在这些 source 上搜；null/undefined=全库；[]=空池 */
   sources?: string[] | null;
+  /**
+   * 动态知识库分类（可选，步骤 3 透传通道，步骤 4 合并时消费）：
+   * 有值 → 动态库只在该分类内搜；无值 → 动态库全库搜。
+   */
+  category?: string | null;
+}
+
+/**
+ * kbHitToSearchHit：把动态知识库命中（KbAskHit）适配成 RAG 检索命中（SearchHit）。
+ * 为什么需要：两套库结果形状不同，合并前必须统一成同一个结构；
+ * id/source 用「分类__文件名__块序号」拼，天然与离线 source 区分、可逆拆回展示。
+ */
+function kbHitToSearchHit(hit: KbAskHit): SearchHit {
+  return {
+    chunk: {
+      // 唯一标识：分类__文件名__块序号（跨库去重 + 前端溯源的基础）
+      id: `${hit.category}__${hit.source}__${hit.seq}`,
+      // 来源标识：带分类前缀，与离线 notes 的同名文件不撞
+      source: `${hit.category}__${hit.source}`,
+      // 动态库块没有标题字段，用文件名兜底（标题点名闸门不会误判）
+      title: hit.source,
+      // 块正文原样透传：命中面板与 prompt 都读它
+      text: hit.text,
+      // 块序号原样透传
+      seq: hit.seq,
+      // embedding 置空：重排用交叉编码器、前端不展示向量，省内存省流量
+      embedding: [],
+      // 分类冗余保留：步骤 5 前端展示分类标签直接读这个字段
+      category: hit.category,
+    },
+    // 相似度分数原样透传：跨库合并排序就靠它
+    score: hit.score,
+  };
 }
 
 /**
  * 按问题召回最像的若干段原文（原始 TopK，不做空结果判断）。
- * 问句和入库走同一个 embed()；还不调用聊天模型。
+ * 步骤 4 起为合并式：离线 notes 库 + 动态知识库同时召回，按分数合并排序。
+ * 空库不再是硬错误：离线库空 → []，动态库空 → []，交给判空闸门统一决定。
  *
  * 注意：这里的返回值「非空」只表示库里排得出名次，不表示资料够格回答。
  * 有没有资料交给 judgeRetrieval / retrieveForAnswer。
@@ -51,13 +87,30 @@ export async function retrieve(
   topK = DEFAULT_TOP_K,
   options?: RetrieveOptions,
 ): Promise<SearchHit[]> {
+  // 离线库：读入内存；文件缺失/损坏时 load 内部降级为空库
   const store = new LocalVectorStore();
   await store.load();
-  if (store.size === 0) {
-    throw new Error("向量库是空的，请先运行 npm run rag:ingest");
-  }
+  // 问句只 embed 这一次给离线库用（动态库侧 askKnowledge 内部会再 embed，独立入口的代价）
   const [queryVec] = await embed([question]);
-  return store.search(queryVec, topK, { sources: options?.sources });
+  // 离线候选：空库不再抛错，直接给 []（合并后由判空闸门兜底）
+  const hitsFromNotes =
+    store.size === 0
+      ? []
+      : await store.search(queryVec, topK, { sources: options?.sources });
+  // 动态候选：分类可选——有值硬过滤，无值全库搜（步骤 1/2 的能力）
+  const hitsFromKb = await askKnowledge({
+    question,
+    // 分类透传为空时动态库全库扫（null/undefined/空串语义一致）
+    category: options?.category ?? undefined,
+    // 与离线侧同用 topK（调用方传 candidateK），合并后再截断，避免一边挤掉另一边
+    topK,
+  });
+  // 动态结果适配成 SearchHit 形状（id/source 带分类前缀，与离线不撞）
+  const hitsFromKbAsSearchHit = hitsFromKb.map(kbHitToSearchHit);
+  // 合并两套候选，按分数降序，取前 topK → 供判空闸门 + 重排使用
+  return [...hitsFromNotes, ...hitsFromKbAsSearchHit]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
 }
 
 /**
@@ -127,6 +180,10 @@ export interface RetrieveForAnswerOptions {
   onRewriteUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
   /** HyDE LLM usage → bindUsageCallback(acc, "ragHyde") */
   onHydeUsage?: (usage: import("../usage/types.js").TokenUsage, model: string) => void;
+  /**
+   * 动态知识库分类（可选）：路由层透传到 retrieve()，步骤 4 合并时消费。
+   */
+  category?: string | null;
   /**
    * 向量召回候选数（默认 CANDIDATE_K=20）。
    * 聊天 prefetch 可用更小值（如 CHAT_CANDIDATE_K=10）降重排成本。
@@ -234,6 +291,8 @@ export async function retrieveForAnswer(
     }
     rawHits = await retrieve(hyde.embedText, candidateK, {
       sources: kbRouteMeta.sourcesAllowed,
+      // 分类透传（步骤 3 通道；HyDE 路径同样不丢）
+      category: options?.category,
     });
     multiQueryMeta = {
       status: "skipped",
@@ -265,6 +324,8 @@ export async function retrieveForAnswer(
       // 拼不出 ≥2 路则退回单路，避免「开了开关却空转」
       rawHits = await retrieve(query, candidateK, {
         sources: kbRouteMeta.sourcesAllowed,
+        // 分类透传（步骤 3 通道；退回单路时同样不丢）
+        category: options?.category,
       });
       multiQueryMeta = {
         status: "skipped",
@@ -279,6 +340,8 @@ export async function retrieveForAnswer(
   } else {
     rawHits = await retrieve(query, candidateK, {
       sources: kbRouteMeta.sourcesAllowed,
+      // 分类透传（步骤 3 通道；默认单路检索）
+      category: options?.category,
     });
   }
 

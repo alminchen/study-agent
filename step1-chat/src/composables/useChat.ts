@@ -328,6 +328,12 @@ export function useChat() {
   // 普通对话和资料问答各存一份历史，切换模式时互不污染。
   const ragMode = ref(localStorage.getItem(RAG_MODE_KEY) === "1");
   const searchKb = ref(localStorage.getItem(SEARCH_KB_KEY) === "1");
+  /**
+   * 资料问答的分类过滤（步骤 6）：
+   * 空串 = 「全部」→ 请求不带 category，服务端全库搜；具体值 = 只搜该分类。
+   * 纯会话态，不持久化：刷新后回到「全部」，语义最保守。
+   */
+  const ragCategory = ref("");
   // 未写过 localStorage 时默认多 Agent；显式存过 "0" 则单 Agent
   const multiAgent = ref(localStorage.getItem(MULTI_AGENT_KEY) !== "0");
   /** 是否把普通对话切到 /api/chat/plan；与 ragMode、multiAgent 互不影响。 */
@@ -1084,6 +1090,8 @@ export function useChat() {
           // 跨会话记忆：关掉开关时连 userId 一起不带，服务端零检索。
           userId: memoryUserId.value,
           allowMemory: allowMemory.value,
+          // 资料问答分类（步骤 6）：空串 = 全部，不带 category（服务端全库搜）
+          category: ragCategory.value || undefined,
           // 与 runStream 相同：四个回调由 runSseSession 注入（正文 / Trace / Token / 错误）
           onDelta,
           onTrace,
@@ -1372,12 +1380,18 @@ export function useChat() {
     contextCompaction.value = null;
   }
 
+  /** 资料问答分类选择（步骤 6）：空串表示「全部」，请求里不带 category。 */
+  function setRagCategory(next: string) {
+    ragCategory.value = next;
+  }
+
   return {
     messages,
     pickedAttachments,
     model,
     modelOptions,
     ragMode,
+    ragCategory,
     searchKb,
     multiAgent,
     planEnabled,
@@ -1407,6 +1421,7 @@ export function useChat() {
     clear,
     changeModel,
     setRagMode,
+    setRagCategory,
     setSearchKb,
     setMultiAgent,
     setPlanEnabled,

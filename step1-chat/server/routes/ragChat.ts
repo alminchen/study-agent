@@ -52,7 +52,8 @@ export function registerRagChatRoutes(app: Express): void {
   app.post("/api/rag/chat", async (req, res) => {
     setSseHeaders(res);
 
-    const { question, history, model, userId, allowMemory } = req.body ?? {};
+    // category（可选）：动态知识库分类，前端不选时缺省 → 全库搜（步骤 3 透传通道）
+    const { question, history, model, userId, allowMemory, category } = req.body ?? {};
     if (typeof question !== "string" || !question.trim()) {
       res.write(`data: ${JSON.stringify({ error: "question 必须是非空字符串" })}\n\n`);
       res.end();
@@ -149,7 +150,8 @@ export function registerRagChatRoutes(app: Express): void {
           defaultModel,
           onUsage,
           (event) => writeSse(event),
-          { onRewriteUsage, onHydeUsage, memoryBlock },
+          // category 透传下去：问答也可以按分类硬过滤（步骤 4 合并时消费）
+          { onRewriteUsage, onHydeUsage, memoryBlock, category },
         );
 
         // ---- 长期记忆抽取（旁路，不阻塞本轮回复）----

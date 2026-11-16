@@ -513,6 +513,17 @@ button {
   background: #fef3c7;
 }
 
+/* 动态知识库命中的来源分类标签（步骤 5）：小圆角胶囊，与 hit-badge 视觉一致但用蓝色区分 */
+.hit-category {
+  margin-right: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e3a8a;
+  background: #dbeafe;
+}
+
 .hit-meta {
   font-size: 11px;
   color: var(--muted);

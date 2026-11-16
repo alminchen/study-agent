@@ -61,6 +61,27 @@ function shortName(hit: RagHitView): string {
   return hit.title || hit.id;
 }
 
+/**
+ * source 展示拆分：动态库块的 source 带「分类__文件名」前缀（步骤 4 适配函数写入），
+ * 拆两段让分类单独显示为标签；离线 notes 块无前缀，整串就是文件名保持原样。
+ */
+function splitSource(source: string): { category: string | null; name: string } {
+  // 找第一个分隔符位置：前缀「分类__」与文件名之间只有一个 __
+  const separator = source.indexOf("__");
+  // 有分隔符 → 前半是分类、后半是文件名；没有 → 整串是文件名（离线命中）
+  return separator > 0
+    ? { category: source.slice(0, separator), name: source.slice(separator + 2) }
+    : { category: null, name: source };
+}
+
+/** 按 hit.id 预计算每条 source 的拆分结果，模板渲染时直接查 Map，避免反复调用函数。 */
+const sourcePartsById = computed(() => {
+  // 逐条拆分并放进 Map，供 hit-meta 一行取用（未采用的列表不显示 source，无需覆盖）
+  const map = new Map<string, { category: string | null; name: string }>();
+  for (const hit of hits.value) map.set(hit.id, splitSource(hit.source));
+  return map;
+});
+
 function sourcesLabel(sources: string[] | null | undefined): string {
   if (sources == null) return "全库";
   if (sources.length === 0) return "空池";
@@ -157,7 +178,16 @@ watch(
           <span v-if="hit.rerankScore != null" class="hit-score">rerank {{ scoreOf(hit.rerankScore) }}</span>
           <span class="hit-badge in">注入 [{{ hit.promptIndex }}]</span>
         </div>
-        <div class="hit-meta">{{ hit.id }} · {{ hit.source }}<template v-if="hit.title"> · {{ hit.title }}</template></div>
+        <div class="hit-meta">
+          {{ hit.id }}
+          <!-- 有分类前缀：分类显示为标签 + 文件名；无前缀：整体按文件名显示（离线命中不变） -->
+          <template v-if="sourcePartsById.get(hit.id)?.category">
+            · <span class="hit-category">{{ sourcePartsById.get(hit.id)?.category }}</span>
+            {{ sourcePartsById.get(hit.id)?.name }}
+          </template>
+          <template v-else> · {{ hit.source }}</template>
+          <template v-if="hit.title"> · {{ hit.title }}</template>
+        </div>
         <p class="hit-preview">{{ previewOf(hit.text) }}</p>
       </li>
     </ol>

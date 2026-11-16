@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 1560" width="1480" height="1560" role="img" aria-label="RAG 动态知识库双库合并衔接详细流程">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#0d9488"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <style type="text/css"><![CDATA[
+      .title { font: 700 22px sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 13px sans-serif; fill: #64748b; }
+      .lane { font: 700 12px sans-serif; fill: #475569; }
+      .box { font: 600 12px monospace; fill: #0f172a; }
+      .box-sub { font: 400 11px sans-serif; fill: #64748b; }
+      .file { font: 400 10px monospace; fill: #94a3b8; }
+      .label { font: 500 11px sans-serif; fill: #475569; }
+      .label-em { font: 600 11px sans-serif; fill: #2563eb; }
+      .note { font: 400 11px sans-serif; fill: #64748b; }
+      .legend { font: 500 11px sans-serif; fill: #334155; }
+      .warn { font: 600 11px sans-serif; fill: #b45309; }
+      .ok { font: 600 11px sans-serif; fill: #059669; }
+      .env { font: 600 11px monospace; fill: #0f766e; }
+    ]]></style>
+  </defs>
+
+  <rect width="1480" height="1560" fill="#f8fafc"/>
+
+  <text x="40" y="40" class="title">动态知识库 · RAG 双库合并衔接（合并式方案 B · 方法级泳道）</text>
+  <text x="40" y="64" class="subtitle">前端分类可选 → 路由透传 → retrieve 合并离线 + 动态 → 判空闸门 + 重排不变</text>
+
+  <!-- legend -->
+  <g transform="translate(40, 80)">
+    <rect x="0" y="0" width="1400" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <rect x="16" y="16" width="18" height="18" rx="3" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="42" y="30" class="legend">前端（useChat/App）</text>
+    <rect x="200" y="16" width="18" height="18" rx="3" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="226" y="30" class="legend">检索层 retrieve</text>
+    <rect x="360" y="16" width="18" height="18" rx="3" fill="#d1fae5" stroke="#059669"/>
+    <text x="386" y="30" class="legend">离线 notes 库</text>
+    <rect x="540" y="16" width="18" height="18" rx="3" fill="#fef3c7" stroke="#d97706"/>
+    <text x="566" y="30" class="legend">动态知识库</text>
+    <rect x="720" y="16" width="18" height="18" rx="3" fill="#fde68a" stroke="#b45309"/>
+    <text x="746" y="30" class="legend">合并/适配</text>
+    <rect x="900" y="16" width="18" height="18" rx="3" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="926" y="30" class="legend">闸门/重排（不改）</text>
+  </g>
+
+  <!-- 泳道分隔 -->
+  <g>
+    <line x1="40" y1="150" x2="1440" y2="150" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="50" y="172" class="lane">① 前端交互</text>
+    <line x1="40" y1="360" x2="1440" y2="360" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="50" y="382" class="lane">② 路由透传</text>
+    <line x1="40" y1="560" x2="1440" y2="560" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="50" y="582" class="lane">③ 检索层合并</text>
+    <line x1="40" y1="960" x2="1440" y2="960" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="50" y="982" class="lane">④ 闸门与重排</text>
+    <line x1="40" y1="1180" x2="1440" y2="1180" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="50" y="1202" class="lane">⑤ 展示</text>
+  </g>
+
+  <!-- ① 前端 -->
+  <g transform="translate(80, 200)">
+    <rect x="0" y="0" width="300" height="100" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="16" y="26" class="box">App.vue 分类下拉</text>
+    <text x="16" y="46" class="box-sub">「全部」= ragCategory=""</text>
+    <text x="16" y="66" class="box-sub">选具体分类 → category</text>
+    <text x="16" y="86" class="file">ragCategory / setRagCategory</text>
+  </g>
+  <line x1="380" y1="250" x2="460" y2="250" stroke="#2563eb" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <g transform="translate(480, 200)">
+    <rect x="0" y="0" width="320" height="100" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="16" y="26" class="box">askRag(category?)</text>
+    <text x="16" y="46" class="box-sub">空值整字段不带</text>
+    <text x="16" y="66" class="box-sub">有值 → { category }</text>
+    <text x="16" y="86" class="file">src/api/rag.ts</text>
+  </g>
+  <line x1="800" y1="250" x2="880" y2="250" stroke="#2563eb" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <g transform="translate(900, 200)">
+    <rect x="0" y="0" width="300" height="100" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="16" y="26" class="box">POST /api/rag/chat</text>
+    <text x="16" y="46" class="box-sub">body 含 category?</text>
+    <text x="16" y="66" class="box-sub">（可选字段）</text>
+    <text x="16" y="86" class="file">routes/ragChat.ts</text>
+  </g>
+
+  <!-- ② 路由透传 -->
+  <g transform="translate(80, 410)">
+    <rect x="0" y="0" width="340" height="100" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="16" y="26" class="box">answerFromDocs(options)</text>
+    <text x="16" y="46" class="box-sub">options.category 透传</text>
+    <text x="16" y="66" class="box-sub">→ retrieveForAnswer</text>
+    <text x="16" y="86" class="file">rag/answer.ts</text>
+  </g>
+  <line x1="420" y1="460" x2="500" y2="460" stroke="#0d9488" stroke-width="2" marker-end="url(#arrowTeal)"/>
+
+  <g transform="translate(520, 410)">
+    <rect x="0" y="0" width="360" height="100" rx="8" fill="#ccfbf1" stroke="#0d9488"/>
+    <text x="16" y="26" class="box">retrieveForAnswer(category)</text>
+    <text x="16" y="46" class="box-sub">三个 retrieve() 调用点透传</text>
+    <text x="16" y="66" class="box-sub">单路 / Multi-Query / HyDE</text>
+    <text x="16" y="86" class="file">rag/retrieve.ts</text>
+  </g>
+
+  <!-- ③ 检索层合并 -->
+  <g transform="translate(80, 620)">
+    <rect x="0" y="0" width="360" height="130" rx="8" fill="#d1fae5" stroke="#059669"/>
+    <text x="16" y="26" class="box">LocalVectorStore.search</text>
+    <text x="16" y="46" class="box-sub">.chroma/my_notes.json</text>
+    <text x="16" y="66" class="box-sub">空库 → []（不抛错）</text>
+    <text x="16" y="86" class="box-sub">按 source 过滤</text>
+    <text x="16" y="106" class="file">rag/vectorStore.ts</text>
+  </g>
+  <text x="80" y="790" class="label">hitsFromNotes[]</text>
+  <line x1="440" y1="685" x2="640" y2="685" stroke="#059669" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g transform="translate(560, 620)">
+    <rect x="0" y="0" width="360" height="130" rx="8" fill="#fef3c7" stroke="#d97706"/>
+    <text x="16" y="26" class="box">askKnowledge(category?)</text>
+    <text x="16" y="46" class="box-sub">data/kb/vectors.json</text>
+    <text x="16" y="66" class="box-sub">有值 → searchByCategory</text>
+    <text x="16" y="86" class="box-sub">无值 → searchAll</text>
+    <text x="16" y="106" class="file">kb/search.ts + vectorStore.ts</text>
+  </g>
+  <text x="560" y="790" class="label">hitsFromKb[]</text>
+
+  <g transform="translate(560, 810)">
+    <rect x="0" y="0" width="360" height="110" rx="8" fill="#fde68a" stroke="#b45309"/>
+    <text x="16" y="26" class="box">kbHitToSearchHit()</text>
+    <text x="16" y="46" class="box-sub">id = category__source__seq</text>
+    <text x="16" y="66" class="box-sub">source = category__source</text>
+    <text x="16" y="86" class="box-sub">embedding=[] · category 冗余</text>
+  </g>
+  <line x1="740" y1="750" x2="740" y2="810" stroke="#b45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
+
+  <!-- 合并排序 -->
+  <g transform="translate(80, 1000)">
+    <rect x="0" y="0" width="360" height="130" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="16" y="26" class="box">合并 + 排序 + 截断</text>
+    <text x="16" y="46" class="box-sub">hitsFromNotes + hitsFromKb</text>
+    <text x="16" y="66" class="box-sub">sort by score desc</text>
+    <text x="16" y="86" class="box-sub">slice(0, topK)</text>
+    <text x="16" y="106" class="file">rag/retrieve.ts · retrieve()</text>
+  </g>
+  <line x1="560" y1="890" x2="260" y2="1000" stroke="#4f46e5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ④ 闸门重排 -->
+  <g transform="translate(80, 1210)">
+    <rect x="0" y="0" width="360" height="130" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="16" y="26" class="box">judgeRetrieval</text>
+    <text x="16" y="46" class="box-sub">判空闸门（原逻辑）</text>
+    <text x="16" y="66" class="box-sub">topScore / 标题点名</text>
+    <text x="16" y="86" class="box-sub">→ rawHits 保留对照</text>
+    <text x="16" y="106" class="file">rag/retrieve.ts</text>
+  </g>
+  <line x1="440" y1="1275" x2="520" y2="1275" stroke="#4f46e5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g transform="translate(540, 1210)">
+    <rect x="0" y="0" width="360" height="130" rx="8" fill="#e0e7ff" stroke="#4f46e5"/>
+    <text x="16" y="26" class="box">rerankHits</text>
+    <text x="16" y="46" class="box-sub">交叉编码器重排</text>
+    <text x="16" y="66" class="box-sub">输出 TopK 注入</text>
+    <text x="16" y="86" class="box-sub">（模型未就绪降级向量序）</text>
+    <text x="16" y="106" class="file">rag/rerank.ts</text>
+  </g>
+
+  <!-- ⑤ 展示 -->
+  <g transform="translate(80, 1400)">
+    <rect x="0" y="0" width="340" height="120" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="16" y="26" class="box">RagHitPanel</text>
+    <text x="16" y="46" class="box-sub">splitSource(source)</text>
+    <text x="16" y="66" class="box-sub">有 __ → 分类标签 + 文件名</text>
+    <text x="16" y="86" class="box-sub">无 __ → 文件名（离线不变）</text>
+    <text x="16" y="106" class="file">components/RagHitPanel.vue</text>
+  </g>
+
+  <!-- 底部注释 -->
+  <text x="40" y="1530" class="note">合并式：两套库同时召回，用户不用判断该搜哪套；判空闸门 / 重排 / Prompt / Guard 逻辑均不改。</text>
+</svg>

@@ -28,6 +28,12 @@ export interface AskRagParams {
    * 两者缺一不可——「关掉」必须是真的零检索，而不是服务端再判断一次。
    */
   allowMemory?: boolean;
+  /**
+   * 动态知识库分类（可选，步骤 6）：
+   * 前端选「全部」时整字段不带 → 服务端全库搜两套库；
+   * 选具体分类时带上 → 动态库只在该分类内检索（硬过滤）。
+   */
+  category?: string;
   onDelta: (delta: string) => void;
   onTrace?: (step: ToolTraceStep) => void;
   onUsage?: (usage: UsageSnapshot) => void;
@@ -140,6 +146,8 @@ export async function askRag({
   signal,
   userId,
   allowMemory = false,
+  // 动态知识库分类（可选）：空串/undefined 表示全库，不传给服务端
+  category,
   onDelta,
   onTrace,
   onUsage,
@@ -157,6 +165,8 @@ export async function askRag({
         model,
         // 记忆：关掉时连 userId 一起不带，服务端直接零注入。
         ...(allowMemory && userId ? { userId, allowMemory: true } : { allowMemory: false }),
+        // 分类：只在选了具体分类时带上；「全部」不传字段（服务端按全库处理）
+        ...(category ? { category } : {}),
       }),
       signal,
     });

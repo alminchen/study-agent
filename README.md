@@ -42,6 +42,7 @@ npm run dev
 | [advanced-learning-plan.md](advanced-learning-plan.md) | 主线后的进阶能力与候选练习 |
 | [dynamic-kb-learning-plan.md](dynamic-kb-learning-plan.md) | 动态知识库：上传、切片、异步入库、分类和下架 |
 | [rag-query-intent-rewrite-learning-plan.md](rag-query-intent-rewrite-learning-plan.md) | 检索前问句增强：意图、扩写、路由、Multi-Query 和 HyDE |
+| [rag-full-search-plan.md](rag-full-search-plan.md) | 动态知识库全库检索：RAG 双库合并衔接的方案与执行步骤 |
 | [post-learning-optimization-plan.md](post-learning-optimization-plan.md) | 后置优化计划、P0-P2 顺序和明确的非目标 |
 | [tool-calling-demo.md](tool-calling-demo.md) | 从协议消息到完整代码的 Tool Calling 独立示例 |
 
@@ -111,6 +112,8 @@ npm run dev
 | [step1-chat/docs/multi-agent-human-confirm-changelog.md](step1-chat/docs/multi-agent-human-confirm-changelog.md) | 多 Agent 人工确认的修改记录 |
 | [step1-chat/docs/rag-input-output-guard-changelog.md](step1-chat/docs/rag-input-output-guard-changelog.md) | RAG Guard、SSE Trace 和 LangSmith 修改记录 |
 | [step1-chat/docs/rag-query-enhance-notes.md](step1-chat/docs/rag-query-enhance-notes.md) | 检索前问句增强的开关、脚本和验收方法 |
+| [step1-chat/docs/rag-kb-merge.md](step1-chat/docs/rag-kb-merge.md) | 动态知识库 · RAG 双库合并衔接：架构决策、改动清单与验收 |
+| [step1-chat/docs/rag-kb-merge-flow.svg](step1-chat/docs/rag-kb-merge-flow.svg) | 动态知识库 · RAG 双库合并衔接的泳道流程图 |
 | [step1-chat/docs/post-learning-optimization-changelog.md](step1-chat/docs/post-learning-optimization-changelog.md) | 后续优化落地记录 |
 
 ### 模块说明
@@ -118,6 +121,7 @@ npm run dev
 | 文档 | 说明 |
 | --- | --- |
 | [step1-chat/server/README.md](step1-chat/server/README.md) | 服务端分层总览与模块地图 |
+| [step1-chat/server/kb/README.md](step1-chat/server/kb/README.md) | 动态知识库模块：上传、切片、向量化、分类、检索与删除 |
 | [step1-chat/src/README.md](step1-chat/src/README.md) | 前端分层总览、组件与状态中枢 |
 | [step1-chat/scripts/README.md](step1-chat/scripts/README.md) | 本地验证脚本清单与用法 |
 | [step1-chat/evals/README.md](step1-chat/evals/README.md) | 评测数据集与两套判分体系 |

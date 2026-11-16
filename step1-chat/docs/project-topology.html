@@ -119,6 +119,7 @@
     <a href="#memory">6h Memory</a>
     <a href="#memory-chain">6i Memory 链路接入</a>
    <a href="#vision">6j Vision（图片输入）</a>
+    <a href="#rag-kb-merge">6k RAG 双库合并</a>
     <a href="#cross">7 Token/Guard/Trace</a>
     <a href="#tools">7b 工具注册表</a>
     <a href="#pending">8 未交付</a>
@@ -2491,6 +2492,44 @@ body: JSON.stringify({
   </div>
 
   <!-- ========== 7 ========== -->
+  <!-- ========== 6k ========== -->
+  <h2 id="rag-kb-merge">6k. 动态知识库 · RAG 双库合并衔接（方案 B · 代码已完成 / 实测待补）</h2>
+  <div class="card">
+    <h3>总览</h3>
+    <p>
+      把页面上传的动态知识库 <code>data/kb/vectors.json</code> 真正接进 RAG 问答链路，
+      与既有离线库 <code>.chroma/my_notes.json</code> 同时召回，合并排序后走原有判空闸门 + 重排。
+      核心决策：<strong>分类从必选改成可选</strong>（空 = 全库搜两套库），交互、检索、展示三层打通。
+    </p>
+    <h3>方法级调用链（带图请求）</h3>
+    <div class="calltree"><span class="c">// 前端（useChat / App.vue / RagHitPanel）</span>
+<span class="m">setRagCategory</span>(name) → <span class="fn">ragCategory</span> → <span class="m">askRag</span>({ category?: 空值整字段不带 }) → POST /api/rag/chat
+  ├─ <span class="m">loadKbCategories</span>() → <code>/api/kb/categories</code> → 下拉「全部」+ 具体分类
+  └─ <span class="m">splitSource</span>(source) 有 <code>__</code> → 分类标签 + 文件名；无 → 文件名（离线不变）
+
+<span class="c">// 服务端 routes/ragChat.ts → rag/answer.ts → rag/retrieve.ts</span>
+<span class="m">registerRagChatRoutes</span> 解析 <code>category</code>（可选）→ <span class="m">answerFromDocs</span>({ category }) → <span class="m">retrieveForAnswer</span>({ category })
+  └─ 三个 <span class="m">retrieve</span>() 调用点（单路 / Multi-Query / HyDE）透传 <code>category</code>
+
+<span class="c">// rag/retrieve.ts · retrieve()（合并式核心）</span>
+<span class="m">LocalVectorStore.search</span>(queryVec, topK, { sources }) → <span class="fn">hitsFromNotes</span>（空库 → []，不抛错）
+<span class="m">askKnowledge</span>({ question, category?, topK })
+  ├─ category 有值 → <span class="m">searchByCategory</span>（分类内硬过滤）
+  └─ category 无值 → <span class="m">searchAll</span>（全库扫）
+<span class="m">kbHitToSearchHit</span>(hit) → <span class="fn">SearchHit</span>（id/source = <code>category__source__seq</code>，embedding=[]，category 冗余）
+合并 <span class="fn">hitsFromNotes</span> + <span class="fn">hitsFromKbAsSearchHit</span> → sort score desc → slice(topK) → <span class="m">judgeRetrieval</span> + <span class="m">rerankHits</span>（逻辑不改）
+</div>
+    <ul class="compact">
+      <li><strong>分类可选</strong>：<code>KbAskInput.category</code> 改 <code>string | null | undefined</code>；空值不抛错，走 <code>searchAll</code>。</li>
+      <li><strong>适配函数</strong>：<code>kbHitToSearchHit()</code> 统一两套命中形状，<code>id/source</code> 带 <code>category__</code> 前缀，与离线同名文件天然不撞。</li>
+      <li><strong>空库语义</strong>：原「离线库空即抛错」改为空库返回 <code>[]</code>，靠合并后的判空闸门统一决定。</li>
+      <li><strong>候选一致</strong>：两侧同用 <code>candidateK</code>，合并后再截断，避免一边挤掉另一边。</li>
+      <li><strong>展示</strong>：<code>RagHitPanel.vue</code> 的 <code>splitSource()</code> 拆 <code>__</code>，分类显示为蓝色胶囊标签。</li>
+      <li><strong>边界</strong>：不改入库链路与两存储格式；不做分类名向量 / 关键词 / LLM 路由；不改判空闸门与重排。</li>
+    </ul>
+    <p class="lede" style="font-size:13px">细泳道流程图见 <a href="./rag-kb-merge-flow.svg">rag-kb-merge-flow.svg</a>（索引页 <a href="./flows-index.html#rag-kb-merge">0j</a>）。</p>
+  </div>
+
   <h2 id="cross">7. 横切：Token 计费 · 安全 Guard · Trace（方法级）</h2>
   <p class="lede">Token、Guard、Trace 横切挂在普通聊天 / 多 Agent / RAG / 计划执行四条业务链上；结构化端点的 usage / LangSmith 单独见 <a href="#structured">§6c</a>。细泳道 SVG：<a href="./crosscutting-token-guard-trace-flow.svg">crosscutting-token-guard-trace-flow.svg</a></p>
 
