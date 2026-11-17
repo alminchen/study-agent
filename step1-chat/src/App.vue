@@ -205,16 +205,6 @@ const emptyTitle = computed(() =>
         : "开始你的第一段对话",
 );
 
-/**
- * 记忆注入目前接通了四条业务链路（multi / plan / rag / structured）
- * 加上单 Agent 普通对话（/api/chat）。
- * 只有反思复盘（/api/chat/reflection）还没接，面板必须如实说明，
- * 否则会出现「记住了但没生效」的错觉。
- */
-const memoryInjectionSupported = computed(
-  () => !reflectionEnabled.value,
-);
-
 /** 当前链路的人话说明；面板用它说明「记忆在当前这条链路上起不生效」。 */
 const memoryChainLabel = computed(() => {
   if (ragMode.value) return "资料问答（/api/rag/chat）";
@@ -721,7 +711,6 @@ function togglePlanEnabled() {
           :loading="memoryLoading"
           :error="memoryError"
           :chain-label="memoryChainLabel"
-          :injection-supported="memoryInjectionSupported"
           @update:allow-memory="setAllowMemory"
           @update-fact="(payload) => updateMemory(payload.id, payload.patch)"
           @delete-fact="(id) => removeMemory(id)"

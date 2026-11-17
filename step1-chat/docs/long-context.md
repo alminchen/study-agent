@@ -495,15 +495,19 @@ if (event.delta) onDelta(event.delta);
 
 ### 6.6 生效范围（重要）
 
-上下文压缩**只发生在单 Agent 链路 `/api/chat`**：
+上下文压缩现在覆盖**单 Agent 与多 Agent Worker** 两条链路：
 
 | 链路 | 是否带历史 | 是否会压缩 |
 | --- | --- | --- |
 | `/api/chat`（单 Agent） | 完整历史 | **会** |
-| `/api/chat/multi`（多 Agent） | 只把当前这一轮交给图 | 不会（没有历史可压） |
+| `/api/chat/multi`（多 Agent） | 完整历史 → 只压进 **Worker** | **会**（只下发给 Worker） |
 | `/api/chat/plan`（计划） | 走 legacy 模式 | 不会（等指令 7 再定） |
 
-所以在前端要看压缩提示，需要**取消勾选「多 Agent」**走单 Agent 链路。
+多 Agent 链路的压缩口径：**只进 Worker，不进 Supervisor / Aggregate**。
+路由判断只看当前问句、汇总不产生新事实，塞历史只会稀释判断、增加 token。
+所以压缩在路由层（`chatMulti`）做**一次**，把「近期原文层 + 结构化摘要」经
+graph options 下发给每个 Worker；Worker 按 `system → 摘要 → 记忆 → 近期原文 → task` 组装。
+前端无论单 Agent 还是多 Agent，压缩提示都走同一个 `ContextCompactionNotice`。
 
 ### 6.7 验证结果
 

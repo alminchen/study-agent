@@ -1058,6 +1058,9 @@ export function useChat() {
           signal,
           sessionId: createId(),
           searchDocs: searchKb.value,
+          // 跨会话记忆：关掉开关时连 userId 一起不带，服务端零检索。
+          userId: memoryUserId.value,
+          allowMemory: allowMemory.value,
           onDelta,
           onTrace,
           onUsage,

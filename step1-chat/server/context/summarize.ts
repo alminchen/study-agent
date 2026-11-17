@@ -18,10 +18,12 @@ import { z } from "zod";
 import type { TextMessage } from "../react/types.js";
 import { parseUsageFromResponse } from "../usage/parseUsage.js";
 import type { TokenUsage } from "../usage/types.js";
+import { estimateMessagesTokens } from "./tokenBudget.js";
 import {
   CONTEXT_SUMMARY_VERSION,
   type ContextSummary,
   type ContextSummaryItem,
+  type ContextBuildResult,
 } from "./types.js";
 
 /** 摘要正文的字符上限（不含渲染时的标题与来源标记）。 */
@@ -47,6 +49,12 @@ const SUMMARY_MAX_TOKENS = 1500;
 
 /** 摘要用低温度：要稳定复现，不要创造力。 */
 const SUMMARY_TEMPERATURE = 0.2;
+
+/** 触发摘要生成的门槛：丢掉的消息条数。太少了不值得多调一次模型。 */
+export const SUMMARY_TRIGGER_MIN_MESSAGES = 2;
+
+/** 触发摘要生成的门槛：丢掉部分的估算 token。 */
+export const SUMMARY_TRIGGER_MIN_TOKENS = 200;
 
 /** 四个类别的固定处理顺序，也就是截断时的优先级。 */
 const CATEGORY_ORDER = ["userConstraints", "facts", "decisions", "unresolved"] as const;
@@ -660,4 +668,41 @@ export async function summarizeDroppedMessages(
     compactedUntilIndex,
     previousSummary?.compactedUntilMessageId ?? null,
   );
+}
+
+/**
+ * 按需生成一份结构化摘要。
+ *
+ * 直接不生成（返回 null）的情况：
+ * - 没有 API Key：没有真实模型可调；
+ * - 丢掉的消息太少 / 太小：多调一次模型不划算。
+ *
+ * 生成失败（超时、返回非法 JSON、schema 不过）也返回 null，
+ * 由调用方回退到「只有近期原文」的裸窗口，聊天照常继续（决策四）。
+ */
+export async function maybeSummarize(params: {
+  context: ContextBuildResult;
+  previousSummary: ContextSummary | null;
+  apiKey: string;
+  baseUrl: string;
+  model?: string;
+  signal?: AbortSignal;
+  onUsage?: (usage: TokenUsage, model: string) => void;
+}): Promise<ContextSummary | null> {
+  const { context } = params;
+  if (!params.apiKey) return null;
+  if (context.droppedMessages.length < SUMMARY_TRIGGER_MIN_MESSAGES) return null;
+  if (estimateMessagesTokens(context.droppedMessages) < SUMMARY_TRIGGER_MIN_TOKENS) {
+    return null;
+  }
+  return summarizeDroppedMessages({
+    droppedMessages: context.droppedMessages,
+    droppedMessageIndices: context.droppedMessageIndices,
+    previousSummary: params.previousSummary,
+    apiKey: params.apiKey,
+    baseUrl: params.baseUrl,
+    model: params.model,
+    signal: params.signal,
+    onUsage: params.onUsage,
+  });
 }

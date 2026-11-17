@@ -12,7 +12,8 @@
  *   Supervisor → WorkerContext(task) → Worker 执行 → WorkerResult → Aggregate
  */
 
-import type { ContextMemoryBlock } from "../../context/types.js";
+import type { ContextMemoryBlock, ContextSummary } from "../../context/types.js";
+import type { TextMessage } from "../../react/types.js";
 
 /**
  * Worker 执行结果。
@@ -85,4 +86,22 @@ export interface WorkerContext {
    * 未传 / 为空 = 本轮没有记忆，Worker 的消息列表与接入记忆前完全一致。
    */
   memoryBlock?: ContextMemoryBlock;
+
+  /**
+   * 经路由层 `buildContext` 压缩后的历史原文层（近期原文，已按预算裁剪）。
+   *
+   * 位置口径：排在记忆之后、当前 task 之前。Worker 只负责摆位置，
+   * 不重复做预算裁剪——压缩在路由层一次性完成再下发。
+   * 未传 / 为空 = Worker 的消息列表与接入历史前完全一致。
+   */
+  historyMessages?: TextMessage[];
+
+  /**
+   * 早期对话的结构化摘要（由路由层 maybeSummarize 生成）。
+   *
+   * 渲染成一条独立的 system 消息，排在角色 prompt 之后、记忆之前，
+   * 与单 Agent 的 buildContext「摘要 → 记忆 → 近期原文」顺序一致。
+   * 未传 / 为空 = 不注入摘要层。
+   */
+  contextSummary?: ContextSummary | null;
 }

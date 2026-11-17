@@ -1,13 +1,12 @@
 import { clipMessages } from "./clipMessages.js";
 import { buildContext, renderMemoryText, renderSummaryText } from "./context/buildContext.js";
-import { summarizeDroppedMessages } from "./context/summarize.js";
+import { maybeSummarize } from "./context/summarize.js";
 import {
   estimateMessagesTokens,
   estimateMessageTokens,
   resolveBudgetTokens,
 } from "./context/tokenBudget.js";
 import type {
-  ContextBuildResult,
   ContextMemoryBlock,
   ContextSummary,
 } from "./context/types.js";
@@ -72,12 +71,6 @@ export const MAX_CONTEXT_MESSAGES = 8;
  * 一轮 = user + assistant，比「条数」更好控制。
  */
 export const MAX_CONTEXT_ROUNDS = 40;
-
-/** 触发摘要生成的门槛：丢掉的消息条数。太少了不值得多调一次模型。 */
-const SUMMARY_TRIGGER_MIN_MESSAGES = 2;
-
-/** 触发摘要生成的门槛：丢掉部分的估算 token。 */
-const SUMMARY_TRIGGER_MIN_TOKENS = 200;
 
 export type ChatStreamMessage = TextMessage;
 
@@ -177,43 +170,6 @@ function reportInjectionIfAny(
     text: lastUserMsg.content,
     guard: { level: guard.level, rules: guard.matchedRules },
   };
-}
-
-/**
- * 按需生成一份结构化摘要。
- *
- * 直接不生成（返回 null）的情况：
- * - 没有 API Key：没有真实模型可调；
- * - 丢掉的消息太少 / 太小：多调一次模型不划算。
- *
- * 生成失败（超时、返回非法 JSON、schema 不过）也返回 null，
- * 由调用方回退到「只有近期原文」的裸窗口，聊天照常继续（决策四）。
- */
-async function maybeSummarize(params: {
-  context: ContextBuildResult;
-  previousSummary: ContextSummary | null;
-  apiKey: string;
-  baseUrl: string;
-  model?: string;
-  signal?: AbortSignal;
-  onUsage?: (usage: TokenUsage, model: string) => void;
-}): Promise<ContextSummary | null> {
-  const { context } = params;
-  if (!params.apiKey) return null;
-  if (context.droppedMessages.length < SUMMARY_TRIGGER_MIN_MESSAGES) return null;
-  if (estimateMessagesTokens(context.droppedMessages) < SUMMARY_TRIGGER_MIN_TOKENS) {
-    return null;
-  }
-  return summarizeDroppedMessages({
-    droppedMessages: context.droppedMessages,
-    droppedMessageIndices: context.droppedMessageIndices,
-    previousSummary: params.previousSummary,
-    apiKey: params.apiKey,
-    baseUrl: params.baseUrl,
-    model: params.model,
-    signal: params.signal,
-    onUsage: params.onUsage,
-  });
 }
 
 /**

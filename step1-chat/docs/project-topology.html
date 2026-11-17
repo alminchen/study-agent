@@ -1469,7 +1469,7 @@ flowchart TB
 
   <!-- ========== 6e ========== -->
   <h2 id="long-context">6e. 长上下文管理（进阶学习第 3 项 · 已结）</h2>
-  <p class="lede">单 Agent 链路 <code>POST /api/chat</code> 已从「按条数截断」升级为「按 token 预算分层保留」：先按窗口比例算预算，再按 system → 摘要 → 近期原文组装；被挤出去的历史交给摘要模型压缩，摘要失败则降级为裸窗口，聊天不中断。细泳道：<a href="./long-context-flow.svg">long-context-flow.svg</a> · 阶段总结：<a href="./long-context.md">long-context.md</a> · 索引：<a href="./flows-index.html#long-context">flows-index.html 0d</a></p>
+  <p class="lede">单 Agent 链路 <code>POST /api/chat</code> 与多 Agent 链路 <code>POST /api/chat/multi</code> 已从「按条数截断」升级为「按 token 预算分层保留」：先按窗口比例算预算，再按 system → 摘要 → 近期原文组装；被挤出去的历史交给摘要模型压缩，摘要失败则降级为裸窗口，聊天不中断。多 Agent 的压缩只在路由层做一次，经 graph options 只下发给 Worker，Supervisor / Aggregate 不注入历史。细泳道：<a href="./long-context-flow.svg">long-context-flow.svg</a> · 阶段总结：<a href="./long-context.md">long-context.md</a> · 变更记录：<a href="./multi-agent-long-context-changelog.md">multi-agent-long-context-changelog.md</a> · 索引：<a href="./flows-index.html#long-context">flows-index.html 0d</a></p>
 
   <div class="card">
     <h3>6e.1 总览图（前端摘要 → 预算 → buildContext → 摘要 → SSE）</h3>
@@ -1494,6 +1494,7 @@ flowchart TB
   GRAPH --> SSE["delta · usage · [DONE]"]
   SSE --> FE2["useChat：持久化摘要<br/>ContextCompactionNotice"]
     </div>
+    <p class="path">上图是 <code>buildContext</code> 管线的完整形状；<strong>多 Agent Worker 复用同一管线</strong>——<code>chatMulti</code> 路由层压缩一次（<code>buildContext</code> + <code>maybeSummarize</code>），把「近期原文层 + 摘要」经 <code>compileMultiAgentGraph</code> 只下发给每个 Worker（<code>buildWorkerMessages</code>），Supervisor / Aggregate 不注入。前端单 / 多 Agent 共用同一 <code>ContextCompactionNotice</code> 与 <code>context_compacted</code> 事件。</p>
   </div>
 
   <div class="card">
@@ -1553,7 +1554,7 @@ flowchart TB
       </thead>
       <tbody>
         <tr><td><code>/api/chat</code>（单 Agent）</td><td><span class="fn">buildContext</span> budget 模式：system → 摘要 → 近期窗口</td><td><span class="badge done">会</span></td></tr>
-        <tr><td><code>/api/chat/multi</code>（多 Agent）</td><td>只把当前这一轮交给图</td><td>不会（没有历史可压）</td></tr>
+        <tr><td><code>/api/chat/multi</code>（多 Agent）</td><td>路由层压缩一次 → <span class="fn">buildContext</span> 裁历史 → 近期原文层 + 摘要经 graph options 只下发给 Worker</td><td><span class="badge done">会</span>（只进 Worker，不进 Supervisor / Aggregate）</td></tr>
         <tr><td><code>/api/chat/plan</code>（计划）</td><td>走 legacy 模式</td><td>不会</td></tr>
         <tr><td><code>/api/rag/chat</code>（资料问答）</td><td>独立 RAG prompt + 最近 6 条 history</td><td>不会</td></tr>
       </tbody>
@@ -2145,7 +2146,7 @@ flowchart TB
         <tr><td>Plan-and-Execute</td><td><code>POST /api/chat/plan</code></td><td><span class="badge done">已接入</span> 路由层检索一次 → 追加小节进 planner / step / 终答 / re-plan 四处 prompt；react 兜底复用单 Agent 形态</td></tr>
         <tr><td>资料问答 RAG</td><td><code>POST /api/rag/chat</code></td><td><span class="badge done">已接入</span> judge 后检索一次 → 追加小节放在「## 资料」之后，不进引用编号体系，检索片段不进抽取器</td></tr>
         <tr><td>结构化输出</td><td><code>POST /api/chat/structured</code></td><td><span class="badge done">已接入</span> 路由层检索一次 → 追加小节进 system prompt 末尾，带「不得改变 JSON 形状」边界；抽取只用最后一条用户消息</td></tr>
-        <tr><td>反思复盘</td><td><code>POST /api/chat/reflection</code></td><td><span class="badge now">未接入</span> 独立端点，前端面板如实标注为「本阶段尚未接入记忆注入」</td></tr>
+        <tr><td>反思复盘</td><td><code>POST /api/chat/reflection</code></td><td><span class="badge done">已接入</span> 路由层检索一次透传 <code>memoryBlock</code> → 复盘结束按「问题 + 最终答案」抽取</td></tr>
       </tbody>
     </table>
     <p class="path">四条链路的接入落点、抽取输入裁剪与前端契约见 <a href="#memory-chain">§6i</a>；计划与逐条执行记录见 <code>tasks/memory-chain-integration-plan.md</code>。</p>
@@ -2299,7 +2300,7 @@ flowchart TB
         <tr><td>Plan-and-Execute</td><td><code>POST /api/chat/plan</code></td><td>路由层</td><td>追加小节</td><td>planner / step / 终答 / re-plan 四处 prompt；react 兜底复用单 Agent 形态</td><td>最终回答之后</td></tr>
         <tr><td>资料问答 RAG</td><td><code>POST /api/rag/chat</code></td><td>路由层（judge 后）</td><td>追加小节</td><td>「## 资料」之后；<strong>不进引用编号体系</strong></td><td>回答之后</td></tr>
         <tr><td>结构化输出</td><td><code>POST /api/chat/structured</code></td><td>路由层</td><td>追加小节</td><td>system prompt 末尾；带<strong>「不得改变 JSON 形状与字段」</strong>边界</td><td><code>structured_done</code> 之后</td></tr>
-        <tr><td>反思复盘</td><td><code>POST /api/chat/reflection</code></td><td>—</td><td>—</td><td><span class="badge now">未接入</span></td><td>—</td></tr>
+        <tr><td>反思复盘</td><td><code>POST /api/chat/reflection</code></td><td>路由层</td><td>独立 system 消息</td><td>draft 生成之前；透传 <code>memoryBlock</code> 不重复检索</td><td>复盘结束后（旁路）</td></tr>
       </tbody>
     </table>
     <ul class="compact">
@@ -2321,6 +2322,7 @@ flowchart TB
         <tr><td>plan</td><td>最近 2 轮用户消息 + 本轮最终回答</td><td>是</td><td>计划步骤里的工具结果同样不是用户事实</td></tr>
         <tr><td>rag</td><td>最近 2 轮用户消息 + 本轮最终回答</td><td>是</td><td><strong>检索片段绝不进抽取器</strong>——那是别人写的笔记，不是用户说的</td></tr>
         <tr><td>structured</td><td><strong>只有最后一条用户消息</strong></td><td><strong>否</strong></td><td>生成的 JSON / 表格是数据；拿模型自己的输出去抽取等于越聊越脏</td></tr>
+        <tr><td>reflection</td><td>最近 2 轮用户消息 + 本轮最终答案</td><td>是</td><td>评分 / 重写 / 工具返回不参与；只认「问题 + 最终采纳的答案」</td></tr>
       </tbody>
     </table>
   </div>
@@ -2334,7 +2336,7 @@ body: JSON.stringify({
 })
 <span class="c">// 关掉时连 userId 一起不带 → 服务端零检索零抽取</span>
 
-<span class="c">// 事件侧：五条链路统一走同一个解析函数（api/memoryTrace.ts）</span>
+<span class="c">// 事件侧：六条链路统一走同一个解析函数（api/memoryTrace.ts）</span>
 <span class="m">parseMemoryTraceStep</span>(event) → ToolTraceStep | null
   ├─ "memory_injected" → { kind, count, tokens, items }
   ├─ "memory_extracted" → { kind, candidates, stored }
@@ -2342,9 +2344,8 @@ body: JSON.stringify({
   └─ 其它 → null（不是记忆事件，调用方跳过）
   <span class="c">// 脏数据一律降级（缺字段补默认值），不让流崩掉</span>
 
-<span class="c">// 面板三态文案（components/MemoryPanel.vue，带当前链路名）</span>
+<span class="c">// 面板两态文案（components/MemoryPanel.vue，带当前链路名）</span>
   开关关闭            → 关闭说明
-  当前链路未接入        → 黄色警告（目前只有 reflection）
   当前链路已接入        → 绿色说明
     </div>
     <ul class="compact">
@@ -2864,7 +2865,7 @@ flowchart LR
     工具注册表章节（§5b / §7b）按阶段 5「Tool 动态发现」改造后的 <code>server/tools/</code> 同步整理（2026-11 同步）。
     LLM-as-Judge 章节（§6f）按 <code>server/guard/judge*.ts</code> 与 <code>evals/</code> 同步整理（2026-11 同步）。
     Memory 章节（§6h）按 <code>server/memory/</code>、<code>routes/memory.ts</code> 与 <code>chat.ts</code> 同步整理（2026-11 同步）。
-    Memory 链路接入章节（§6i）按 <code>server/memory/bridge.ts</code> 与四条链路的路由层同步整理（2026-11 同步）；multi / plan / rag / structured 四条链路已接入，唯一未接入的是 <code>/api/chat/reflection</code>。
+    Memory 链路接入章节（§6i）按 <code>server/memory/bridge.ts</code> 与六条链路的路由层同步整理（2026-11 同步）；chat / multi / plan / rag / structured / reflection 六条链路全部已接入。
     协作红线：不允许私自删除代码注释。细泳道请打开 <a href="./flows-index.html">flows-index.html</a>。
   </footer>
 </div>

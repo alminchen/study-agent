@@ -53,7 +53,7 @@ const SYSTEM_PROMPT =
 export async function runGeneralWorker(ctx: WorkerContext): Promise<WorkerResult> {
   // 单次 LLM 调用，不传 tools（模型不会产生 tool_calls）
   const result = await callLLM({
-    messages: buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock),
+    messages: buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock, ctx.historyMessages, ctx.contextSummary),
     apiKey: ctx.apiKey,
     baseUrl: ctx.baseUrl,
     model: ctx.model,

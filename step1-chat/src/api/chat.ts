@@ -155,6 +155,16 @@ export interface StreamReflectionParams {
   /** 只能把服务端模式往下调（enforce → shadow）；不传表示沿用服务端配置。 */
   mode?: "shadow" | "enforce";
   searchDocs?: boolean;
+  /**
+   * 匿名用户 id（anon_xxx）：跨会话记忆的归属标识。
+   * 只在本地生成、只存 localStorage，服务端不采集任何真实身份。
+   */
+  userId?: string;
+  /**
+   * 是否允许使用长期记忆。
+   * 关掉时**不带 userId**：服务端要求 allowMemory===true 且 userId 合法才注入。
+   */
+  allowMemory?: boolean;
   /** 正文由服务端在复盘结束后一次性给出，前端只负责拼接。 */
   onDelta: (delta: string) => void;
   /** 工具轨迹 + 反思事件（评分 / 重写 / 跳过）统一走这里。 */
@@ -637,6 +647,8 @@ export async function streamReflection({
   sessionId,
   mode,
   searchDocs,
+  userId,
+  allowMemory = false,
   onDelta,
   onTrace,
   onUsage,
@@ -653,6 +665,8 @@ export async function streamReflection({
         sessionId: sessionId ?? null,
         mode: mode ?? null,
         searchDocs: Boolean(searchDocs),
+        // 记忆：关掉时连 userId 一起不带，服务端直接零检索。
+        ...(allowMemory && userId ? { userId, allowMemory: true } : { allowMemory: false }),
       }),
       signal,
     });

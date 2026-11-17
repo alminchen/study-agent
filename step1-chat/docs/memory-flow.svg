@@ -21,13 +21,14 @@
       .label-em { font: 600 11px sans-serif; fill: #2563eb; }
       .note { font: 400 11px sans-serif; fill: #64748b; }
       .warn { font: 600 11px sans-serif; fill: #b45309; }
+      .ok { font: 600 11px sans-serif; fill: #15803d; }
       .legend { font: 500 11px sans-serif; fill: #334155; }
     ]]></style>
   </defs>
   <rect width="1480" height="1530" fill="#f8fafc"/>
 
   <text x="40" y="42" class="title">跨会话记忆 Memory（阶段 8）</text>
-  <text x="40" y="66" class="subtitle">开关与匿名 ID → 检索注入（阈值 0.45 / Top-5）→ 抽取落盘（两道敏感闸）→ 用户可管可删 → trace 事件 → 五链路接入现状</text>
+  <text x="40" y="66" class="subtitle">开关与匿名 ID → 检索注入（阈值 0.45 / Top-5）→ 抽取落盘（两道敏感闸）→ 用户可管可删 → trace 事件 → 六链路接入现状</text>
 
   <!-- ========== 1 开关与匿名 ID ========== -->
   <g transform="translate(40, 100)">
@@ -175,10 +176,10 @@
 
   <!-- ========== 6 五链路接入现状 ========== -->
   <g transform="translate(40, 1260)">
-    <text x="0" y="0" class="phase">⑥ 五条链路接入现状（如实标注，未接入的不装作已接入）</text>
+    <text x="0" y="0" class="phase">⑥ 六条链路接入现状（全部已接入，无未接入）</text>
     <rect x="20" y="20" width="1400" height="190" rx="8" fill="#dcfce7" stroke="#16a34a"/>
     <text x="720" y="50" text-anchor="middle" class="box">已接入：POST /api/chat · /api/chat/multi · /api/chat/plan · /api/rag/chat · /api/chat/structured</text>
-    <text x="720" y="74" text-anchor="middle" class="warn">未接入：/api/chat/reflection（反思复盘）</text>
+    <text x="720" y="74" text-anchor="middle" class="ok">已接入：/api/chat/reflection（反思复盘）—— 路由层检索一次透传 memoryBlock，复盘结束抽取</text>
     <text x="720" y="98" text-anchor="middle" class="label">接入方式：公共接入层 memory/bridge.ts —— 四条业务链路路由层各检索一次，共用同一块记忆</text>
     <text x="720" y="122" text-anchor="middle" class="note">multi：独立 system 消息进 4 个 worker（Supervisor / Aggregate 不注入），抽取挂在 aggregate 之后</text>
     <text x="720" y="146" text-anchor="middle" class="note">plan：追加小节进 planner / step / 终答 / re-plan 四处 prompt，react 兜底复用单 Agent 形态</text>

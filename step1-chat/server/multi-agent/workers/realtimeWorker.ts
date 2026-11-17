@@ -77,7 +77,7 @@ export async function runRealtimeWorker(ctx: WorkerContext): Promise<WorkerResul
    * 这保证了 Worker 的上下文干净，不会被其他 Worker 或主对话污染。
    */
   const messages: { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string }[] =
-    buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock);
+    buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock, ctx.historyMessages, ctx.contextSummary);
 
   /**
    * 只暴露 getWeather 和 getCurrentTime 的 schema 给模型。

@@ -31,18 +31,11 @@ const props = withDefaults(
      * 面板要如实说明「记忆在当前这条链路上到底起不生效」。
      */
     chainLabel?: string;
-    /**
-     * 当前聊天链路是否支持记忆注入与抽取。
-     * 反思复盘（/api/chat/reflection）本阶段没接记忆，面板要如实说明，
-     * 不能让用户以为「记住了但没生效」。
-     */
-    injectionSupported?: boolean;
   }>(),
   {
     loading: false,
     error: null,
     chainLabel: "普通对话（/api/chat）",
-    injectionSupported: true,
   },
 );
 
@@ -184,14 +177,9 @@ async function copyId(id: string) {
       </label>
     </header>
 
-    <!-- 关闭状态与不支持注入的链路都要如实说明：不能让人以为「记住了但没生效」。 -->
+    <!-- 关闭状态要如实说明：不能让人以为「记住了但没生效」。 -->
     <p v-if="!allowMemory" class="notice off">
       长期记忆已关闭：不会向模型注入记忆，也不会抽取新的偏好。
-    </p>
-    <p v-else-if="!injectionSupported" class="notice warn">
-      当前链路（{{ chainLabel }}）本阶段尚未接入记忆注入：
-      这一轮既不会把记忆放进上下文，也不会从对话里抽取新事实。
-      切到其它链路即可正常生效。
     </p>
     <p v-else class="notice on">
       当前链路（{{ chainLabel }}）已接入长期记忆：

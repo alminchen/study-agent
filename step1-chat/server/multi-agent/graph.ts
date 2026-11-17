@@ -26,7 +26,8 @@
  */
 
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
-import type { ContextMemoryBlock } from "../context/types.js";
+import type { ContextMemoryBlock, ContextSummary } from "../context/types.js";
+import type { TextMessage } from "../react/types.js";
 import type { ConfirmSession } from "../react/confirmGate.js";
 import type { ToolTraceHandler } from "../react/types.js";
 import {
@@ -103,6 +104,18 @@ export interface MultiAgentGraphOptions {
  * 这两处看到用户偏好只会增加噪音和 token。
  */
   memoryBlock?: ContextMemoryBlock;
+
+  /**
+   * 经路由层 buildContext 压缩后的近期原文层（已按预算裁剪）。
+   * 只下发给 Worker，不给 Supervisor / Aggregate（同 memoryBlock 口径）。
+   */
+  historyMessages?: TextMessage[];
+
+  /**
+   * 早期对话的结构化摘要（路由层 maybeSummarize 生成）。
+   * 只下发给 Worker，渲染成一条独立 system 消息。
+   */
+  contextSummary?: ContextSummary | null;
 }
 
 /**
@@ -139,6 +152,8 @@ export function compileMultiAgentGraph(options?: MultiAgentGraphOptions) {
   const writeSse = options?.writeSse;
   const forceKbSearch = Boolean(options?.forceKbSearch);
   const memoryBlock = options?.memoryBlock;
+  const historyMessages = options?.historyMessages;
+  const contextSummary = options?.contextSummary;
 
   /** 无累加器时返回 undefined；有则按 source 打标签绑到同一个 acc */
   const onUsage = (source: UsageSource) =>
@@ -226,6 +241,8 @@ export function compileMultiAgentGraph(options?: MultiAgentGraphOptions) {
             confirmSession,
             onTrace,
             memoryBlock,
+            historyMessages,
+            contextSummary,
           }),
         );
         console.log(`  [${assignment.name}] 完成: error=${result.error}, tools=${result.toolsCalled.join(",") || "无"}`);

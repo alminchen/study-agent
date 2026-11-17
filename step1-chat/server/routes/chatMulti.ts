@@ -1,6 +1,12 @@
 import type { Express } from "express";
-import { renderMemoryText } from "../context/buildContext.js";
-import { estimateMessageTokens } from "../context/tokenBudget.js";
+import { buildContext, renderMemoryText, renderSummaryText } from "../context/buildContext.js";
+import { maybeSummarize } from "../context/summarize.js";
+import {
+  estimateMessageTokens,
+  estimateMessagesTokens,
+  resolveBudgetTokens,
+} from "../context/tokenBudget.js";
+import type { ContextSummary } from "../context/types.js";
 import { detectInjection } from "../guard/inputGuard.js";
 import { SAFE_BLOCK_TEXT } from "../guard/judgePolicy.js";
 import { runInputJudge } from "../guard/judgeRuntime.js";
@@ -12,7 +18,7 @@ import {
 import { isValidUserId } from "../memory/types.js";
 import { compileMultiAgentGraph } from "../multi-agent/graph.js";
 import { ConfirmSession } from "../react/confirmGate.js";
-import type { ToolTraceHandler } from "../react/types.js";
+import type { TextMessage, ToolTraceHandler } from "../react/types.js";
 import { getRuntimeConfig } from "../runtimeConfig.js";
 import { runMultiRequestWithTracing } from "../tracing/langsmith.js";
 import { bindUsageCallback, UsageAccumulator } from "../usage/accumulator.js";
@@ -231,6 +237,96 @@ export function registerChatMultiRoutes(app: Express): void {
         });
       }
 
+      // ---- 步骤 3.6：长上下文压缩 — 只压历史，只下发给 Worker ----
+      // 口径与 Supervisor / Aggregate 无关：路由判断只看当前问句、汇总不产生新事实，
+      // 所以压缩后的历史（近期原文层）与摘要都只经 graph options 下发给 Worker。
+      // 历史为空（首轮）→ 零开销，跳过整段。
+      // 注意：当前问句（lastUser）由 Worker 以 task 形式单独收到，
+      // 不进 historyMessages，避免与 task 重复。
+      // 找到最后一条 user 消息的下标：它之前的内容才是「历史」。
+      // lastUser 是从 messages 里 find 出来的原元素引用，lastIndexOf 按引用可靠匹配。
+      const lastUserIndex = messages.lastIndexOf(lastUser);
+      const rawHistory = (
+        messages as Array<{ role: string; content: string; attachments?: unknown[] }>
+      ).filter(
+        (message, index) =>
+          index < lastUserIndex &&
+          typeof message.content === "string" &&
+          message.content.trim().length > 0 &&
+          !Array.isArray(message.attachments), // 图片不跨轮（与单 Agent 清洗口径一致）
+      ) as TextMessage[];
+
+      let historyMessages: TextMessage[] = [];
+      let contextSummary: ContextSummary | null = null;
+
+      if (rawHistory.length > 0) {
+        const budgetTokens = resolveBudgetTokens(
+          config.context.windowTokens,
+          config.context.budgetRatio,
+        );
+        // systemPrompt 传空：角色 system 由各 Worker 自己注入，这里只裁历史；
+        // memory 传 null：记忆已由 Worker 自己注入，不在这里重复算预算。
+        let context = buildContext({
+          messages: rawHistory,
+          summary: null,
+          systemPrompt: "",
+          budgetTokens,
+        });
+
+        // 只有真的丢掉内容才生成摘要 + 推事件，避免每轮制造噪音。
+        if (context.droppedMessages.length > 0) {
+          const originalTokens = estimateMessagesTokens(context.droppedMessages);
+          const compactedRounds = context.droppedMessages.filter(
+            (message) => message.role === "user",
+          ).length;
+
+          // Mock 模式不触发摘要生成（与单 Agent 一致）：没有真实模型，不该多等一次网络往返。
+          contextSummary = config.forceMock
+            ? null
+            : await maybeSummarize({
+                context,
+                previousSummary: null,
+                apiKey: config.apiKey,
+                baseUrl: config.baseUrl,
+                model: defaultModel,
+                signal: abortController.signal,
+                onUsage: bindUsageCallback(accumulator, "summary", defaultModel),
+              });
+
+          if (contextSummary) {
+            // 用新摘要重建：摘要覆盖范围内的旧消息不再重复注入。
+            context = buildContext({
+              messages: rawHistory,
+              summary: contextSummary,
+              systemPrompt: "",
+              budgetTokens,
+            });
+          }
+
+          const summaryTokens = contextSummary
+            ? estimateMessageTokens({
+                role: "system",
+                content: renderSummaryText(contextSummary),
+              })
+            : 0;
+
+          writeSse({
+            type: "context_compacted",
+            compactedRounds,
+            originalTokens,
+            compactedTokens: context.estimatedTokens,
+            summaryTokens,
+            degraded: contextSummary === null || context.degraded,
+            summary: contextSummary,
+          });
+        }
+
+        // 只取近期原文层（buildContext 输出里非 system 的部分）。
+        historyMessages = context.messages.filter(
+          (message) => message.role !== "system",
+        );
+      }
+
       // ---- 步骤 3：累加器在 Judge 之前已建好，这里注入 graph ----
       // graph 内每次 callLLM → parseUsage → onUsage(source) → accumulator.record()
       // 可能：Supervisor 1 次 + Worker 各 1~N 次 + Aggregate 0~1 次
@@ -248,6 +344,9 @@ export function registerChatMultiRoutes(app: Express): void {
         forceKbSearch: searchDocs === true,
         // 记忆块：只下发给 Worker，Supervisor / Aggregate 不注入
         memoryBlock: memoryBlock ?? undefined,
+        // 压缩后的近期原文 + 摘要：只下发给 Worker，Supervisor / Aggregate 不注入
+        historyMessages,
+        contextSummary,
       });
 
       await runMultiRequestWithTracing(userText, async () => {

@@ -171,14 +171,15 @@ flowchart TD
 | 链路 | 端点 | 记忆现状 |
 | --- | --- | --- |
 | 单 Agent ReAct | `POST /api/chat` | **已接入**：检索在 `chat.ts` 同步完成、抽取在旁路 |
-| 多 Agent | `POST /api/chat/multi` | 未接入 |
-| Plan-and-Execute | `POST /api/chat/plan` | 未接入 |
-| 资料问答 RAG | `POST /api/rag/chat` | 未接入 |
-| 结构化输出 | `POST /api/chat/structured` | 未接入 |
+| 多 Agent | `POST /api/chat/multi` | **已接入**：见 `docs/memory-chain-integration.md` |
+| Plan-and-Execute | `POST /api/chat/plan` | **已接入**：见 `docs/memory-chain-integration.md` |
+| 资料问答 RAG | `POST /api/rag/chat` | **已接入**：见 `docs/memory-chain-integration.md` |
+| 结构化输出 | `POST /api/chat/structured` | **已接入**：见 `docs/memory-chain-integration.md` |
+| 反思复盘 | `POST /api/chat/reflection` | **已接入**：路由层检索一次透传 `memoryBlock`，复盘结束抽取（见 `docs/reflection-memory-changelog.md`） |
 
-原因是这四条链路各有自己的上下文拼装与注入点，
+这几条链路各有自己的上下文拼装与注入点，
 并没有共用单 Agent 那条「检索 -> 注入 system 消息」的路径，
-所以「已经支持记忆」这句话目前只对 `/api/chat` 成立。
+但已各自按同一套隐私口径接入。
 
 四条链路的接入位置与顺序（multi 进 worker 的 system prompt、
 plan 插在 planner 之前、rag 追加在检索片段之后、structured 单独拼装）

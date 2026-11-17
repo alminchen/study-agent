@@ -79,7 +79,7 @@ export async function runKBWorker(ctx: WorkerContext): Promise<WorkerResult> {
    * 只包含 system + task + 工具交互，保证上下文干净。
    */
   const messages: { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string }[] =
-    buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock);
+    buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock, ctx.historyMessages, ctx.contextSummary);
 
   /**
    * 只暴露 searchDocs 的 schema 给模型。

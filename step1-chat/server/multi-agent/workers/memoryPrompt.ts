@@ -17,8 +17,9 @@
  * 没有记忆时返回的数组与接入记忆之前**逐字一致**（system + user 两条）。
  */
 
-import { renderMemoryText } from "../../context/buildContext.js";
-import type { ContextMemoryBlock } from "../../context/types.js";
+import { renderMemoryText, renderSummaryText } from "../../context/buildContext.js";
+import type { ContextMemoryBlock, ContextSummary } from "../../context/types.js";
+import type { TextMessage } from "../../react/types.js";
 
 /** Worker 消息的最小形状；与 callLLM 接受的 messages 结构兼容。 */
 export interface WorkerMessage {
@@ -32,18 +33,39 @@ export interface WorkerMessage {
  * @param systemPrompt Worker 自己的角色 prompt（原文不动）
  * @param task Supervisor 分配给此 Worker 的子任务
  * @param memoryBlock 本轮检索出的记忆块；缺省 / 无条目时不注入
+ * @param historyMessages 经路由层压缩后的近期原文层；缺省 / 为空时不注入
+ * @param contextSummary 早期对话的结构化摘要；缺省 / 为空时不注入
+ *
+ * 有历史时的顺序（与单 Agent buildContext 的「摘要 → 记忆 → 近期原文」一致）：
+ *   [system(角色)] → [system(摘要)] → [system(记忆)] → [...历史原文] → [user(task)]
+ * 历史原文的 token 预算裁剪在路由层 buildContext 完成，这里只摆位置、不再裁剪。
  */
 export function buildWorkerMessages(
   systemPrompt: string,
   task: string,
   memoryBlock?: ContextMemoryBlock,
+  historyMessages?: TextMessage[],
+  contextSummary?: ContextSummary | null,
 ): WorkerMessage[] {
   const messages: WorkerMessage[] = [{ role: "system", content: systemPrompt }];
+
+  if (contextSummary) {
+    const summaryText = renderSummaryText(contextSummary);
+    if (summaryText) {
+      messages.push({ role: "system", content: summaryText });
+    }
+  }
 
   if (memoryBlock && memoryBlock.items.length > 0) {
     const memoryText = renderMemoryText(memoryBlock);
     if (memoryText) {
       messages.push({ role: "system", content: memoryText });
+    }
+  }
+
+  if (historyMessages && historyMessages.length > 0) {
+    for (const message of historyMessages) {
+      messages.push({ role: message.role, content: message.content });
     }
   }
 

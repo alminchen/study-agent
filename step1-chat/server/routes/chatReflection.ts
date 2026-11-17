@@ -39,6 +39,15 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { createChatStream } from "../chat.js";
+import { renderMemoryText } from "../context/buildContext.js";
+import { estimateMessageTokens } from "../context/tokenBudget.js";
+import {
+  buildExtractionInput,
+  buildMemoryInjectedEvent,
+  retrieveMemoryBlock,
+  scheduleMemoryExtraction,
+} from "../memory/bridge.js";
+import { isValidUserId, type MemoryTraceEvent } from "../memory/types.js";
 import {
   averageScore,
   critique,
@@ -84,6 +93,10 @@ export const ReflectionChatRequestSchema = z.object({
    */
   mode: z.enum(["shadow", "enforce"]).optional(),
   searchDocs: z.boolean().optional(),
+  /** 匿名用户 id（跨会话记忆的归属键）；非法 id 按「没开记忆」处理。 */
+  userId: z.string().optional(),
+  /** 是否启用记忆；false / 不传时零检索、零抽取。 */
+  allowMemory: z.boolean().optional(),
 });
 
 /** 评分与重写的过程元信息；面板用来判断「截断了没有、重试了几次」。 */
@@ -468,7 +481,8 @@ export function registerChatReflectionRoutes(app: Express): void {
       return;
     }
 
-    const { question, sessionId, model, mode, searchDocs } = parsed.data;
+    const { question, sessionId, model, mode, searchDocs, userId, allowMemory } =
+      parsed.data;
     setSseHeaders(res);
 
     // 客户端断开 → 中止模型请求。
@@ -495,12 +509,41 @@ export function registerChatReflectionRoutes(app: Express): void {
       // 服务端 REFLECTION_MODE 是上限，请求里的 mode 只能往下调。
       const effectiveMode = resolveReflectionMode(config.reflection.mode, mode);
 
+      // ---- 长期记忆：路由层检索一次，draft 与其后的评分/重写共用同一块 ----
+      // 关闭开关 / userId 非法时 retrieveMemoryBlock 直接返回 null（零检索）。
+      const memoryOptions = {
+        userId: isValidUserId(userId) ? userId : undefined,
+        allowMemory: allowMemory === true,
+        model: selectedModel,
+        onTrace: (event: MemoryTraceEvent) => writeEvent(event),
+        onMemoryUsage: bindUsageCallback(usage, "memory", selectedModel),
+      };
+      const memoryBlock = await retrieveMemoryBlock(memoryOptions, question);
+      if (memoryBlock) {
+        writeEvent(
+          buildMemoryInjectedEvent(
+            memoryBlock.items.map((item) => ({
+              id: item.id,
+              key: item.key,
+              value: item.value,
+              similarity: item.similarity,
+            })),
+            estimateMessageTokens({
+              role: "system",
+              content: renderMemoryText(memoryBlock),
+            }),
+          ),
+        );
+      }
+
       // ---- 阶段一：生成 draft ----
       // 复用现成的 createChatStream（也就是现成的 ReAct 图）产出初版答案，
       // 不改动那条图；工具过程事件原样透传，工具结果收集成评审用的「事实」。
       const draftParts: string[] = [];
       const toolFacts: string[] = [];
 
+      // memoryBlock 非 undefined：createChatStream 视为「提供方已查过」，
+      // 不重复检索、不发事件、不自行抽取。
       await createChatStream({
         messages: [{ role: "user", content: question }],
         model: selectedModel,
@@ -509,6 +552,9 @@ export function registerChatReflectionRoutes(app: Express): void {
         baseUrl: config.baseUrl,
         forceMock: config.forceMock,
         searchDocs: searchDocs === true,
+        userId: memoryOptions.userId,
+        allowMemory: memoryOptions.allowMemory,
+        memoryBlock,
         confirmSession,
         onUsage: bindUsageCallback(usage, "askModel", selectedModel),
         // 先攒着不推：正文要以最终版本一次性给出。
@@ -561,6 +607,22 @@ export function registerChatReflectionRoutes(app: Express): void {
           final_chars: pipeline.finalDraft.length,
           adopted: pipeline.revisedDraft !== null && pipeline.finalDraft === pipeline.revisedDraft,
         })}`,
+      );
+
+      // ---- 长期记忆抽取（旁路，不阻塞本轮回复）----
+      // 抽取只认「用户问题 + 最终采纳的答案」：评分/重写的中间产物、
+      // 工具返回都不参与。关闭开关时 scheduleMemoryExtraction 内部直接返回。
+      scheduleMemoryExtraction(
+        memoryOptions,
+        buildExtractionInput({
+          messages: [{ role: "user", content: question }],
+          finalReply: pipeline.finalDraft,
+        }),
+        {
+          apiKey: config.apiKey,
+          forceMock: config.forceMock,
+          baseUrl: config.baseUrl,
+        },
       );
 
       // ---- 阶段三：推最终正文 ----

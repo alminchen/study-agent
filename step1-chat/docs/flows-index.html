@@ -112,10 +112,10 @@
   <figure id="long-context">
     <div class="fhead">
       <span class="no">0d · 长上下文管理</span>
-      <span class="doc-link">文档 <a href="./long-context.md">long-context.md</a> · 拓扑 <a href="./project-topology.html#long-context">§6e</a></span>
+      <span class="doc-link">文档 <a href="./long-context.md">long-context.md</a> · 变更记录 <a href="./multi-agent-long-context-changelog.md">multi-agent-long-context-changelog.md</a> · 拓扑 <a href="./project-topology.html#long-context">§6e</a></span>
     </div>
-    <img src="./long-context-flow.svg" alt="长上下文管理：预算窗口 + 结构化摘要">
-    <figcaption>long-context-flow.svg — buildContext(system→summary→window) · summarizeDroppedMessages · context_compacted · degraded 回退 · assertToolPairing</figcaption>
+    <img src="./long-context-flow.svg" alt="长上下文管理：预算窗口 + 结构化摘要（单 Agent + 多 Agent Worker）">
+    <figcaption>long-context-flow.svg — buildContext(system→summary→window) · summarizeDroppedMessages · context_compacted · degraded 回退 · assertToolPairing · 生效范围单 Agent /api/chat + 多 Agent /api/chat/multi Worker（只进 Worker）</figcaption>
   </figure>
 
   <figure id="judge">
@@ -138,11 +138,11 @@
 
   <figure id="memory">
     <div class="fhead">
-      <span class="no">0g · 跨会话记忆 Memory（阶段 8 · 已实现 / 五链路已接入）</span>
+      <span class="no">0g · 跨会话记忆 Memory（阶段 8 · 已实现 / 六链路已接入）</span>
       <span class="doc-link">文档 <a href="./memory.md">memory.md</a> · 变更记录 <a href="./memory-changelog.md">memory-changelog.md</a> · 模块说明 <a href="../server/memory/README.md">memory/README.md</a> · 拓扑 <a href="./project-topology.html#memory">§6h</a></span>
     </div>
-    <img src="./memory-flow.svg" alt="跨会话记忆 Memory：前端开关与匿名 userId、检索阈值 0.45 与 Top-5 注入、预算裁剪与资料口径渲染、旁路抽取与敏感信息两道闸、去重合并与原子落盘、记忆管理接口与面板、trace 事件、五链路接入现状">
-    <figcaption>memory-flow.svg — 开关与匿名 userId + 服务端入口校验 · 检索内核 retrieveRelevantFacts 与阈值 0.45 / Top-5 · renderMemoryBlock + 预算裁剪（200 token / 10%）· 旁路抽取 + 两道敏感信息闸 · mergeIncomingFact（冲突不自动覆盖）+ 原子落盘 · /api/memory 与前端面板 · memory_injected / memory_extracted / memory_failed · 五链路（chat/multi/plan/rag/structured）已接入 / reflection 未接入现状</figcaption>
+    <img src="./memory-flow.svg" alt="跨会话记忆 Memory：前端开关与匿名 userId、检索阈值 0.45 与 Top-5 注入、预算裁剪与资料口径渲染、旁路抽取与敏感信息两道闸、去重合并与原子落盘、记忆管理接口与面板、trace 事件、六链路接入现状">
+    <figcaption>memory-flow.svg — 开关与匿名 userId + 服务端入口校验 · 检索内核 retrieveRelevantFacts 与阈值 0.45 / Top-5 · renderMemoryBlock + 预算裁剪（200 token / 10%）· 旁路抽取 + 两道敏感信息闸 · mergeIncomingFact（冲突不自动覆盖）+ 原子落盘 · /api/memory 与前端面板 · memory_injected / memory_extracted / memory_failed · 六链路（chat/multi/plan/rag/structured/reflection）全部已接入现状</figcaption>
   </figure>
 
   <figure id="memory-chain">

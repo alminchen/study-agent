@@ -29,7 +29,7 @@ export async function runActionWorker(ctx: WorkerContext): Promise<WorkerResult>
     content: string | null;
     tool_calls?: unknown[];
     tool_call_id?: string;
-  }[] = buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock);
+  }[] = buildWorkerMessages(SYSTEM_PROMPT, ctx.task, ctx.memoryBlock, ctx.historyMessages, ctx.contextSummary);
 
   const toolSchemas = toolsWithTags(["action"]).map((t) => t.schema);
 

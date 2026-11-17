@@ -47,7 +47,7 @@
 | LangSmith 跟踪 | `server/tracing/` | 覆盖 chat、multi 和 RAG 请求 |
 | Streaming 结构化输出 | `server/structured/` | 独立 SSE 端点，支持表格/代码稳定快照与最终 schema 校验 |
 | Plan-and-Execute | `server/plan-execute/` | 规则路由、Planner、顺序 Executor、受控 Re-plan 和计划时间线 |
-| 长上下文管理 | `server/context/`、`server/chat.ts` | Token 预算、结构化摘要、工具消息配对和摘要失败回退 |
+| 长上下文管理 | `server/context/`、`server/chat.ts`、`server/routes/chatMulti.ts` | Token 预算、结构化摘要、工具消息配对和摘要失败回退；单 Agent 与多 Agent Worker 均已接入 |
 | MCP Server | `server/mcp/` | 通过 stdio 暴露天气、时间和知识库工具 |
 | LLM-as-Judge 语义判定 | `server/guard/` | 输入 / 检索片段 / 输出三个判定面，off / shadow / enforce 三档 |
 | Reflection 自我评估 | `server/reflection/` | 独立端点，四维评分与达标重写，默认关闭不影响日常聊天 |
@@ -64,7 +64,7 @@
 | 单 Agent ReAct | `/api/chat` | 关闭多 Agent，保持普通输出且不开启计划 | 支持 | 普通聊天历史、上下文摘要 |
 | Plan-and-Execute | `/api/chat/plan` | 开启计划开关，并选择 `auto`、`react` 或 `plan` | 支持 | 普通聊天历史；计划时间线不单独持久化 |
 | Streaming Structured | `/api/chat/structured` | 选择表格或代码；普通输出不选目标 | 支持 | 普通聊天历史中只保存完整结果 |
-| 多 Agent | `/api/chat/multi` | 保持多 Agent 开启，使用普通文本输出且不开启计划 | 不支持 | 普通聊天历史 |
+| 多 Agent | `/api/chat/multi` | 保持多 Agent 开启，使用普通文本输出且不开启计划 | 不支持 | 普通聊天历史、上下文摘要（只注入 Worker） |
 | RAG 资料问答 | `/api/rag/chat` | 切换到“资料问答” | 不支持 | 独立 RAG 历史 |
 | Reflection 复盘 | `/api/chat/reflection` | 独立复盘入口 | 不支持 | 不持久化 |
 | 图片输入 | `/api/chat`、`/api/chat/multi` | 开启图片输入开关后粘贴或选择图片 | 随主链路，Mock 不真正识图 | 只存图片元数据，不存 base64 |
@@ -978,7 +978,7 @@ data: [DONE]
 | `output_leak_blocked` | 输出命中系统提示词泄露规则 |
 | `degradation` | 发生降级；当前由单 Agent Mock 模式和单 Agent prefetch 重排不可用触发 |
 | `searchDocs_empty` | 单 Agent prefetch 检索为空 |
-| `context_compacted` | 单 Agent 长上下文发生压缩，携带摘要和压缩前后 Token 估算 |
+| `context_compacted` | 单 Agent / 多 Agent 长上下文发生压缩，携带摘要和压缩前后 Token 估算 |
 
 > `react/types.ts` 仍声明了 `searchDocs_result`，但当前实现没有发射这个事件；单 Agent prefetch 的结果通过通用 `tool_result` 展示。
 

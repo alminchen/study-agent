@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 1720" width="1480" height="1720" role="img" aria-label="Long Context Management Flow">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1480 1930" width="1480" height="1930" role="img" aria-label="Long Context Management Flow">
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
       <path d="M0,0 L7,3 L0,6 Z" fill="#334155"/>
@@ -35,10 +35,10 @@
       .ok { font: 600 11px sans-serif; fill: #047857; }
     ]]></style>
   </defs>
-  <rect width="1480" height="1720" fill="#f8fafc"/>
+  <rect width="1480" height="1930" fill="#f8fafc"/>
 
   <text x="40" y="42" class="title">长上下文管理（进阶学习第 3 项）· 预算窗口 + 结构化摘要</text>
-  <text x="40" y="66" class="subtitle">单 Agent /api/chat · contextMode=budget · 摘要失败一律降级为裸窗口，聊天不中断</text>
+  <text x="40" y="66" class="subtitle">单 Agent /api/chat + 多 Agent /api/chat/multi Worker · contextMode=budget · 摘要失败一律降级为裸窗口，聊天不中断</text>
 
   <g transform="translate(40, 86)">
     <rect x="0" y="0" width="1400" height="46" rx="8" fill="#fff" stroke="#e2e8f0"/>
@@ -230,7 +230,52 @@
     <text x="135" y="146" text-anchor="middle" class="file">localStorage.setItem(summary)</text>
   </g>
 
+  <path d="M740,1344 L740,1388" stroke="#7c3aed" stroke-width="1.5" fill="none" marker-end="url(#arrowPurple)"/>
+  <text x="760" y="1372" class="note">同一 buildContext + maybeSummarize 内核复用到多 Agent Worker</text>
+
   <g transform="translate(40, 1390)">
+    <text x="0" y="0" class="phase">6 · 多 Agent Worker 接入：路由层压缩一次，只进 Worker</text>
+
+    <rect x="10" y="24" width="300" height="140" rx="8" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="160" y="50" text-anchor="middle" class="box">chatMulti 路由</text>
+    <text x="160" y="70" text-anchor="middle" class="box-sub">取最后一条 user 之前的非空、无附件消息</text>
+    <text x="160" y="88" text-anchor="middle" class="box-sub">buildContext 裁历史（空 systemPrompt / 无 memory）</text>
+    <text x="160" y="106" text-anchor="middle" class="box-sub">有丢弃 → maybeSummarize 生成摘要</text>
+    <text x="160" y="124" text-anchor="middle" class="box-sub">推 context_compacted（与单 Agent 同形状）</text>
+    <text x="160" y="142" text-anchor="middle" class="file">routes/chatMulti.ts</text>
+
+    <line x1="310" y1="94" x2="350" y2="94" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrowPurple)"/>
+
+    <rect x="350" y="24" width="320" height="140" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+    <text x="510" y="50" text-anchor="middle" class="box">compileMultiAgentGraph</text>
+    <text x="510" y="70" text-anchor="middle" class="box-sub">options 带 historyMessages + contextSummary</text>
+    <text x="510" y="88" text-anchor="middle" class="box-sub">workersNode 透传给每个 Worker</text>
+    <text x="510" y="106" text-anchor="middle" class="box-sub">Supervisor / Aggregate 不注入</text>
+    <text x="510" y="124" text-anchor="middle" class="box-sub">路由判断只看当前问句、汇总不产生新事实</text>
+    <text x="510" y="142" text-anchor="middle" class="file">multi-agent/graph.ts</text>
+
+    <line x1="670" y1="94" x2="710" y2="94" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrowPurple)"/>
+
+    <rect x="710" y="24" width="340" height="140" rx="8" fill="#dcfce7" stroke="#059669"/>
+    <text x="880" y="50" text-anchor="middle" class="box">buildWorkerMessages</text>
+    <text x="880" y="70" text-anchor="middle" class="box-sub">system → 摘要 → 记忆 → 近期原文 → task</text>
+    <text x="880" y="88" text-anchor="middle" class="box-sub">historyMessages / contextSummary 缺省不注入</text>
+    <text x="880" y="106" text-anchor="middle" class="box-sub">无历史时输出与接入前逐字一致</text>
+    <text x="880" y="124" text-anchor="middle" class="box-sub">四个 Worker（general / kb / realtime / action）</text>
+    <text x="880" y="142" text-anchor="middle" class="file">multi-agent/workers/memoryPrompt.ts</text>
+
+    <rect x="1080" y="24" width="300" height="140" rx="8" fill="#fce7f3" stroke="#db2777"/>
+    <text x="1230" y="50" text-anchor="middle" class="box">前端（多 Agent 共用）</text>
+    <text x="1230" y="70" text-anchor="middle" class="box-sub">streamChat → /api/chat/multi</text>
+    <text x="1230" y="88" text-anchor="middle" class="box-sub">统一解析 context_compacted</text>
+    <text x="1230" y="106" text-anchor="middle" class="box-sub">ContextCompactionNotice 显示「已压缩 N 轮」</text>
+    <text x="1230" y="124" text-anchor="middle" class="box-sub">单 / 多 Agent 同组件、同样式</text>
+    <text x="1230" y="142" text-anchor="middle" class="file">api/chat.ts · useChat.ts</text>
+
+    <text x="20" y="196" class="note">口径：只进 Worker 不进 Supervisor / Aggregate；压缩只在路由层做一次，避免四个 Worker 各压一次重复计算。</text>
+  </g>
+
+  <g transform="translate(40, 1610)">
     <rect x="0" y="0" width="1400" height="190" rx="10" fill="#fff" stroke="#cbd5e1"/>
     <text x="20" y="30" class="phase">边界与失败策略</text>
 
@@ -249,9 +294,9 @@
     <text x="960" y="104" class="box-sub">本轮只有近期原文，聊天照常继续</text>
     <text x="960" y="124" class="box-sub">截断优先级：约束 &gt; 事实 &gt; 决定 &gt; 未决</text>
 
-    <text x="20" y="160" class="note">生效范围：仅 /api/chat（单 Agent）；multi 只带当前轮、plan 仍走 legacy、rag 走独立 prompt，本阶段均不改语义。</text>
+    <text x="20" y="160" class="note">生效范围：/api/chat（单 Agent）+ /api/chat/multi（多 Agent Worker，只进 Worker 不进 Supervisor/Aggregate）；plan 仍走 legacy、rag 走独立 prompt，均不改语义。</text>
     <text x="20" y="178" class="note">验证：40 项接入检查 + 50 轮长对话脚本（第 3 轮事实在第 50 轮仍可召回；no-summary 模式丢失）。</text>
   </g>
 
-  <text x="740" y="1690" text-anchor="middle" class="subtitle">docs/long-context-flow.svg</text>
+  <text x="740" y="1900" text-anchor="middle" class="subtitle">docs/long-context-flow.svg</text>
 </svg>
