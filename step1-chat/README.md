@@ -1230,6 +1230,7 @@ step1-chat/
 │   ├── multi-agent/         Supervisor、Worker、Aggregate
 │   ├── rag/                 RAG 检索、重排、Prompt 和回答
 │   │   └── queryEnhance/    意图、扩写、路由、多路召回、HyDE
+│   ├── kb/                  动态知识库：上传、切片、向量化、分类、检索、删除
 │   ├── context/             Token 预算、上下文裁剪和结构化摘要
 │   ├── memory/              跨会话长期记忆：数据模型、检索、抽取、公共接入层
 │   ├── structured/          Structured 协议、partial 解析和流式快照
